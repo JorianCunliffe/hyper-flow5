@@ -1,0 +1,12 @@
+{
+  "name": "HyperFlow Linear Mindmap",
+  "description": "A sophisticated project tracking tool that visualizes project lifecycles as interactive linear mindmaps with parallel paths, milestone pie charts, and AI-assisted project structure generation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
