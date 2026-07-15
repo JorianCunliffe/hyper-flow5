@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Milestone, AppSettings, Subtask } from '../types';
+import { Milestone, AppSettings, Subtask, NodeType } from '../types';
 import { MilestonePieChart } from './PieChart';
-import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check } from 'lucide-react';
-import { getStatusBorderColor } from '../constants';
+import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarCheck, Trash2, ExternalLink, Link as LinkIcon, Move, X, ArrowRight, ArrowLeft, AlertTriangle, Calendar, Mail, Loader2, Check, Settings2, Play } from 'lucide-react';
+import { getStatusBorderColor, NODE_TYPE_META } from '../constants';
+import { getNodeType, isActionNode, isNodeComplete } from '../lib/flowEngine';
 import { sendTaskEmail } from '../lib/emailUtils';
 
 const TaskEmailButton: React.FC<{
@@ -84,6 +85,11 @@ interface MilestoneNodeProps {
   onStartLinking: (milestoneId: string) => void;
   onCompleteLinking: (milestoneId: string) => void;
   onRemoveLink: (otherId: string, type: 'parent' | 'child') => void;
+
+  // Flow node system
+  onOpenConfig: (milestoneId: string) => void;
+  onRunAction: (milestoneId: string) => void;
+  isRunningAction: boolean;
   parents: { id: string, name: string }[];
   children: { id: string, name: string }[];
   isLinkingMode: boolean;
@@ -114,6 +120,9 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   onStartLinking,
   onCompleteLinking,
   onRemoveLink,
+  onOpenConfig,
+  onRunAction,
+  isRunningAction,
   parents,
   children,
   isLinkingMode,
@@ -258,7 +267,49 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   };
 
   const subtasks = milestone.subtasks || [];
-  const isComplete = subtasks.length > 0 && subtasks.every(s => s.status === 'Complete');
+  const nodeType = getNodeType(milestone);
+  const meta = NODE_TYPE_META[nodeType];
+  const isMilestoneType = nodeType === NodeType.MILESTONE;
+  const isAction = isActionNode(milestone);
+  const isComplete = isNodeComplete(milestone);
+  const lastRun = milestone.actionConfig?.lastRun;
+
+  // Status accent for non-milestone nodes
+  let statusColor = meta.color;
+  if (isAction && lastRun?.status === 'error') statusColor = '#ef4444';
+  else if (isComplete) statusColor = '#22c55e';
+
+  const renderNodeBody = () => {
+    if (isMilestoneType) return <MilestonePieChart subtasks={subtasks} size={100} />;
+    const Icon = meta.icon;
+    if (nodeType === NodeType.DECISION) {
+      return (
+        <div className="w-[100px] h-[100px] flex items-center justify-center">
+          <div
+            className="w-[68px] h-[68px] rotate-45 rounded-xl flex items-center justify-center shadow-inner"
+            style={{ backgroundColor: `${statusColor}18`, border: `3px solid ${statusColor}` }}
+          >
+            <Icon size={30} className="-rotate-45" style={{ color: statusColor }} />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="w-[100px] h-[100px] rounded-full flex flex-col items-center justify-center gap-1" style={{ backgroundColor: `${statusColor}12`, border: `3px solid ${statusColor}` }}>
+        <Icon size={30} style={{ color: statusColor }} className={nodeType === NodeType.LOOP && !milestone.loopConfig?.exited && (milestone.loopConfig?.currentIteration || 0) > 0 ? 'animate-spin [animation-duration:3s]' : ''} />
+        {nodeType === NodeType.LOOP && (
+          <span className="text-[10px] font-black" style={{ color: statusColor }}>
+            {milestone.loopConfig?.exited ? 'DONE' : `${milestone.loopConfig?.currentIteration ?? 0}/${milestone.loopConfig?.maxIterations ?? '?'}`}
+          </span>
+        )}
+        {isAction && lastRun && (
+          <span className="text-[9px] font-black uppercase" style={{ color: statusColor }}>
+            {lastRun.status === 'success' ? 'Sent' : 'Failed'}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div 
@@ -307,8 +358,8 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
           onMouseDown={handleMouseDown}
           onClick={handleClick}
         >
-          <MilestonePieChart subtasks={subtasks} size={100} />
-          
+          {renderNodeBody()}
+
           {/* Drag Handle Indicator on Hover */}
           {!isLinkingMode && !isDragging && !showLinkMenu && (
             <div className="absolute inset-0 rounded-full bg-black/0 group-hover:bg-black/5 flex items-center justify-center transition-colors pointer-events-none">
@@ -342,7 +393,25 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         {/* Quick Actions Panel - Hide during linking mode and dragging */}
         {!isLinkingMode && !isDragging && (
           <div className={`absolute left-full top-1/2 -translate-y-1/2 pl-3 flex flex-col gap-1.5 transition-all transform duration-300 z-50 ${showLinkMenu ? 'opacity-100 translate-x-1' : 'opacity-0 group-hover/circle:opacity-100 group-hover/circle:translate-x-1'}`}>
-            <button 
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenConfig(milestone.id); }}
+              className="p-2 bg-slate-700 text-white rounded-full shadow-lg hover:bg-slate-800 active:scale-90 transition-all border border-slate-600"
+              title="Configure Node (type, branches, loop, action)"
+            >
+              <Settings2 size={14} className="pointer-events-none" />
+            </button>
+            {isAction && (
+              <button
+                onClick={(e) => { e.stopPropagation(); if (!isRunningAction) onRunAction(milestone.id); }}
+                disabled={isRunningAction}
+                className="p-2 bg-emerald-600 text-white rounded-full shadow-lg hover:bg-emerald-700 active:scale-90 transition-all border border-emerald-500 disabled:opacity-60"
+                title={`Run ${meta.label} Now`}
+              >
+                {isRunningAction ? <Loader2 size={14} className="animate-spin pointer-events-none" /> : <Play size={14} className="pointer-events-none" />}
+              </button>
+            )}
+            {isMilestoneType && (
+            <button
               onClick={handleBrainstorm}
               disabled={isThinking}
               className="p-2 bg-gradient-to-tr from-amber-400 to-amber-500 text-white rounded-full shadow-lg hover:from-amber-500 hover:to-amber-600 active:scale-90 transition-all border border-amber-300/50"
@@ -350,6 +419,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
             >
               <Wand2 size={14} className={`pointer-events-none ${isThinking ? 'animate-spin' : ''}`} />
             </button>
+            )}
             <button 
               onClick={(e) => { e.stopPropagation(); onAddPrevious(milestone.id); }}
               className="p-2 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 active:scale-90 transition-all border border-blue-500"
@@ -465,7 +535,18 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         )}
       </div>
 
-      {showSubtasks && !isLinkingMode && !isDragging && (
+      {!isMilestoneType && !isLinkingMode && !isDragging && (
+        <div
+          className="mt-2 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest cursor-pointer hover:shadow-sm transition-all"
+          style={{ backgroundColor: `${meta.color}18`, color: meta.color }}
+          onClick={(e) => { e.stopPropagation(); onOpenConfig(milestone.id); }}
+          title={meta.description}
+        >
+          {meta.label}
+        </div>
+      )}
+
+      {isMilestoneType && showSubtasks && !isLinkingMode && !isDragging && (
         <div className="mt-4 w-52 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-10 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between border-b border-slate-50 pb-1.5 px-1 mb-2">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">

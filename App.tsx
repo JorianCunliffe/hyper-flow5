@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import html2canvas from 'html2canvas';
-import { 
-  Project, 
-  Milestone, 
-  Subtask, 
+import {
+  Project,
+  Milestone,
+  Subtask,
   AppSettings,
   ScratchTask,
   TimelineMarker as TimelineMarkerType,
-  ActivityLog
+  ActivityLog,
+  NodeType,
+  ActionRun
 } from './types';
 import { MilestoneNode } from './components/MilestoneNode';
 import { TimelineMarker } from './components/TimelineMarker';
@@ -45,11 +47,13 @@ import {
   Clock,
   Edit2,
   CheckCircle,
-  BarChart3
+  BarChart3,
+  Play
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
+import { advanceFlow, ACTION_TASK_TYPE, getNodeType } from './lib/flowEngine';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
@@ -64,6 +68,7 @@ import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
 import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
+import { NodeConfigModal } from './components/modals/NodeConfigModal';
 
 const STORAGE_KEY = 'projectflow_data_v6';
 const BACKUP_KEY = 'projectflow_safety_backup';
@@ -209,6 +214,11 @@ export const App: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showSubtasks, setShowSubtasks] = useState(true);
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
+
+  // Flow node system
+  const [configNodeId, setConfigNodeId] = useState<string | null>(null);
+  const [runningActionId, setRunningActionId] = useState<string | null>(null);
+  const [flowLog, setFlowLog] = useState<string[]>([]);
   
   // Kanban State
   const [isKanbanMode, setIsKanbanMode] = useState(false);
@@ -1268,6 +1278,112 @@ export const App: React.FC = () => {
       }));
   };
 
+  // ===== Flow node system =====
+  const projectsRef = useRef(projects);
+  useEffect(() => { projectsRef.current = projects; }, [projects]);
+
+  const handleUpdateMilestone = (mId: string, updates: Partial<Milestone>) => {
+    setProjects(prev => {
+      const next = prev.map(p => p.id === selectedProjectId
+        ? { ...p, updatedAt: Date.now(), milestones: p.milestones.map(m => m.id === mId ? { ...m, ...updates } : m) }
+        : p);
+      projectsRef.current = next; // keep ref fresh so run-after-save uses the new config
+      return next;
+    });
+  };
+
+  const handleRunActionNode = async (nodeId: string): Promise<boolean> => {
+    const proj = projectsRef.current.find(p => p.id === selectedProjectId);
+    const node = proj?.milestones.find(m => m.id === nodeId);
+    if (!proj || !node) return false;
+    const taskType = ACTION_TASK_TYPE[getNodeType(node)];
+    if (!taskType) return false;
+
+    setRunningActionId(nodeId);
+    try {
+      const res = await fetch('/api/tasks/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType,
+          templateFile: node.actionConfig?.template || '',
+          projectData: proj.projectData || {},
+          baseUrl: window.location.origin
+        })
+      });
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch (e) { data = { error: text.substring(0, 300) }; }
+      const success = res.ok && data.status === 'success';
+      const run: ActionRun = {
+        at: Date.now(),
+        status: success ? 'success' : 'error',
+        output: data.output,
+        logs: data.logs,
+        error: success ? undefined : (data.error || `HTTP ${res.status}`)
+      };
+
+      setProjects(prev => {
+        const next = prev.map(p => {
+          if (p.id !== proj.id) return p;
+          return {
+            ...p,
+            updatedAt: Date.now(),
+            // Merge action outputs into project data so decisions/loops can branch on them
+            projectData: success && data.output && typeof data.output === 'object'
+              ? { ...p.projectData, ...data.output }
+              : p.projectData,
+            milestones: p.milestones.map(m => m.id === nodeId
+              ? {
+                  ...m,
+                  actionConfig: {
+                    template: '',
+                    ...(m.actionConfig || {}),
+                    lastRun: run,
+                    runHistory: m.actionConfig?.lastRun
+                      ? [...(m.actionConfig.runHistory || []), m.actionConfig.lastRun]
+                      : m.actionConfig?.runHistory
+                  }
+                }
+              : m)
+          };
+        });
+        projectsRef.current = next;
+        return next;
+      });
+      setFlowLog(prev => [...prev, `${node.name}: ${success ? 'executed successfully' : `failed — ${run.error}`}`]);
+      return success;
+    } catch (e: any) {
+      setFlowLog(prev => [...prev, `${node.name}: failed — ${e.message}`]);
+      return false;
+    } finally {
+      setRunningActionId(null);
+    }
+  };
+
+  const handleAdvanceFlow = async () => {
+    const proj = projectsRef.current.find(p => p.id === selectedProjectId);
+    if (!proj) return;
+    const { project: advanced, actionsToRun, log } = advanceFlow(proj);
+    setProjects(prev => {
+      const next = prev.map(p => p.id === advanced.id ? { ...advanced, updatedAt: Date.now() } : p);
+      projectsRef.current = next;
+      return next;
+    });
+    setFlowLog(log.length || actionsToRun.length ? log : ['Flow is up to date — nothing to advance.']);
+    for (const id of actionsToRun) {
+      await handleRunActionNode(id);
+    }
+  };
+
+  // Auto-dismiss the flow log banner
+  useEffect(() => {
+    if (flowLog.length === 0) return;
+    const t = setTimeout(() => setFlowLog([]), 8000);
+    return () => clearTimeout(t);
+  }, [flowLog]);
+  // ===== End flow node system =====
+
   const handleAddSubtask = (mId: string) => {
       const taskIdNum = settings.nextTaskId || 1;
       setSettings(prev => ({ ...prev, nextTaskId: taskIdNum + 1 }));
@@ -2289,6 +2405,9 @@ export const App: React.FC = () => {
                           {showSubtasks ? <Eye size={16} /> : <EyeOff size={16} />} Details
                         </button>
                       </div>
+                      <button onClick={handleAdvanceFlow} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-1.5 rounded-lg text-sm flex items-center gap-2 shadow-sm transition-all" title="Evaluate decisions & loops, then run any ready auto-execute action nodes">
+                        <Play size={16} /> Advance Flow
+                      </button>
                       <button onClick={() => activeProject && handleAddMilestone(activeProject.id, null, false)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-1.5 rounded-lg text-sm flex items-center gap-2 shadow-sm transition-all">
                         <Plus size={16} /> Add Start Milestone
                       </button>
@@ -2391,6 +2510,8 @@ export const App: React.FC = () => {
                             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" /></marker>
                             <marker id="arrow-active" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1" /></marker>
                             <marker id="arrow-critical" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" /></marker>
+                            <marker id="arrow-selected" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e" /></marker>
+                            <marker id="arrow-loop" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b5cf6" /></marker>
                           </defs>
                           {canvasData.milestones.map(m => (m.dependsOn || []).map(parentId => {
                             const parent = canvasData.milestones.find(mil => mil.id === parentId);
@@ -2398,25 +2519,70 @@ export const App: React.FC = () => {
                             const isCritical = milestoneTimeline.criticalConnections.has(`${parentId}-${m.id}`);
                             const isActive = hoveredMilestoneId === m.id || hoveredMilestoneId === parentId;
                             const dx = (m.x || 0) - (parent.x || 0);
-                            
+
+                            // Decision branch styling
+                            const parentIsDecision = getNodeType(parent) === NodeType.DECISION;
+                            const branch = parentIsDecision ? parent.decisionConfig?.branches?.find(b => b.targetId === m.id) : undefined;
+                            const decided = parentIsDecision && !!parent.decisionConfig?.selectedTargetId;
+                            const isSelectedBranch = decided && parent.decisionConfig!.selectedTargetId === m.id;
+                            const isSkippedBranch = decided && !isSelectedBranch;
+
                             let strokeColor = "#cbd5e1";
                             let markerEnd = "url(#arrow)";
                             let strokeWidth = "2";
-                            
+                            let dashArray: string | undefined = parentIsDecision && !decided ? "6 4" : undefined;
+
                             if (isActive) {
                               strokeColor = "#6366f1";
                               markerEnd = "url(#arrow-active)";
                               strokeWidth = "3";
+                            } else if (isSelectedBranch) {
+                              strokeColor = "#22c55e";
+                              markerEnd = "url(#arrow-selected)";
+                              strokeWidth = "3";
+                              dashArray = undefined;
+                            } else if (isSkippedBranch) {
+                              strokeColor = "#e2e8f0";
+                              dashArray = "4 6";
                             } else if (isCritical) {
                               strokeColor = "#ef4444";
                               markerEnd = "url(#arrow-critical)";
                               strokeWidth = "3";
                             }
-                            
+
+                            const labelX = ((parent.x || 0) + (m.x || 0)) / 2;
+                            const labelY = ((parent.y || 0) + (m.y || 0)) / 2 - 10;
+
                             return (
-                              <path key={`${parentId}-${m.id}`} d={`M ${(parent.x || 0) + 50} ${parent.y!} C ${(parent.x || 0) + dx / 2} ${parent.y!}, ${(parent.x || 0) + dx / 2} ${m.y!}, ${(m.x || 0) - 50} ${m.y!}`} stroke={strokeColor} strokeWidth={strokeWidth} fill="transparent" markerEnd={markerEnd} className="transition-all duration-300" />
+                              <g key={`${parentId}-${m.id}`}>
+                                <path d={`M ${(parent.x || 0) + 50} ${parent.y!} C ${(parent.x || 0) + dx / 2} ${parent.y!}, ${(parent.x || 0) + dx / 2} ${m.y!}, ${(m.x || 0) - 50} ${m.y!}`} stroke={strokeColor} strokeWidth={strokeWidth} strokeDasharray={dashArray} fill="transparent" markerEnd={markerEnd} className="transition-all duration-300" />
+                                {branch?.label && (
+                                  <g>
+                                    <rect x={labelX - branch.label.length * 3.6 - 6} y={labelY - 11} width={branch.label.length * 7.2 + 12} height={18} rx={9} fill={isSelectedBranch ? '#dcfce7' : isSkippedBranch ? '#f1f5f9' : '#fef3c7'} stroke={isSelectedBranch ? '#22c55e' : isSkippedBranch ? '#e2e8f0' : '#f59e0b'} strokeWidth="1" />
+                                    <text x={labelX} y={labelY + 2} textAnchor="middle" fontSize="10" fontWeight="800" fill={isSelectedBranch ? '#15803d' : isSkippedBranch ? '#94a3b8' : '#b45309'}>{branch.label}</text>
+                                  </g>
+                                )}
+                              </g>
                             );
                           }))}
+                          {/* Loop-back edges */}
+                          {canvasData.milestones.filter(m => getNodeType(m) === NodeType.LOOP && m.loopConfig?.loopStartId).map(m => {
+                            const start = canvasData.milestones.find(mil => mil.id === m.loopConfig!.loopStartId);
+                            if (!start) return null;
+                            const bowY = Math.max(m.y || 0, start.y || 0) + 160;
+                            return (
+                              <path
+                                key={`loop-${m.id}`}
+                                d={`M ${(m.x || 0)} ${(m.y || 0) + 55} C ${(m.x || 0)} ${bowY}, ${(start.x || 0)} ${bowY}, ${(start.x || 0)} ${(start.y || 0) + 55}`}
+                                stroke="#8b5cf6"
+                                strokeWidth="2"
+                                strokeDasharray="8 5"
+                                fill="transparent"
+                                markerEnd="url(#arrow-loop)"
+                                opacity={m.loopConfig?.exited ? 0.25 : 0.7}
+                              />
+                            );
+                          })}
                         </svg>
 
                         {/* 3. Milestone Nodes */}
@@ -2450,6 +2616,9 @@ export const App: React.FC = () => {
                                   onStartLinking={handleStartLinking}
                                   onCompleteLinking={handleCompleteLinking}
                                   onRemoveLink={(otherId, type) => handleRemoveLink(m.id, otherId, type)}
+                                  onOpenConfig={setConfigNodeId}
+                                  onRunAction={handleRunActionNode}
+                                  isRunningAction={runningActionId === m.id}
                                   parents={parents}
                                   children={children}
                                   isLinkingMode={!!linkingSourceId}
@@ -2542,6 +2711,35 @@ export const App: React.FC = () => {
            onUpdate={(updates) => updateSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!, updates)}
            onDelete={() => { deleteSubtask(isEditingSubtask.mId, isEditingSubtask.sIdx!); setIsEditingSubtask(null); }}
          />
+      )}
+
+      {/* Node Configuration Modal */}
+      {configNodeId && activeProject && (() => {
+        const node = activeProject.milestones.find(m => m.id === configNodeId);
+        if (!node) return null;
+        return (
+          <NodeConfigModal
+            milestone={node}
+            milestones={activeProject.milestones}
+            onSave={(updates) => handleUpdateMilestone(configNodeId, updates)}
+            onRun={() => handleRunActionNode(configNodeId)}
+            isRunning={runningActionId === configNodeId}
+            onClose={() => setConfigNodeId(null)}
+          />
+        );
+      })()}
+
+      {/* Flow Log Banner */}
+      {flowLog.length > 0 && (
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-slate-900 text-white rounded-xl px-5 py-3 shadow-2xl z-[90] max-w-lg animate-in slide-in-from-bottom-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="text-xs space-y-1">
+              <div className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Flow Engine</div>
+              {flowLog.map((l, i) => <div key={i}>{l}</div>)}
+            </div>
+            <button onClick={() => setFlowLog([])} className="text-slate-400 hover:text-white text-lg leading-none">×</button>
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Dialogs */}

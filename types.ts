@@ -40,6 +40,52 @@ export interface ReadyCondition {
   exists?: boolean;
 }
 
+export enum NodeType {
+  MILESTONE = 'milestone',
+  DECISION = 'decision',
+  LOOP = 'loop',
+  EMAIL = 'email',
+  SMS = 'sms',
+  PHONE_CALL = 'phone_call',
+  WEBHOOK = 'webhook',
+  REPORT = 'report'
+}
+
+export interface DecisionBranch {
+  targetId: string; // direct child milestone id this branch leads to
+  label: string;    // e.g. 'Yes' / 'No'
+  conditions?: ReadyCondition[]; // all must pass; no conditions = default (else) branch
+}
+
+export interface DecisionConfig {
+  branches: DecisionBranch[];
+  selectedTargetId?: string;
+  decidedAt?: number;
+}
+
+export interface LoopConfig {
+  loopStartId?: string; // node the loop jumps back to; body = nodes between it and the loop node
+  exitConditions: ReadyCondition[]; // loop exits when all pass (checked against projectData)
+  maxIterations: number;
+  currentIteration: number;
+  exited?: boolean;
+}
+
+export interface ActionRun {
+  at: number;
+  status: 'success' | 'error';
+  output?: any;
+  logs?: string[];
+  error?: string;
+}
+
+export interface ActionConfig {
+  template: string; // JSON or text, supports {{variable}} substitution from projectData
+  autoExecute?: boolean; // run automatically when the node becomes ready during Advance Flow
+  lastRun?: ActionRun;
+  runHistory?: ActionRun[];
+}
+
 export interface OutputVariable {
   name: string;
   type: string; // 'boolean' | 'string' | 'date'
@@ -104,6 +150,12 @@ export interface Milestone {
   completedAt?: number; // timestamp when all subtasks are complete
   x?: number;
   y?: number;
+
+  // Flow node system — defaults to MILESTONE when absent
+  nodeType?: NodeType;
+  decisionConfig?: DecisionConfig; // DECISION nodes
+  loopConfig?: LoopConfig;         // LOOP nodes
+  actionConfig?: ActionConfig;     // EMAIL / SMS / PHONE_CALL / WEBHOOK / REPORT nodes
 }
 
 export interface TimelineMarker {
