@@ -1,4 +1,4 @@
-# hyper-flow
+# twilio-openai-realtime
 
 Real-time voice AI built on **Twilio Media Streams** and the **OpenAI Realtime API**, deployed on **Vercel**.
 
@@ -52,7 +52,7 @@ Outbound call
 
 ```bash
 git clone https://github.com/JorianCunliffe/hyper-flow
-cd hyper-flow
+cd hyper-flow  # or whatever you named the local folder
 npm install
 ```
 
@@ -74,7 +74,7 @@ cp .env.example .env.local
 | `SUPABASE_URL` | Project URL, e.g. `https://xxxx.supabase.co` |
 | `SUPABASE_ANON_KEY` | Anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (used server-side to bypass RLS) |
-| `BASE_URL` | Your public URL, e.g. `https://hyper-flow.vercel.app` |
+| `BASE_URL` | Your public URL, e.g. `https://twilio-openai-realtime.vercel.app` |
 | `API_SECRET_KEY` | Random secret for protecting REST endpoints |
 
 ### 3 — Database

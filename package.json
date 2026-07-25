@@ -1,5 +1,5 @@
 {
-  "name": "hyper-flow",
+  "name": "twilio-openai-realtime",
   "version": "1.0.0",
   "private": true,
   "scripts": {
