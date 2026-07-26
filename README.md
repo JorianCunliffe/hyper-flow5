@@ -407,6 +407,42 @@ calls (
 
 ---
 
+## Vercel AI SDK & Gateway
+
+This app uses the [Vercel AI SDK](https://sdk.vercel.ai) (`ai` + `@ai-sdk/openai`) for HTTP-based AI calls and optionally routes them through the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway).
+
+### What goes through the Gateway
+
+| Path | Protocol | Gateway? |
+|---|---|---|
+| Post-call summary generation | HTTP | **Yes** — when `VERCEL_AI_GATEWAY_URL` is set |
+| System prompt / context building | local (no AI call) | N/A |
+| OpenAI Realtime voice bridge | WebSocket | **No** — Gateway is HTTP-only; connects direct to OpenAI |
+
+### Setting up the Gateway
+
+1. Go to [vercel.com/dashboard](https://vercel.com/dashboard) → **AI** → **Gateways** → **Create Gateway**
+2. Add **OpenAI** as a provider and paste your OpenAI API key
+3. Copy the gateway URL — it looks like:
+   `https://gateway.ai.vercel.com/v1/<team_id>/<gateway_name>`
+4. Set `VERCEL_AI_GATEWAY_URL` to that value in your Vercel environment variables
+
+With the gateway enabled you get:
+- **Observability** — request/response logs, latency, token usage per call
+- **Rate limiting** — protect against runaway costs
+- **Caching** — optional prompt caching
+- **Provider fallback** — route to Anthropic or Google if OpenAI is down
+
+### What the AI SDK does in the app
+
+| Feature | SDK call | Model |
+|---|---|---|
+| Post-call summary | `generateText` | `gpt-4o-mini` |
+
+The `openaiProvider` in `lib/ai-provider.ts` is pre-configured — add more `generateText` / `streamText` calls anywhere in the codebase and they'll automatically route through the Gateway.
+
+---
+
 ## Architecture notes
 
 **WebSocket lifecycle on Vercel**

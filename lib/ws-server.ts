@@ -13,6 +13,7 @@ import type { IncomingMessage } from 'http';
 import type { Server } from 'net';
 import { supabase } from './supabase';
 import { buildContextForNumber, buildSystemPrompt } from './prompts';
+import { OPENAI_REALTIME_WS_URL, generateCallSummary } from './ai-provider';
 import type { TranscriptEntry } from '@/types';
 
 declare global {
@@ -20,7 +21,7 @@ declare global {
   var __wss: WebSocketServer | undefined;
 }
 
-const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview';
+const OPENAI_REALTIME_URL = OPENAI_REALTIME_WS_URL;
 const STREAM_PATH = '/api/twilio/stream';
 
 /* ─── Types for Twilio Media Streams protocol ─── */
@@ -268,17 +269,22 @@ async function finalise(state: SessionState) {
 
   // Update call record — guard against double-write
   if (state.callDbId) {
+    const callDbId = state.callDbId;
+    state.callDbId = null; // prevent double-write on concurrent close + stop events
+
+    // Generate summary via Vercel AI SDK (routed through Gateway if configured)
+    const summary = await generateCallSummary(state.transcript);
+
     await supabase
       .from('calls')
       .update({
         status: 'completed',
         transcript: state.transcript,
+        summary,
         ended_at: new Date().toISOString(),
       })
-      .eq('id', state.callDbId)
+      .eq('id', callDbId)
       .is('ended_at', null);
-
-    state.callDbId = null; // prevent double-write
   }
 }
 
