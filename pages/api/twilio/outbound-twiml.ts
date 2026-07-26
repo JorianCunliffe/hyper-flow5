@@ -14,6 +14,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Twilio provides these in the POST body when the callee answers
   const to: string = req.body?.To || '';
+  const from: string = req.body?.From || '';
   const callSid: string = req.body?.CallSid || '';
 
   const baseUrl = process.env.BASE_URL || `https://${req.headers.host}`;
@@ -25,6 +26,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   <Connect>
     <Stream url="${streamUrl}">
       <Parameter name="phoneNumber" value="${to}"/>
+      <Parameter name="twilioNumber" value="${from}"/>
       <Parameter name="direction" value="outbound"/>
       <Parameter name="callSid" value="${callSid}"/>
     </Stream>
