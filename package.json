@@ -1,5 +1,5 @@
 {
-  "name": "twilio-openai-realtime",
+  "name": "openai_realtime_vercel_ai_gateway",
   "version": "1.0.0",
   "private": true,
   "scripts": {

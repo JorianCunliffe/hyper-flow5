@@ -103,7 +103,7 @@ export default function Home() {
 
   return (
     <main style={{ fontFamily: 'monospace', maxWidth: 760, margin: '48px auto', padding: '0 16px' }}>
-      <h1 style={{ fontSize: 24, marginBottom: 4 }}>twilio-openai-realtime</h1>
+      <h1 style={{ fontSize: 24, marginBottom: 4 }}>openai_realtime_vercel_ai_gateway</h1>
       <p style={{ color: '#6b7280', marginBottom: 32 }}>
         Twilio + OpenAI Realtime voice API — authenticate with{' '}
         <code style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: 4 }}>
