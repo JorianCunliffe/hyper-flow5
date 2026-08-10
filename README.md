@@ -91,27 +91,35 @@ Reviewers can attach an image, document, video or audio file to any answer.
 
 `GET`/`POST /api/asks/[token]?org=…&project=…` reads or answers a single ask. The token is a capability scoped to that one ask — it never authenticates a session and never exposes the surrounding project. Answering runs the same `respondToAsk` path the inbound channels use, then advances the flow server-side.
 
-## Choosing the Firebase project
+## The Firebase project
 
-The Firebase config is read from the environment, not baked into the source. Set
-`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID` and
-`VITE_FIREBASE_DATABASE_URL` (plus `VITE_FIREBASE_APP_ID` for auth), and the
-matching `FIREBASE_DATABASE_URL` / `FIREBASE_SERVICE_ACCOUNT` for the server.
-`authDomain` and `storageBucket` are derived from the project id unless given.
+The app connects to **`hyper-flow-a459b`** (Realtime Database, `asia-southeast1`)
+out of the box — the web config is built in, so the browser side needs no setup.
 
-**The browser and the server must point at the same database.** They are
-configured separately — `VITE_FIREBASE_DATABASE_URL` for the browser and
-`FIREBASE_DATABASE_URL` for webhooks — and if they diverge, a review answered in
-the app and one answered by webhook write to different places, with no error to
-tell you.
+A Firebase web config is not a secret: it ships to every visitor inside the
+bundle however it is supplied, and security comes from `database.rules.json`, not
+from hiding it. The **service-account key is a real secret** — it bypasses those
+rules entirely — and lives only in `FIREBASE_SERVICE_ACCOUNT`, server-side.
 
-With nothing configured the app runs local-only against `localStorage`. That is
-deliberate: there is no fallback project, because silently writing real data into
-the wrong database is worse than not connecting at all.
+**Deploy `database.rules.json` to the project**, or every read and write is
+denied and the app will look broken.
+
+### Pointing at a different project
+
+Set `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID` and
+`VITE_FIREBASE_DATABASE_URL` together (plus `VITE_FIREBASE_APP_ID` for auth) —
+a partial override is ignored rather than merged, so a half-set environment
+cannot produce a config straddling two projects. `authDomain` and `storageBucket`
+are derived from the project id unless given. Pasting a config into Cloud Setup
+overrides everything at runtime.
+
+If you override the browser's database, **also set `FIREBASE_DATABASE_URL`** to
+the same value. The two are configured separately, and if they diverge a review
+answered in the app and one answered by webhook write to different databases with
+no error to tell you.
 
 Switching projects does **not** migrate data — a different Firebase project is a
-different, empty database. Remember to deploy `database.rules.json` to whichever
-project you point at, or every read and write will be denied.
+different, empty database.
 
 ### Server-side orchestration setup
 

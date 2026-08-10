@@ -35,13 +35,26 @@ const parseServiceAccount = (raw: string): ServiceAccount => {
   };
 };
 
-export const isServerStoreConfigured = (): boolean =>
-  !!(process.env.FIREBASE_SERVICE_ACCOUNT && process.env.FIREBASE_DATABASE_URL);
+/**
+ * Must match the database the browser uses (services/firebaseService.ts). Kept in
+ * step by defaulting to the same URL: if these two diverge, a review answered in
+ * the app and one answered by webhook write to different databases, and nothing
+ * reports an error.
+ */
+const DEFAULT_DATABASE_URL = 'https://hyper-flow-a459b-default-rtdb.asia-southeast1.firebasedatabase.app';
+
+export const getDatabaseUrl = (): string => process.env.FIREBASE_DATABASE_URL || DEFAULT_DATABASE_URL;
+
+/**
+ * Only the service-account key is genuinely required — it is the one real
+ * secret, and there is no sensible default for it.
+ */
+export const isServerStoreConfigured = (): boolean => !!process.env.FIREBASE_SERVICE_ACCOUNT;
 
 const getDb = () => {
   if (!isServerStoreConfigured()) {
     throw new ServerStoreUnavailable(
-      'Server-side persistence is not configured. Set FIREBASE_SERVICE_ACCOUNT and FIREBASE_DATABASE_URL.'
+      'Server-side persistence is not configured. Set FIREBASE_SERVICE_ACCOUNT.'
     );
   }
   const existing = getApps().find(a => a.name === APP_NAME);
@@ -50,7 +63,7 @@ const getDb = () => {
     initializeApp(
       {
         credential: cert(parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT!)),
-        databaseURL: process.env.FIREBASE_DATABASE_URL!
+        databaseURL: getDatabaseUrl()
       },
       APP_NAME
     );
