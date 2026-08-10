@@ -54,7 +54,7 @@ import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
 import { getNodeType } from './lib/flowEngine';
 import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrchestrator';
-import { applyAskToProject, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
+import { applyAskToProject, normalizeNodeAsks, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
 import { buildResponse, validateResponse } from './lib/askResponses';
 import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
 
@@ -326,7 +326,7 @@ export const App: React.FC = () => {
           ...p,
           displayId,
           markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
-          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => normalizeNodeAsks({
             ...m,
             dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
             subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => {

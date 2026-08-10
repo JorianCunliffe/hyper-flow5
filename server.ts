@@ -8,7 +8,8 @@ import { WebSocketServer } from "ws";
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
 import { executeTask } from "./lib/executeTask";
 import { normalizeBlandCallback } from "./lib/inboundVoice";
-import { advanceServerFlow, resolveCallbackAndAdvance } from "./lib/serverFlow";
+import { buildResponse, validateResponse } from "./lib/askResponses";
+import { advanceServerFlow, readAskByToken, respondToAsk, resolveCallbackAndAdvance } from "./lib/serverFlow";
 import { claimWebhookEvent, isServerStoreConfigured, releaseWebhookEvent } from "./lib/serverStore";
 
 async function startServer() {
@@ -189,6 +190,75 @@ async function startServer() {
       await releaseWebhookEvent('bland', event.eventId);
       console.error('Bland webhook handler failed', e);
       return res.status(500).json({ error: 'Handler failed' });
+    }
+  });
+
+  // Read or answer a single ask, authorised by its token. Mirrors
+  // api/asks/[token].ts so a review link works the same in local dev.
+  app.all("/api/asks/:token", async (req, res) => {
+    if (!isServerStoreConfigured()) {
+      return res.status(503).json({ error: 'Server-side persistence is not configured' });
+    }
+
+    const token = String(req.params.token || '');
+    const orgId = String(req.query.org || '');
+    const projectId = String(req.query.project || '');
+    if (!token || !orgId || !projectId) {
+      return res.status(400).json({ error: 'token, org and project are required' });
+    }
+
+    try {
+      const found = await readAskByToken(orgId, projectId, token);
+      // Same response for a bad token and a missing ask — do not confirm which.
+      if (!found) return res.status(404).json({ error: 'Not found' });
+
+      if (req.method === 'GET') {
+        const { ask, nodeName, projectName } = found;
+        return res.status(200).json({
+          projectName,
+          nodeName,
+          ask: {
+            id: ask.id, kind: ask.kind, status: ask.status, prompt: ask.prompt,
+            fields: ask.fields, artifact: ask.artifact, createdAt: ask.createdAt, dueAt: ask.dueAt,
+            responses: ask.responses.map(r => ({
+              at: r.at, via: r.via, actor: r.actor, decision: r.decision,
+              text: r.text, attachments: r.attachments, needsInterpretation: r.needsInterpretation
+            }))
+          }
+        });
+      }
+
+      if (req.method === 'POST') {
+        const { decision, text, values, attachments, actor } = req.body || {};
+        if (typeof text === 'string' && text.length > 20000) {
+          return res.status(413).json({ error: 'Comment is too long' });
+        }
+
+        const response = buildResponse(found.ask, {
+          via: 'web',
+          actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+          decision, text, values, attachments
+        });
+
+        const invalid = validateResponse(found.ask, response);
+        if (invalid) return res.status(400).json({ error: invalid });
+
+        const outcome = await respondToAsk(orgId, projectId, token, response);
+        if (!outcome.ok) {
+          return res.status(outcome.reason === 'already_answered' ? 409 : 404).json({ error: outcome.reason });
+        }
+        return res.status(200).json({
+          ok: true,
+          askStatus: outcome.askStatus,
+          log: outcome.log,
+          needsInterpretation: response.needsInterpretation ?? false
+        });
+      }
+
+      return res.status(405).json({ error: 'Method not allowed' });
+    } catch (e: any) {
+      console.error('Ask endpoint failed', e);
+      return res.status(500).json({ error: 'Request failed' });
     }
   });
 

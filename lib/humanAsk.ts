@@ -2,6 +2,7 @@ import {
   AskChannel,
   AskDecision,
   AskField,
+  Attachment,
   HumanAsk,
   HumanResponse,
   Milestone,
@@ -43,10 +44,35 @@ export const DEFAULT_CHANNELS: AskChannel[] = ['web'];
 
 const hoursToMs = (h: number) => h * 60 * 60 * 1000;
 
+/**
+ * Firebase RTDB does not store empty arrays — it drops the key entirely — and
+ * turns sparse arrays into objects keyed by index. Anything round-tripped
+ * through the database therefore comes back with `responses`, `asks`,
+ * `assignees` and friends missing rather than empty, so every accessor here
+ * tolerates that. `normalizeAsk` restores the shape on read.
+ */
+const arr = <T>(value: any): T[] =>
+  Array.isArray(value) ? value : value && typeof value === 'object' ? (Object.values(value) as T[]) : [];
+
+export const normalizeAsk = (ask: any): HumanAsk => ({
+  ...ask,
+  responses: arr<HumanResponse>(ask?.responses).map(r => ({ ...r, attachments: arr<Attachment>(r?.attachments) })),
+  assignees: arr<string>(ask?.assignees),
+  channels: arr<AskChannel>(ask?.channels),
+  fields: ask?.fields ? arr<AskField>(ask.fields) : undefined,
+  writeBack: ask?.writeBack ? arr<any>(ask.writeBack) : undefined
+});
+
+export const normalizeNodeAsks = <T extends { asks?: any }>(node: T): T => {
+  const asks = arr<any>(node?.asks);
+  return asks.length ? { ...node, asks: asks.map(normalizeAsk) } : node;
+};
+
 /** The most recent response carrying an explicit decision. */
 export const latestDecision = (ask: HumanAsk): AskDecision | undefined => {
-  for (let i = ask.responses.length - 1; i >= 0; i--) {
-    if (ask.responses[i].decision) return ask.responses[i].decision;
+  const responses = arr<HumanResponse>(ask?.responses);
+  for (let i = responses.length - 1; i >= 0; i--) {
+    if (responses[i].decision) return responses[i].decision;
   }
   return undefined;
 };
@@ -220,7 +246,7 @@ export const createQuestionAsk = (
  * A response needing interpretation never closes an ask on its own.
  */
 export const recordAskResponse = (ask: HumanAsk, response: HumanResponse): HumanAsk => {
-  const responses = [...ask.responses, response];
+  const responses = [...arr<HumanResponse>(ask?.responses), response];
   const merged: HumanAsk = { ...ask, responses };
 
   if (response.needsInterpretation) return merged;
@@ -238,7 +264,7 @@ export const recordAskResponse = (ask: HumanAsk, response: HumanResponse): Human
   }
 
   if (ask.kind === 'upload') {
-    const hasFile = responses.some(r => (r.attachments || []).length > 0);
+    const hasFile = responses.some(r => arr<Attachment>(r?.attachments).length > 0);
     return hasFile ? { ...merged, status: 'answered', answeredAt: response.at } : merged;
   }
 
@@ -247,10 +273,10 @@ export const recordAskResponse = (ask: HumanAsk, response: HumanResponse): Human
 
 /** All values supplied across an ask's responses, later ones winning. */
 export const collectValues = (ask: HumanAsk): Record<string, any> =>
-  ask.responses.reduce<Record<string, any>>((acc, r) => ({ ...acc, ...(r.values || {}) }), {});
+  arr<HumanResponse>(ask?.responses).reduce<Record<string, any>>((acc, r) => ({ ...acc, ...(r.values || {}) }), {});
 
 export const collectAttachments = (ask: HumanAsk) =>
-  ask.responses.flatMap(r => r.attachments || []);
+  arr<HumanResponse>(ask?.responses).flatMap(r => arr<Attachment>(r?.attachments));
 
 /** Replaces an ask on a node, preserving order. */
 export const upsertAsk = (node: Milestone, ask: HumanAsk): Milestone => {
@@ -313,7 +339,7 @@ export const applyAskToProject = (project: Project, askId: string): Project => {
       const withAsk = upsertAsk(m, appliedAsk);
 
       if (decision === 'revise' && isActionNode(m)) {
-        const feedback = [...ask.responses].reverse().find(r => r.text)?.text || 'Revision requested.';
+        const feedback = [...arr<HumanResponse>(ask?.responses)].reverse().find(r => r.text)?.text || 'Revision requested.';
         const prior = m.actionConfig?.lastRun;
         return {
           ...withAsk,

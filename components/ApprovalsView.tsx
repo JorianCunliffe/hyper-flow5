@@ -40,7 +40,7 @@ export const ApprovalsView: React.FC<ApprovalsViewProps> = ({
   };
 
   const visibleAsks = openAsks.filter(
-    entry => filterMode === 'all' || entry.ask.assignees.length === 0 || entry.ask.assignees.some(isMe)
+    entry => filterMode === 'all' || (entry.ask.assignees || []).length === 0 || (entry.ask.assignees || []).some(isMe)
   );
 
   const tasksPendingApproval: { p: Project, m: any, s: Subtask, sIdx: number }[] = [];
@@ -132,7 +132,7 @@ export const ApprovalsView: React.FC<ApprovalsViewProps> = ({
                     <div className="text-xs text-slate-400 truncate">{ask.prompt}</div>
                     <div className="text-[11px] text-slate-400 mt-1">
                       Asked {relative(ask.createdAt)}
-                      {ask.assignees.length > 0 && ` · ${ask.assignees.join(', ')}`}
+                      {(ask.assignees || []).length > 0 && ` · ${(ask.assignees || []).join(', ')}`}
                     </div>
                   </div>
                   <div className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

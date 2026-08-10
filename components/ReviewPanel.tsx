@@ -148,7 +148,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
             <h3 className="text-xl font-black text-slate-900 truncate">{nodeName}</h3>
             <p className="text-xs text-slate-500 font-medium truncate">
               {projectName} · asked {relative(ask.createdAt)}
-              {ask.assignees.length > 0 && ` · for ${ask.assignees.join(', ')}`}
+              {(ask.assignees || []).length > 0 && ` · for ${(ask.assignees || []).join(', ')}`}
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors shrink-0">
@@ -314,11 +314,11 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
           </div>
 
           {/* What's already been said */}
-          {ask.responses.length > 0 && (
+          {(ask.responses || []).length > 0 && (
             <div>
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">History</div>
               <div className="space-y-2">
-                {ask.responses.map(r => (
+                {(ask.responses || []).map(r => (
                   <div key={r.id} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-[10px] font-bold text-slate-600">{r.actor}</span>

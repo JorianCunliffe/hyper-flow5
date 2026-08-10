@@ -209,7 +209,7 @@ export const advanceProjectFlow = async (
       const ask = createApprovalAsk(node);
       current = { ...current, milestones: current.milestones.map(m => (m.id === nodeId ? upsertAsk(m, ask) : m)) };
       askedFor.push({ nodeId, ask });
-      log.push(`${node.name}: awaiting review by ${ask.assignees.join(', ') || 'an unassigned reviewer'}`);
+      log.push(`${node.name}: awaiting review by ${(ask.assignees || []).join(', ') || 'an unassigned reviewer'}`);
     }
 
     // Never re-dispatch an action that is already waiting on a callback.

@@ -1,6 +1,7 @@
 import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { ActivityLog, Project } from '../types';
+import { normalizeNodeAsks } from './humanAsk';
 
 /**
  * Server-side persistence via the Firebase Admin SDK.
@@ -79,11 +80,21 @@ export const findProject = async (orgId: string, projectId: string): Promise<Loc
     index,
     project: {
       ...project,
-      milestones: toArray(project.milestones).map((m: any) => ({
-        ...m,
-        dependsOn: toArray(m.dependsOn),
-        subtasks: toArray(m.subtasks)
-      }))
+      milestones: toArray(project.milestones).map((m: any) =>
+        normalizeNodeAsks({
+          ...m,
+          dependsOn: toArray(m.dependsOn),
+          subtasks: toArray(m.subtasks),
+          // RTDB drops empty arrays, so a node whose only run history is empty
+          // comes back without the key at all.
+          ...(m.actionConfig
+            ? { actionConfig: { ...m.actionConfig, runHistory: m.actionConfig.runHistory ? toArray(m.actionConfig.runHistory) : undefined } }
+            : {}),
+          ...(m.decisionConfig
+            ? { decisionConfig: { ...m.decisionConfig, branches: toArray(m.decisionConfig.branches) } }
+            : {})
+        })
+      )
     }
   };
 };
