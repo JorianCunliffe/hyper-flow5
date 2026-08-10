@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
+import { normalizeTaskType } from '../../lib/executeTask';
 import { ScreenRecorder } from '../ScreenRecorder';
 
 const TaskEmailButton: React.FC<{
@@ -430,13 +431,30 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
              
              <div className="mb-4">
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Task Type</label>
-                <input 
-                  type="text"
-                  placeholder="e.g. send_email, call_parent"
+                <select
                   className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
-                  value={task.taskType || ''}
-                  onChange={(e) => onUpdate({ taskType: e.target.value })}
-                />
+                  value={normalizeTaskType(task.taskType) || ''}
+                  onChange={(e) => onUpdate({ taskType: e.target.value || undefined })}
+                >
+                  <option value="">— none —</option>
+                  <option value="send_email">Email (send_email)</option>
+                  <option value="send_sms">SMS (send_sms)</option>
+                  <option value="outgoing_call">Phone Call (outgoing_call)</option>
+                  <option value="webhook">Webhook (webhook)</option>
+                  <option value="write_report">Report (write_report)</option>
+                </select>
+                {task.taskType && !normalizeTaskType(task.taskType) && (
+                  <p className="text-[10px] text-rose-600 font-bold mt-1">
+                    "{task.taskType}" is not a known task type — pick one above.
+                  </p>
+                )}
+                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-2 leading-snug">
+                  This runs the action directly against a task and does <b>not</b> use the callback flow.
+                  A phone call started here places a real call, but its result is polled by this modal
+                  rather than delivered by webhook — close the modal and the outcome is lost.
+                  For calls that resolve on their own and advance the flow, use a <b>Phone Call node</b> on
+                  the canvas instead.
+                </p>
              </div>
 
              <div className="mb-4">

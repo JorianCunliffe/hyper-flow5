@@ -78,12 +78,46 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
   return { parsedContent, templateData };
 };
 
+export const TASK_TYPES = ['send_email', 'send_sms', 'outgoing_call', 'webhook', 'write_report'] as const;
+
+/**
+ * Accepts the friendly labels people actually type. The task type used to be a
+ * free-text field matched against five exact strings, so "Phone Call" silently
+ * became "unknown task type" with nothing to indicate what was wrong.
+ */
+const TASK_TYPE_ALIASES: Record<string, string> = {
+  email: 'send_email', sendemail: 'send_email', mail: 'send_email',
+  sms: 'send_sms', sendsms: 'send_sms', text: 'send_sms', textmessage: 'send_sms',
+  phonecall: 'outgoing_call', call: 'outgoing_call', phone: 'outgoing_call',
+  outgoingcall: 'outgoing_call', voice: 'outgoing_call', voicecall: 'outgoing_call',
+  webhook: 'webhook', http: 'webhook', post: 'webhook',
+  report: 'write_report', writereport: 'write_report', writeup: 'write_report'
+};
+
+export const normalizeTaskType = (raw: string | undefined): string | undefined => {
+  if (!raw) return undefined;
+  const trimmed = String(raw).trim();
+  if ((TASK_TYPES as readonly string[]).includes(trimmed)) return trimmed;
+  return TASK_TYPE_ALIASES[trimmed.toLowerCase().replace(/[\s_-]+/g, '')];
+};
+
 export async function executeTask(
-  taskType: string,
+  rawTaskType: string,
   templateFile: string | undefined,
   projectData: Record<string, any> | undefined,
   ctx?: ExecuteContext
 ): Promise<TaskExecutionResult> {
+  const taskType = normalizeTaskType(rawTaskType);
+  if (!taskType) {
+    return {
+      httpStatus: 400,
+      body: {
+        status: 'unknown_task_type',
+        error: `Unknown task type "${rawTaskType ?? ''}". Expected one of: ${TASK_TYPES.join(', ')}.`,
+        logs: [`Task type "${rawTaskType ?? ''}" did not match any known action.`]
+      }
+    };
+  }
   const { parsedContent, templateData } = substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
@@ -364,5 +398,10 @@ export async function executeTask(
     }
   }
 
-  return { httpStatus: 200, body: { status: 'unknown_task_type' } };
+  // Unreachable: normalizeTaskType above only returns members of TASK_TYPES,
+  // each of which is handled. Kept so adding a type without a branch fails loudly.
+  return {
+    httpStatus: 500,
+    body: { status: 'unhandled_task_type', error: `Task type "${taskType}" is recognised but has no handler.` }
+  };
 }
