@@ -8,6 +8,7 @@
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
     "start": "node dist/server.cjs"
   },
   "dependencies": {
@@ -15,6 +16,7 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "firebase": "^12.7.0",
+    "firebase-admin": "^14.2.0",
     "html2canvas": "1.4.1",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
