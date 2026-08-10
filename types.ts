@@ -72,11 +72,20 @@ export interface LoopConfig {
 }
 
 export interface ActionRun {
+  id?: string;       // correlates async provider callbacks back to this exact run
   at: number;
-  status: 'success' | 'error';
+  /**
+   * 'pending' means the action was dispatched but its result arrives later via an
+   * inbound webhook (e.g. a phone call). A pending run does not complete the node
+   * and its output is not merged into projectData until it resolves.
+   */
+  status: 'success' | 'error' | 'pending';
   output?: any;
   logs?: string[];
   error?: string;
+  externalId?: string;   // provider-side id (Bland call_id, Twilio sid, ...)
+  resolvedAt?: number;   // when an async run reached a terminal status
+  resolvedBy?: string;   // e.g. 'webhook:bland'
 }
 
 export interface ActionConfig {
@@ -84,6 +93,16 @@ export interface ActionConfig {
   autoExecute?: boolean; // run automatically when the node becomes ready during Advance Flow
   lastRun?: ActionRun;
   runHistory?: ActionRun[];
+  /**
+   * Human feedback carried into the next run after a reviewer sent the work
+   * back. This is what turns "return for revision" into an actual redo.
+   */
+  revision?: {
+    feedback: string;
+    priorOutput?: any;
+    at: number;
+    count: number;
+  };
 }
 
 export interface OutputVariable {
@@ -96,6 +115,118 @@ export interface OutputVariable {
 
 export interface ProjectData {
   [key: string]: any;
+}
+
+// ===== Human-in-the-loop: asks, answers, review gates =====
+
+/** What we need from a person. */
+export type AskKind =
+  | 'approval'  // sign off (or reject / send back) a piece of work
+  | 'question'  // supply missing facts the flow needs to continue
+  | 'choice'    // pick one of a fixed set of options
+  | 'upload';   // provide a file
+
+export type AskChannel = 'web' | 'email' | 'sms' | 'voice';
+export type AskStatus = 'open' | 'answered' | 'cancelled' | 'expired';
+export type AskDecision = 'approved' | 'rejected' | 'revise';
+
+/** One field of a structured answer. Drives both the web form and inbound parsing. */
+export interface AskField {
+  name: string;
+  label?: string;
+  type: 'string' | 'boolean' | 'number' | 'date' | 'file';
+  required?: boolean;
+  options?: string[]; // for 'choice'
+}
+
+export interface Attachment {
+  id: string;
+  url: string;
+  storagePath?: string;
+  name?: string;
+  mime?: string;
+  bytes?: number;
+  kind: 'image' | 'document' | 'video' | 'audio' | 'other';
+  source: AskChannel;
+  capturedAt: number;
+}
+
+export interface HumanResponse {
+  id: string;
+  at: number;
+  via: AskChannel;
+  /** Resolved identity — never the identity the sender merely claimed. */
+  actor: string;
+  decision?: AskDecision;
+  text?: string;
+  values?: Record<string, any>;
+  attachments?: Attachment[];
+  /** Set when `values` were inferred from prose rather than entered directly. */
+  confidence?: number;
+  needsInterpretation?: boolean;
+  /** Original provider payload, kept for audit. */
+  raw?: any;
+}
+
+/** What the reviewable artifact actually is, so the UI can render it properly. */
+export interface AskArtifact {
+  kind: 'markdown' | 'text' | 'json' | 'link' | 'file';
+  title?: string;
+  content?: string;
+  url?: string;
+  mime?: string;
+  /** Prior revision, so a re-review can show what changed. */
+  previousContent?: string;
+  /** The agent's own critique of its work, if it produced one. */
+  evaluation?: any;
+}
+
+export interface ReviewPolicy {
+  required: boolean;
+  reviewers?: string[];
+  channels?: AskChannel[];
+  slaHours?: number;
+  /**
+   * What happens when an unanswered ask passes its due date.
+   * Defaults to 'block' — silently auto-approving on a timeout turns a review
+   * gate into a rubber stamp.
+   */
+  onExpiry?: 'block' | 'escalate' | 'auto_approve';
+  /** Max times a node may be sent back for revision before the gate gives up. */
+  maxRevisions?: number;
+}
+
+export interface HumanAsk {
+  id: string;
+  /** Capability to answer this one ask. Never authenticates a session. */
+  token: string;
+  kind: AskKind;
+  status: AskStatus;
+  prompt: string;
+
+  nodeId: string;
+  /** Binds an approval to one specific action run, so a stale approval cannot
+   *  satisfy a later run of the same node. */
+  runId?: string;
+  subtaskId?: string;
+
+  fields?: AskField[];
+  artifact?: AskArtifact;
+
+  assignees: string[];
+  channels: AskChannel[];
+
+  createdAt: number;
+  dueAt?: number;
+  answeredAt?: number;
+  /** When the accepted answer was written into project data. */
+  appliedAt?: number;
+
+  responses: HumanResponse[];
+  writeBack?: OutputVariable[];
+
+  /** Which revision cycle produced this ask (0 = first attempt). */
+  revision?: number;
 }
 
 export interface Subtask {
@@ -156,6 +287,11 @@ export interface Milestone {
   decisionConfig?: DecisionConfig; // DECISION nodes
   loopConfig?: LoopConfig;         // LOOP nodes
   actionConfig?: ActionConfig;     // EMAIL / SMS / PHONE_CALL / WEBHOOK / REPORT nodes
+
+  /** Human review gate. Any node type can carry one. */
+  reviewPolicy?: ReviewPolicy;
+  /** Open and historical asks raised against this node. */
+  asks?: HumanAsk[];
 }
 
 export interface TimelineMarker {

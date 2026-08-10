@@ -9,6 +9,54 @@ export interface TaskExecutionResult {
   body: any;
 }
 
+/**
+ * Correlation and callback context for actions whose result arrives later via an
+ * inbound webhook. When present, providers are told where to call back and are
+ * given the ids needed to find this exact run again.
+ */
+export interface ExecuteContext {
+  webhookBaseUrl?: string;
+  callbackSecret?: string;
+  correlation?: {
+    orgId?: string;
+    projectId?: string;
+    nodeId?: string;
+    runId?: string;
+  };
+  /**
+   * Reviewer feedback from a previous attempt. When present this run is a redo,
+   * and the feedback takes priority over the model's own self-evaluation.
+   */
+  revision?: {
+    feedback: string;
+    priorOutput?: any;
+    count: number;
+  };
+}
+
+const buildCallbackUrl = (ctx: ExecuteContext | undefined, path: string): string | undefined => {
+  if (!ctx?.webhookBaseUrl) return undefined;
+  const base = ctx.webhookBaseUrl.replace(/\/+$/, '');
+  const url = new URL(`${base}${path}`);
+  if (ctx.callbackSecret) url.searchParams.set('secret', ctx.callbackSecret);
+
+  // Vercel Deployment Protection intercepts requests to *.vercel.app URLs with an
+  // SSO redirect, which a provider's webhook POST can never satisfy — it would
+  // get a 302 instead of reaching the handler. Protection Bypass for Automation
+  // is the supported escape hatch for third-party webhooks that cannot set
+  // headers: Vercel injects VERCEL_AUTOMATION_BYPASS_SECRET at runtime once the
+  // secret is generated in project settings, and accepts it as a query param.
+  // Harmless when unset, or when the deployment is served from a custom domain.
+  const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (bypass) url.searchParams.set('x-vercel-protection-bypass', bypass);
+
+  return url.toString();
+};
+
+/** Strips secrets from a callback URL before it goes anywhere near a log. */
+export const redactCallbackUrl = (url: string): string =>
+  url.replace(/([?&](?:secret|x-vercel-protection-bypass)=)[^&]+/g, '$1***');
+
 const substituteTemplate = (templateFile: string | undefined, projectData: Record<string, any> | undefined) => {
   let parsedContent = templateFile || '';
   if (projectData && typeof parsedContent === 'string') {
@@ -30,7 +78,12 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
   return { parsedContent, templateData };
 };
 
-export async function executeTask(taskType: string, templateFile: string | undefined, projectData: Record<string, any> | undefined): Promise<TaskExecutionResult> {
+export async function executeTask(
+  taskType: string,
+  templateFile: string | undefined,
+  projectData: Record<string, any> | undefined,
+  ctx?: ExecuteContext
+): Promise<TaskExecutionResult> {
   const { parsedContent, templateData } = substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
@@ -159,6 +212,14 @@ export async function executeTask(taskType: string, templateFile: string | undef
       logs.push(`Dialing ${toPhone}...`);
 
       if (!process.env.BLAND_API_KEY) throw new Error('BLAND_API_KEY environment variable is required');
+
+      // Ask Bland to call us back when the call completes, instead of relying on
+      // the browser to poll. metadata comes back verbatim on the webhook payload,
+      // which is how we find the run that started this call.
+      const callbackUrl = buildCallbackUrl(ctx, '/api/inbound/voice/bland');
+      if (callbackUrl) logs.push(`Completion webhook: ${redactCallbackUrl(callbackUrl)}`);
+      else logs.push('No webhook base URL configured — falling back to polling for this call.');
+
       const response = await fetch('https://api.bland.ai/v1/calls', {
         method: 'POST',
         headers: {
@@ -182,6 +243,8 @@ export async function executeTask(taskType: string, templateFile: string | undef
             proposal_interest: "boolean: whether the user wants to proceed with the proposal",
             call_summary: "string: summary of the conversation"
           },
+          ...(callbackUrl ? { webhook: callbackUrl } : {}),
+          ...(ctx?.correlation ? { metadata: { ...ctx.correlation, source: 'hyperflow' } } : {}),
           task: templateData.prompt || templateData.body || parsedContent || "Hello, this is a test call."
         })
       });
@@ -196,6 +259,10 @@ export async function executeTask(taskType: string, templateFile: string | undef
         httpStatus: 200,
         body: {
           status: 'success',
+          // The call has been placed, not completed. The orchestrator records this
+          // as a pending run so the node stays incomplete until the webhook lands.
+          pending: !!responseData.call_id,
+          externalId: responseData.call_id,
           output: responseData,
           logs
         }
@@ -219,17 +286,35 @@ export async function executeTask(taskType: string, templateFile: string | undef
         httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
       });
 
-      logs.push('Step 1: Generating initial draft...');
+      // A redo carries the reviewer's own words and the draft they rejected.
+      // Human feedback is stated as binding so the model does not weigh it as
+      // just another suggestion against its own evaluation.
+      const revision = ctx?.revision;
+      const revisionBlock = revision
+        ? `\n\nIMPORTANT — a human reviewer rejected the previous draft and asked for specific changes. Their feedback is binding and takes priority over your own judgement.\n\nReviewer feedback:\n${revision.feedback}\n\nThe draft they rejected:\n${
+            typeof revision.priorOutput?.report_content === 'string'
+              ? revision.priorOutput.report_content.slice(0, 8000)
+              : '(not available)'
+          }\n\nAddress every point of the feedback in the new draft.`
+        : '';
+
+      if (revision) logs.push(`Step 1: Regenerating draft — revision ${revision.count}, incorporating reviewer feedback...`);
+      else logs.push('Step 1: Generating initial draft...');
+
       const generateRes = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: `You are an expert report writer. Use the following context to write a draft report:\n\nSOP: ${sop}\n\nTemplate: ${template}\n\nPrompt: ${prompt}`
+        contents: `You are an expert report writer. Use the following context to write a draft report:\n\nSOP: ${sop}\n\nTemplate: ${template}\n\nPrompt: ${prompt}${revisionBlock}`
       });
       const draft = generateRes.text;
 
       logs.push('Step 2: Evaluating draft...');
       const evalRes = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: `You are an expert evaluator. Evaluate the following draft based on the criteria.\n\nCriteria: ${evalCriteria}\n\nDraft:\n${draft}`,
+        contents: `You are an expert evaluator. Evaluate the following draft based on the criteria.\n\nCriteria: ${evalCriteria}${
+          revision
+            ? `\n\nThis draft is a revision. It MUST address the reviewer's feedback below; treat failure to do so as failing the criteria.\n\nReviewer feedback:\n${revision.feedback}`
+            : ''
+        }\n\nDraft:\n${draft}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {

@@ -8,8 +8,7 @@ import {
   ScratchTask,
   TimelineMarker as TimelineMarkerType,
   ActivityLog,
-  NodeType,
-  ActionRun
+  NodeType
 } from './types';
 import { MilestoneNode } from './components/MilestoneNode';
 import { TimelineMarker } from './components/TimelineMarker';
@@ -53,7 +52,11 @@ import {
 import { geminiService } from './services/geminiService';
 import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
-import { advanceFlow, ACTION_TASK_TYPE, getNodeType } from './lib/flowEngine';
+import { getNodeType } from './lib/flowEngine';
+import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrchestrator';
+import { applyAskToProject, normalizeNodeAsks, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
+import { buildResponse, validateResponse } from './lib/askResponses';
+import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
@@ -218,6 +221,7 @@ export const App: React.FC = () => {
   // Flow node system
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
+  const [reviewingAsk, setReviewingAsk] = useState<{ projectId: string; nodeId: string; askId: string } | null>(null);
   const [flowLog, setFlowLog] = useState<string[]>([]);
   
   // Kanban State
@@ -322,7 +326,7 @@ export const App: React.FC = () => {
           ...p,
           displayId,
           markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
-          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => ({
+          milestones: (Array.isArray(p.milestones) ? p.milestones : Object.values(p.milestones || [])).map((m: any) => normalizeNodeAsks({
             ...m,
             dependsOn: Array.isArray(m.dependsOn) ? m.dependsOn : Object.values(m.dependsOn || []),
             subtasks: (Array.isArray(m.subtasks) ? m.subtasks : Object.values(m.subtasks || [])).map((s: any) => {
@@ -1292,70 +1296,60 @@ export const App: React.FC = () => {
     });
   };
 
+  /**
+   * Browser-side action executor. The identical orchestration also runs on the
+   * server (lib/serverFlow.ts) with an in-process executor, so a flow advances
+   * the same way whether a person clicked the button or a webhook arrived.
+   * The callback secret and public base URL are injected server-side by
+   * /api/tasks/execute — they are deliberately not exposed to the client.
+   */
+  const httpExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
+    const res = await fetch('/api/tasks/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskType,
+        templateFile,
+        projectData,
+        correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId },
+        revision: ctx.revision
+      })
+    });
+    const text = await res.text();
+    let data: any = {};
+    try { data = JSON.parse(text); } catch (e) { data = { error: text.substring(0, 300) }; }
+
+    if (!res.ok || data.status !== 'success') {
+      return { status: 'error', error: data.error || `HTTP ${res.status}`, logs: data.logs };
+    }
+    return {
+      status: data.pending ? 'pending' : 'success',
+      output: data.output,
+      logs: data.logs,
+      externalId: data.externalId
+    };
+  };
+
+  const commitProject = (updated: Project) => {
+    setProjects(prev => {
+      const next = prev.map(p => (p.id === updated.id ? { ...updated, updatedAt: Date.now() } : p));
+      projectsRef.current = next;
+      return next;
+    });
+  };
+
   const handleRunActionNode = async (nodeId: string): Promise<boolean> => {
     const proj = projectsRef.current.find(p => p.id === selectedProjectId);
-    const node = proj?.milestones.find(m => m.id === nodeId);
-    if (!proj || !node) return false;
-    const taskType = ACTION_TASK_TYPE[getNodeType(node)];
-    if (!taskType) return false;
+    if (!proj) return false;
 
     setRunningActionId(nodeId);
     try {
-      const res = await fetch('/api/tasks/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskType,
-          templateFile: node.actionConfig?.template || '',
-          projectData: proj.projectData || {},
-          baseUrl: window.location.origin
-        })
+      const { project: updated, log, run } = await runActionNode(proj, nodeId, httpExecutor, {
+        orgId: firebaseService.getCurrentOrgId() || undefined
       });
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch (e) { data = { error: text.substring(0, 300) }; }
-      const success = res.ok && data.status === 'success';
-      const run: ActionRun = {
-        at: Date.now(),
-        status: success ? 'success' : 'error',
-        output: data.output,
-        logs: data.logs,
-        error: success ? undefined : (data.error || `HTTP ${res.status}`)
-      };
-
-      setProjects(prev => {
-        const next = prev.map(p => {
-          if (p.id !== proj.id) return p;
-          return {
-            ...p,
-            updatedAt: Date.now(),
-            // Merge action outputs into project data so decisions/loops can branch on them
-            projectData: success && data.output && typeof data.output === 'object'
-              ? { ...p.projectData, ...data.output }
-              : p.projectData,
-            milestones: p.milestones.map(m => m.id === nodeId
-              ? {
-                  ...m,
-                  actionConfig: {
-                    template: '',
-                    ...(m.actionConfig || {}),
-                    lastRun: run,
-                    runHistory: m.actionConfig?.lastRun
-                      ? [...(m.actionConfig.runHistory || []), m.actionConfig.lastRun]
-                      : m.actionConfig?.runHistory
-                  }
-                }
-              : m)
-          };
-        });
-        projectsRef.current = next;
-        return next;
-      });
-      setFlowLog(prev => [...prev, `${node.name}: ${success ? 'executed successfully' : `failed — ${run.error}`}`]);
-      return success;
-    } catch (e: any) {
-      setFlowLog(prev => [...prev, `${node.name}: failed — ${e.message}`]);
-      return false;
+      commitProject(updated);
+      setFlowLog(prev => [...prev, ...log]);
+      return run?.status === 'success';
     } finally {
       setRunningActionId(null);
     }
@@ -1364,17 +1358,63 @@ export const App: React.FC = () => {
   const handleAdvanceFlow = async () => {
     const proj = projectsRef.current.find(p => p.id === selectedProjectId);
     if (!proj) return;
-    const { project: advanced, actionsToRun, log } = advanceFlow(proj);
-    setProjects(prev => {
-      const next = prev.map(p => p.id === advanced.id ? { ...advanced, updatedAt: Date.now() } : p);
-      projectsRef.current = next;
-      return next;
+    const { project: updated, log } = await advanceProjectFlow(proj, httpExecutor, {
+      orgId: firebaseService.getCurrentOrgId() || undefined
     });
-    setFlowLog(log.length || actionsToRun.length ? log : ['Flow is up to date — nothing to advance.']);
-    for (const id of actionsToRun) {
-      await handleRunActionNode(id);
-    }
+    commitProject(updated);
+    setFlowLog(log);
   };
+
+  /**
+   * Records an in-app answer to an ask. Uses the same pure functions the server
+   * uses for inbound email/SMS/voice, so an answer given here and an answer
+   * texted in at midnight take exactly the same path into project state.
+   */
+  const handleAskSubmit = async (submission: ReviewSubmission) => {
+    if (!reviewingAsk) return;
+    const proj = projectsRef.current.find(p => p.id === reviewingAsk.projectId);
+    const node = proj?.milestones.find(m => m.id === reviewingAsk.nodeId);
+    const ask = node?.asks?.find(a => a.id === reviewingAsk.askId);
+    if (!proj || !node || !ask) return;
+
+    const response = buildResponse(ask, {
+      via: 'web',
+      actor: currentUser?.email || currentUser?.displayName || currentUser?.uid || 'unknown',
+      decision: submission.decision,
+      text: submission.text,
+      values: submission.values,
+      attachments: submission.attachments
+    });
+
+    const invalid = validateResponse(ask, response);
+    if (invalid) throw new Error(invalid);
+
+    const updatedAsk = recordAskResponse(ask, response);
+    let next: Project = {
+      ...proj,
+      milestones: proj.milestones.map(m => (m.id === node.id ? upsertAsk(m, updatedAsk) : m))
+    };
+    if (updatedAsk.status === 'answered') next = applyAskToProject(next, updatedAsk.id);
+
+    const advanced = await advanceProjectFlow(next, httpExecutor, {
+      orgId: firebaseService.getCurrentOrgId() || undefined
+    });
+    commitProject(advanced.project);
+    setFlowLog(advanced.log);
+    setReviewingAsk(null);
+  };
+
+  /** Every open ask across all projects, newest first — the review queue. */
+  const allOpenAsks = useMemo(
+    () =>
+      projects
+        .filter(p => !p.isArchived)
+        .flatMap(p =>
+          openAsks(p).map(({ node, ask }) => ({ project: p, node, ask }))
+        )
+        .sort((a, b) => b.ask.createdAt - a.ask.createdAt),
+    [projects]
+  );
 
   // Auto-dismiss the flow log banner
   useEffect(() => {
@@ -2305,6 +2345,11 @@ export const App: React.FC = () => {
               setSelectedProjectId(projectId);
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
             }}
+            openAsks={allOpenAsks}
+            onReviewAsk={(projectId, nodeId, askId) => {
+              setSelectedProjectId(projectId);
+              setReviewingAsk({ projectId, nodeId, askId });
+            }}
           />
         ) : isReportingMode ? (
           <ReportingView 
@@ -2722,9 +2767,28 @@ export const App: React.FC = () => {
             milestone={node}
             milestones={activeProject.milestones}
             onSave={(updates) => handleUpdateMilestone(configNodeId, updates)}
+            people={settings.people}
             onRun={() => handleRunActionNode(configNodeId)}
             isRunning={runningActionId === configNodeId}
             onClose={() => setConfigNodeId(null)}
+          />
+        );
+      })()}
+
+      {/* Human review of an agent's work product */}
+      {(() => {
+        if (!reviewingAsk) return null;
+        const proj = projects.find(p => p.id === reviewingAsk.projectId);
+        const node = proj?.milestones.find(m => m.id === reviewingAsk.nodeId);
+        const ask = node?.asks?.find(a => a.id === reviewingAsk.askId);
+        if (!proj || !node || !ask) return null;
+        return (
+          <ReviewPanel
+            ask={ask}
+            nodeName={node.name}
+            projectName={proj.name}
+            onSubmit={handleAskSubmit}
+            onClose={() => setReviewingAsk(null)}
           />
         );
       })()}

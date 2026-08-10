@@ -7,6 +7,10 @@ import { WebSocketServer } from "ws";
 
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
 import { executeTask } from "./lib/executeTask";
+import { normalizeBlandCallback } from "./lib/inboundVoice";
+import { buildResponse, validateResponse } from "./lib/askResponses";
+import { advanceServerFlow, readAskByToken, respondToAsk, resolveCallbackAndAdvance } from "./lib/serverFlow";
+import { claimWebhookEvent, isServerStoreConfigured, releaseWebhookEvent } from "./lib/serverStore";
 
 async function startServer() {
   const app = express();
@@ -135,11 +139,146 @@ async function startServer() {
 
   app.post("/api/tasks/execute", async (req, res) => {
     try {
-      const { taskType, templateFile, projectData } = req.body;
-      const result = await executeTask(taskType, templateFile, projectData);
+      const { taskType, templateFile, projectData, correlation, revision } = req.body;
+      const result = await executeTask(taskType, templateFile, projectData, {
+        webhookBaseUrl: process.env.PUBLIC_BASE_URL,
+        callbackSecret: process.env.WEBHOOK_SECRET,
+        correlation,
+        revision
+      });
       res.status(result.httpStatus).json(result.body);
     } catch(e) {
       res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // Inbound: Bland call completion. Mirrors api/inbound/voice/bland.ts so local
+  // dev (with a tunnel pointing at PUBLIC_BASE_URL) behaves like production.
+  app.post("/api/inbound/voice/bland", async (req, res) => {
+    const expected = process.env.WEBHOOK_SECRET;
+    if (expected && req.query.secret !== expected) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!isServerStoreConfigured()) {
+      console.error('Bland webhook received but server store is not configured');
+      return res.status(200).json({ ok: false, reason: 'server_store_not_configured' });
+    }
+
+    const event = normalizeBlandCallback(req.body);
+    if (!event.eventId) return res.status(400).json({ error: 'Missing call_id' });
+    if (!event.orgId || !event.projectId) {
+      console.error('Bland webhook missing correlation metadata', { callId: event.eventId });
+      return res.status(200).json({ ok: false, reason: 'missing_correlation' });
+    }
+
+    const claimed = await claimWebhookEvent('bland', event.eventId);
+    if (!claimed) return res.status(200).json({ ok: true, duplicate: true });
+
+    try {
+      const outcome = await resolveCallbackAndAdvance(
+        event.orgId,
+        event.projectId,
+        { runId: event.runId, externalId: event.eventId },
+        { status: event.status, output: event.output, logs: event.logs, error: event.error, resolvedBy: 'webhook:bland' }
+      );
+      if (!outcome.ok) {
+        console.warn('Bland webhook could not be applied', { callId: event.eventId, reason: outcome.reason });
+        return res.status(200).json({ ok: false, reason: outcome.reason });
+      }
+      return res.status(200).json({ ok: true, log: outcome.log, pending: outcome.pending });
+    } catch (e) {
+      await releaseWebhookEvent('bland', event.eventId);
+      console.error('Bland webhook handler failed', e);
+      return res.status(500).json({ error: 'Handler failed' });
+    }
+  });
+
+  // Read or answer a single ask, authorised by its token. Mirrors
+  // api/asks/[token].ts so a review link works the same in local dev.
+  app.all("/api/asks/:token", async (req, res) => {
+    if (!isServerStoreConfigured()) {
+      return res.status(503).json({ error: 'Server-side persistence is not configured' });
+    }
+
+    const token = String(req.params.token || '');
+    const orgId = String(req.query.org || '');
+    const projectId = String(req.query.project || '');
+    if (!token || !orgId || !projectId) {
+      return res.status(400).json({ error: 'token, org and project are required' });
+    }
+
+    try {
+      const found = await readAskByToken(orgId, projectId, token);
+      // Same response for a bad token and a missing ask — do not confirm which.
+      if (!found) return res.status(404).json({ error: 'Not found' });
+
+      if (req.method === 'GET') {
+        const { ask, nodeName, projectName } = found;
+        return res.status(200).json({
+          projectName,
+          nodeName,
+          ask: {
+            id: ask.id, kind: ask.kind, status: ask.status, prompt: ask.prompt,
+            fields: ask.fields, artifact: ask.artifact, createdAt: ask.createdAt, dueAt: ask.dueAt,
+            responses: ask.responses.map(r => ({
+              at: r.at, via: r.via, actor: r.actor, decision: r.decision,
+              text: r.text, attachments: r.attachments, needsInterpretation: r.needsInterpretation
+            }))
+          }
+        });
+      }
+
+      if (req.method === 'POST') {
+        const { decision, text, values, attachments, actor } = req.body || {};
+        if (typeof text === 'string' && text.length > 20000) {
+          return res.status(413).json({ error: 'Comment is too long' });
+        }
+
+        const response = buildResponse(found.ask, {
+          via: 'web',
+          actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+          decision, text, values, attachments
+        });
+
+        const invalid = validateResponse(found.ask, response);
+        if (invalid) return res.status(400).json({ error: invalid });
+
+        const outcome = await respondToAsk(orgId, projectId, token, response);
+        if (!outcome.ok) {
+          return res.status(outcome.reason === 'already_answered' ? 409 : 404).json({ error: outcome.reason });
+        }
+        return res.status(200).json({
+          ok: true,
+          askStatus: outcome.askStatus,
+          log: outcome.log,
+          needsInterpretation: response.needsInterpretation ?? false
+        });
+      }
+
+      return res.status(405).json({ error: 'Method not allowed' });
+    } catch (e: any) {
+      console.error('Ask endpoint failed', e);
+      return res.status(500).json({ error: 'Request failed' });
+    }
+  });
+
+  app.post("/api/flow/advance", async (req, res) => {
+    const expected = process.env.WEBHOOK_SECRET;
+    if (!expected) return res.status(503).json({ error: 'WEBHOOK_SECRET is not configured' });
+    if (req.headers['x-webhook-secret'] !== expected) return res.status(403).json({ error: 'Forbidden' });
+    if (!isServerStoreConfigured()) {
+      return res.status(503).json({ error: 'Server-side persistence is not configured' });
+    }
+
+    const { orgId, projectId } = req.body || {};
+    if (!orgId || !projectId) return res.status(400).json({ error: 'orgId and projectId are required' });
+    try {
+      const outcome = await advanceServerFlow(String(orgId), String(projectId));
+      if (!outcome.ok) return res.status(404).json({ error: outcome.reason });
+      return res.status(200).json(outcome);
+    } catch (e: any) {
+      console.error('Server-side advance failed', e);
+      return res.status(500).json({ error: e?.message || String(e) });
     }
   });
 

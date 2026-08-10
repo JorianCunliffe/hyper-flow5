@@ -10,17 +10,62 @@ const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
 const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
 const ACCOUNT_ID = 'default_user';
 
-// User provided configuration
-const DEFAULT_CONFIG = {
-  apiKey: "AIzaSyDPFo1kN2hV1xK3a6lFeGXgUuUnJEfKGH4",
-  authDomain: "projectflow-storage.firebaseapp.com",
-  databaseURL: "https://projectflow-storage-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "projectflow-storage",
-  storageBucket: "projectflow-storage.firebasestorage.app",
-  messagingSenderId: "282501228704",
-  appId: "1:282501228704:web:e0dae10ef3f6cd9b8b81c5",
-  measurementId: "G-JCVTVXCS8T"
+/**
+ * The Firebase project this app talks to.
+ *
+ * A Firebase *web* config is not a secret — it ships to every visitor inside the
+ * bundle no matter how it is supplied, and Firebase's own guidance is that
+ * security comes from Security Rules (see database.rules.json), not from hiding
+ * these values. So the working default lives here, and the app connects with no
+ * setup.
+ *
+ * VITE_FIREBASE_* overrides it at build time so a deployment can point at a
+ * different project, and a config pasted into Cloud Setup overrides both at
+ * runtime. The service-account key used by the server is a real secret and is
+ * never part of this — it stays in FIREBASE_SERVICE_ACCOUNT.
+ */
+export const HYPERFLOW_DATABASE_URL =
+  'https://hyper-flow-a459b-default-rtdb.asia-southeast1.firebasedatabase.app';
+
+const BUILTIN_CONFIG = {
+  apiKey: 'AIzaSyByMTn8MZAEgwn2MpFLgVe9EeWHeK4ECnM',
+  authDomain: 'hyper-flow-a459b.firebaseapp.com',
+  databaseURL: HYPERFLOW_DATABASE_URL,
+  projectId: 'hyper-flow-a459b',
+  storageBucket: 'hyper-flow-a459b.firebasestorage.app',
+  messagingSenderId: '866115549453',
+  appId: '1:866115549453:web:55c189ba8ef0c089899844',
+  measurementId: 'G-F4QD08N25F'
 };
+
+const viteEnv: Record<string, string | undefined> = ((import.meta as any)?.env) || {};
+
+/**
+ * An env override needs at least an API key, project id and database URL to be
+ * usable; authDomain and storageBucket follow Firebase's naming convention when
+ * omitted. A partial override is ignored rather than merged, so a half-set
+ * environment cannot produce a config pointing at two different projects.
+ */
+const buildEnvConfig = () => {
+  const projectId = viteEnv.VITE_FIREBASE_PROJECT_ID;
+  const apiKey = viteEnv.VITE_FIREBASE_API_KEY;
+  const databaseURL = viteEnv.VITE_FIREBASE_DATABASE_URL;
+
+  if (!projectId || !apiKey || !databaseURL) return null;
+
+  return {
+    apiKey,
+    projectId,
+    databaseURL,
+    authDomain: viteEnv.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+    storageBucket: viteEnv.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+    messagingSenderId: viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: viteEnv.VITE_FIREBASE_APP_ID,
+    measurementId: viteEnv.VITE_FIREBASE_MEASUREMENT_ID
+  };
+};
+
+const DEFAULT_CONFIG = buildEnvConfig() || BUILTIN_CONFIG;
 
 let db: any = null;
 let storage: any = null;
@@ -78,10 +123,17 @@ try {
   const isManuallyDisconnected = localStorage.getItem(DISCONNECT_FLAG_KEY) === 'true';
 
   if (!isManuallyDisconnected) {
-    // Check local storage first, otherwise use default
+    // A config pasted into the Cloud Setup modal overrides the build's env config.
     const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
-    
+
+    if (!config?.databaseURL) {
+      console.warn(
+        'Firebase is not configured — running in local-only mode. Set VITE_FIREBASE_API_KEY, ' +
+        'VITE_FIREBASE_PROJECT_ID and VITE_FIREBASE_DATABASE_URL, or paste a config in Cloud Setup.'
+      );
+    }
+
     if (config && config.databaseURL) {
       const app = initializeApp(config);
       db = getDatabase(app);
