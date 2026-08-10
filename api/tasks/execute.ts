@@ -6,13 +6,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { taskType, templateFile, projectData, correlation } = req.body || {};
+    const { taskType, templateFile, projectData, correlation, revision } = req.body || {};
     // The callback secret and public base URL stay server-side; callers only
     // supply the correlation ids that identify the run.
     const result = await executeTask(taskType, templateFile, projectData, {
       webhookBaseUrl: process.env.PUBLIC_BASE_URL,
       callbackSecret: process.env.WEBHOOK_SECRET,
-      correlation
+      correlation,
+      revision
     });
     res.status(result.httpStatus).json(result.body);
   } catch (e) {

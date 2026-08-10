@@ -1,39 +1,22 @@
 import { Milestone, Project, NodeType, ActionRun } from '../types';
 import { checkReadyCondition } from './taskReadinessUtils';
+import { isReviewSatisfied, needsApprovalAsk } from './humanAsk';
 
 export type NodeResolution = 'pending' | 'complete' | 'skipped';
 
-export const ACTION_NODE_TYPES: NodeType[] = [
-  NodeType.EMAIL,
-  NodeType.SMS,
-  NodeType.PHONE_CALL,
-  NodeType.WEBHOOK,
-  NodeType.REPORT
-];
-
-// Maps action node types to the taskType handled by /api/tasks/execute
-export const ACTION_TASK_TYPE: Partial<Record<NodeType, string>> = {
-  [NodeType.EMAIL]: 'send_email',
-  [NodeType.SMS]: 'send_sms',
-  [NodeType.PHONE_CALL]: 'outgoing_call',
-  [NodeType.WEBHOOK]: 'webhook',
-  [NodeType.REPORT]: 'write_report'
-};
-
-export const getNodeType = (m: Milestone): NodeType => m.nodeType || NodeType.MILESTONE;
-
-export const isActionNode = (m: Milestone): boolean => ACTION_NODE_TYPES.includes(getNodeType(m));
+export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes';
+import { getNodeType, isActionNode } from './nodeTypes';
 
 const isSubtaskComplete = (status: string) => status === 'Completed' || status === 'Complete';
 
 /**
- * A node's own completion, ignoring dependencies:
+ * A node's work, ignoring dependencies and any review gate:
  * - milestone: has subtasks and all are complete
  * - decision: a branch has been selected
  * - loop: exit condition met (exited)
  * - action: last run succeeded
  */
-export const isNodeComplete = (m: Milestone): boolean => {
+export const isNodeWorkDone = (m: Milestone): boolean => {
   switch (getNodeType(m)) {
     case NodeType.DECISION:
       return !!m.decisionConfig?.selectedTargetId;
@@ -45,6 +28,16 @@ export const isNodeComplete = (m: Milestone): boolean => {
       return m.actionConfig?.lastRun?.status === 'success';
   }
 };
+
+/**
+ * A node is complete when its work is done *and* any human review gate on it has
+ * been satisfied. An unreviewed node stays pending, so the flow does not run
+ * ahead of the person who is supposed to sign the work off.
+ */
+export const isNodeComplete = (m: Milestone): boolean => isNodeWorkDone(m) && isReviewSatisfied(m);
+
+/** A node whose work is finished but which is waiting on a human. */
+export const isAwaitingReview = (m: Milestone): boolean => isNodeWorkDone(m) && !isReviewSatisfied(m);
 
 const getChildren = (milestones: Milestone[], id: string): Milestone[] =>
   milestones.filter(m => (m.dependsOn || []).includes(id));
@@ -152,7 +145,10 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
       status: 'Not started',
       completedAt: undefined,
       approvalStatus: undefined
-    }))
+    })),
+    // Cancel rather than delete: the audit trail survives, but a sign-off given
+    // for the previous iteration can never satisfy the gate for this one.
+    asks: (m.asks || []).map(a => (a.status === 'open' || a.status === 'answered' ? { ...a, status: 'cancelled' as const } : a))
   };
   if (m.decisionConfig) {
     reset.decisionConfig = { ...m.decisionConfig, selectedTargetId: undefined, decidedAt: undefined };
@@ -170,6 +166,8 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
 export interface AdvanceResult {
   project: Project;
   actionsToRun: string[]; // ids of auto-execute action nodes now ready
+  /** Ids of nodes whose work is done but which need a review ask raised. */
+  asksToOpen: string[];
   log: string[];
 }
 
@@ -245,8 +243,25 @@ export const advanceFlow = (project: Project): AdvanceResult => {
 
   const finalStates = resolveNodeStates(current);
   const actionsToRun = current.milestones
-    .filter(m => isActionNode(m) && m.actionConfig?.autoExecute && isNodeReady(m, finalStates))
+    .filter(m =>
+      isActionNode(m) &&
+      m.actionConfig?.autoExecute &&
+      isNodeReady(m, finalStates) &&
+      // A node held at a review gate is neither complete nor skipped, so
+      // readiness alone would schedule it again on every pass — redoing the work
+      // repeatedly while a person is still looking at the first attempt.
+      !isNodeWorkDone(m) &&
+      // Likewise for an action still waiting on a provider callback.
+      m.actionConfig?.lastRun?.status !== 'pending'
+    )
     .map(m => m.id);
 
-  return { project: current, actionsToRun, log };
+  // A node whose work is finished but which is gated on a person needs an ask
+  // raised. Skipped nodes are excluded — nobody should be asked to review work
+  // on a branch the flow never took.
+  const asksToOpen = current.milestones
+    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m) && needsApprovalAsk(m))
+    .map(m => m.id);
+
+  return { project: current, actionsToRun, asksToOpen, log };
 };

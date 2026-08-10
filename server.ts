@@ -138,11 +138,12 @@ async function startServer() {
 
   app.post("/api/tasks/execute", async (req, res) => {
     try {
-      const { taskType, templateFile, projectData, correlation } = req.body;
+      const { taskType, templateFile, projectData, correlation, revision } = req.body;
       const result = await executeTask(taskType, templateFile, projectData, {
         webhookBaseUrl: process.env.PUBLIC_BASE_URL,
         callbackSecret: process.env.WEBHOOK_SECRET,
-        correlation
+        correlation,
+        revision
       });
       res.status(result.httpStatus).json(result.body);
     } catch(e) {

@@ -54,6 +54,9 @@ import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
 import { getNodeType } from './lib/flowEngine';
 import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrchestrator';
+import { applyAskToProject, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
+import { buildResponse, validateResponse } from './lib/askResponses';
+import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
@@ -218,6 +221,7 @@ export const App: React.FC = () => {
   // Flow node system
   const [configNodeId, setConfigNodeId] = useState<string | null>(null);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
+  const [reviewingAsk, setReviewingAsk] = useState<{ projectId: string; nodeId: string; askId: string } | null>(null);
   const [flowLog, setFlowLog] = useState<string[]>([]);
   
   // Kanban State
@@ -1307,7 +1311,8 @@ export const App: React.FC = () => {
         taskType,
         templateFile,
         projectData,
-        correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId }
+        correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId },
+        revision: ctx.revision
       })
     });
     const text = await res.text();
@@ -1359,6 +1364,57 @@ export const App: React.FC = () => {
     commitProject(updated);
     setFlowLog(log);
   };
+
+  /**
+   * Records an in-app answer to an ask. Uses the same pure functions the server
+   * uses for inbound email/SMS/voice, so an answer given here and an answer
+   * texted in at midnight take exactly the same path into project state.
+   */
+  const handleAskSubmit = async (submission: ReviewSubmission) => {
+    if (!reviewingAsk) return;
+    const proj = projectsRef.current.find(p => p.id === reviewingAsk.projectId);
+    const node = proj?.milestones.find(m => m.id === reviewingAsk.nodeId);
+    const ask = node?.asks?.find(a => a.id === reviewingAsk.askId);
+    if (!proj || !node || !ask) return;
+
+    const response = buildResponse(ask, {
+      via: 'web',
+      actor: currentUser?.email || currentUser?.displayName || currentUser?.uid || 'unknown',
+      decision: submission.decision,
+      text: submission.text,
+      values: submission.values,
+      attachments: submission.attachments
+    });
+
+    const invalid = validateResponse(ask, response);
+    if (invalid) throw new Error(invalid);
+
+    const updatedAsk = recordAskResponse(ask, response);
+    let next: Project = {
+      ...proj,
+      milestones: proj.milestones.map(m => (m.id === node.id ? upsertAsk(m, updatedAsk) : m))
+    };
+    if (updatedAsk.status === 'answered') next = applyAskToProject(next, updatedAsk.id);
+
+    const advanced = await advanceProjectFlow(next, httpExecutor, {
+      orgId: firebaseService.getCurrentOrgId() || undefined
+    });
+    commitProject(advanced.project);
+    setFlowLog(advanced.log);
+    setReviewingAsk(null);
+  };
+
+  /** Every open ask across all projects, newest first — the review queue. */
+  const allOpenAsks = useMemo(
+    () =>
+      projects
+        .filter(p => !p.isArchived)
+        .flatMap(p =>
+          openAsks(p).map(({ node, ask }) => ({ project: p, node, ask }))
+        )
+        .sort((a, b) => b.ask.createdAt - a.ask.createdAt),
+    [projects]
+  );
 
   // Auto-dismiss the flow log banner
   useEffect(() => {
@@ -2289,6 +2345,11 @@ export const App: React.FC = () => {
               setSelectedProjectId(projectId);
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
             }}
+            openAsks={allOpenAsks}
+            onReviewAsk={(projectId, nodeId, askId) => {
+              setSelectedProjectId(projectId);
+              setReviewingAsk({ projectId, nodeId, askId });
+            }}
           />
         ) : isReportingMode ? (
           <ReportingView 
@@ -2706,9 +2767,28 @@ export const App: React.FC = () => {
             milestone={node}
             milestones={activeProject.milestones}
             onSave={(updates) => handleUpdateMilestone(configNodeId, updates)}
+            people={settings.people}
             onRun={() => handleRunActionNode(configNodeId)}
             isRunning={runningActionId === configNodeId}
             onClose={() => setConfigNodeId(null)}
+          />
+        );
+      })()}
+
+      {/* Human review of an agent's work product */}
+      {(() => {
+        if (!reviewingAsk) return null;
+        const proj = projects.find(p => p.id === reviewingAsk.projectId);
+        const node = proj?.milestones.find(m => m.id === reviewingAsk.nodeId);
+        const ask = node?.asks?.find(a => a.id === reviewingAsk.askId);
+        if (!proj || !node || !ask) return null;
+        return (
+          <ReviewPanel
+            ask={ask}
+            nodeName={node.name}
+            projectName={proj.name}
+            onSubmit={handleAskSubmit}
+            onClose={() => setReviewingAsk(null)}
           />
         );
       })()}

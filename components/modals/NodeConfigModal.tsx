@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Milestone, NodeType, DecisionBranch, ReadyCondition } from '../../types';
+import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy } from '../../types';
 import { NODE_TYPE_META } from '../../constants';
 import { isActionNode, getNodeType } from '../../lib/flowEngine';
-import { X, Play, Loader2, RotateCcw } from 'lucide-react';
+import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 
 const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.EMAIL]: '{"to": "{{contact_email}}", "subject": "Update on {{project_name}}", "body": "Hi..."}',
@@ -15,13 +15,14 @@ const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
 interface NodeConfigModalProps {
   milestone: Milestone;
   milestones: Milestone[];
+  people?: string[];
   onSave: (updates: Partial<Milestone>) => void;
   onRun: () => void;
   isRunning: boolean;
   onClose: () => void;
 }
 
-export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, onSave, onRun, isRunning, onClose }) => {
+export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, people = [], onSave, onRun, isRunning, onClose }) => {
   const [nodeType, setNodeType] = useState<NodeType>(getNodeType(milestone));
   const [branches, setBranches] = useState<DecisionBranch[]>(milestone.decisionConfig?.branches || []);
   const [loopStartId, setLoopStartId] = useState(milestone.loopConfig?.loopStartId || '');
@@ -30,6 +31,12 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [template, setTemplate] = useState(milestone.actionConfig?.template || '');
   const [autoExecute, setAutoExecute] = useState(milestone.actionConfig?.autoExecute ?? false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+
+  const [reviewRequired, setReviewRequired] = useState(milestone.reviewPolicy?.required ?? false);
+  const [reviewers, setReviewers] = useState<string[]>(milestone.reviewPolicy?.reviewers || []);
+  const [slaHours, setSlaHours] = useState<number | ''>(milestone.reviewPolicy?.slaHours ?? '');
+  const [onExpiry, setOnExpiry] = useState<NonNullable<ReviewPolicy['onExpiry']>>(milestone.reviewPolicy?.onExpiry || 'block');
+  const [maxRevisions, setMaxRevisions] = useState<number | ''>(milestone.reviewPolicy?.maxRevisions ?? '');
 
   const children = milestones.filter(m => (m.dependsOn || []).includes(milestone.id));
   const draftNode: Milestone = { ...milestone, nodeType };
@@ -49,6 +56,16 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const handleSave = () => {
     setJsonError(null);
     const updates: Partial<Milestone> = { nodeType };
+
+    updates.reviewPolicy = reviewRequired
+      ? {
+          required: true,
+          reviewers: reviewers.length ? reviewers : undefined,
+          slaHours: slaHours === '' ? undefined : Number(slaHours),
+          onExpiry,
+          maxRevisions: maxRevisions === '' ? undefined : Number(maxRevisions)
+        }
+      : undefined;
 
     if (nodeType === NodeType.DECISION) {
       // Keep only branches pointing at current children
@@ -271,6 +288,98 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
             )}
           </div>
         )}
+
+        {/* Human review gate */}
+        <div className="bg-emerald-50/40 border border-emerald-100 rounded-2xl p-4 mb-5">
+          <div className="text-emerald-700 font-bold text-xs uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <UserCheck size={13} /> Human Review
+          </div>
+          <p className="text-[11px] text-slate-500 mb-3">
+            When required, this node's work is held for a person to approve. The flow will not continue past
+            it — and downstream nodes stay blocked — until someone signs it off.
+          </p>
+
+          <label className="flex items-center gap-2 cursor-pointer mb-3">
+            <input type="checkbox" checked={reviewRequired} onChange={(e) => setReviewRequired(e.target.checked)} className="rounded" />
+            <span className="text-xs font-bold text-slate-700">Require human review before this node completes</span>
+          </label>
+
+          {reviewRequired && (
+            <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Reviewers</label>
+                {people.length > 0 ? (
+                  <select
+                    multiple
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400 h-24"
+                    value={reviewers}
+                    onChange={(e) => setReviewers(Array.from(e.target.selectedOptions).map(o => (o as HTMLOptionElement).value))}
+                  >
+                    {people.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Comma separated names"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400"
+                    value={reviewers.join(', ')}
+                    onChange={(e) => setReviewers(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  />
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">Leave empty to fall back to whoever is accountable for the node's tasks.</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Due within (hrs)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="—"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400"
+                    value={slaHours}
+                    onChange={(e) => setSlaHours(e.target.value === '' ? '' : parseInt(e.target.value) || 1)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">If overdue</label>
+                  <select
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400"
+                    value={onExpiry}
+                    onChange={(e) => setOnExpiry(e.target.value as any)}
+                  >
+                    <option value="block">Keep waiting</option>
+                    <option value="escalate">Escalate</option>
+                    <option value="auto_approve">Auto-approve</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Max redos</label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="—"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-emerald-400"
+                    value={maxRevisions}
+                    onChange={(e) => setMaxRevisions(e.target.value === '' ? '' : parseInt(e.target.value) || 1)}
+                  />
+                </div>
+              </div>
+
+              {onExpiry === 'auto_approve' && (
+                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 font-medium">
+                  Auto-approve means silence counts as sign-off. The gate releases on the deadline whether or not anyone looked.
+                </p>
+              )}
+
+              {(milestone.asks || []).some(a => a.status === 'open') && (
+                <p className="text-[10px] text-slate-500 font-bold">
+                  {(milestone.asks || []).filter(a => a.status === 'open').length} review(s) currently awaiting a person.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {jsonError && <div className="text-xs text-red-500 font-bold mb-3">{jsonError}</div>}
 

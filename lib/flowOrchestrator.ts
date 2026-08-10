@@ -1,5 +1,6 @@
-import { ActionRun, Milestone, Project } from '../types';
+import { ActionRun, HumanAsk, Milestone, Project } from '../types';
 import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine';
+import { createApprovalAsk, upsertAsk } from './humanAsk';
 
 /**
  * Environment-agnostic flow orchestration.
@@ -19,6 +20,8 @@ export interface ActionExecutionContext {
   runId: string;
   /** Public base URL used to build provider callback URLs. */
   webhookBaseUrl?: string;
+  /** Reviewer feedback from a previous attempt, when this run is a redo. */
+  revision?: { feedback: string; priorOutput?: any; count: number };
 }
 
 export interface ActionOutcome {
@@ -41,6 +44,8 @@ export interface OrchestrationResult {
   log: string[];
   /** Node ids whose runs are awaiting an inbound webhook. */
   pending: string[];
+  /** Asks raised during this advance, for the caller to deliver to people. */
+  askedFor: { nodeId: string; ask: HumanAsk }[];
 }
 
 let runCounter = 0;
@@ -106,12 +111,14 @@ export const runActionNode = async (
   if (!taskType) return { project, log: [`${node.name}: not an executable action node`] };
 
   const runId = newRunId();
+  const revision = node.actionConfig?.revision;
   const ctx: ActionExecutionContext = {
     orgId: opts.orgId,
     projectId: project.id,
     nodeId,
     runId,
-    webhookBaseUrl: opts.webhookBaseUrl
+    webhookBaseUrl: opts.webhookBaseUrl,
+    revision: revision ? { feedback: revision.feedback, priorOutput: revision.priorOutput, count: revision.count } : undefined
   };
 
   let outcome: ActionOutcome;
@@ -186,11 +193,24 @@ export const advanceProjectFlow = async (
   let current = project;
   const log: string[] = [];
   const pending = new Set<string>();
+  const askedFor: { nodeId: string; ask: HumanAsk }[] = [];
 
   for (let round = 0; round < maxRounds; round++) {
-    const { project: advanced, actionsToRun, log: advanceLog } = advanceFlow(current);
+    const { project: advanced, actionsToRun, asksToOpen, log: advanceLog } = advanceFlow(current);
     current = advanced;
     log.push(...advanceLog);
+
+    // Raise review asks before running anything else: a node awaiting sign-off
+    // is not complete, so its dependents stay blocked either way, but the person
+    // should be asked as early as possible.
+    for (const nodeId of asksToOpen) {
+      const node = current.milestones.find(m => m.id === nodeId);
+      if (!node) continue;
+      const ask = createApprovalAsk(node);
+      current = { ...current, milestones: current.milestones.map(m => (m.id === nodeId ? upsertAsk(m, ask) : m)) };
+      askedFor.push({ nodeId, ask });
+      log.push(`${node.name}: awaiting review by ${ask.assignees.join(', ') || 'an unassigned reviewer'}`);
+    }
 
     // Never re-dispatch an action that is already waiting on a callback.
     const runnable = actionsToRun.filter(id => {
@@ -210,7 +230,7 @@ export const advanceProjectFlow = async (
 
   if (log.length === 0) log.push('Flow is up to date — nothing to advance.');
 
-  return { project: current, log, pending: [...pending] };
+  return { project: current, log, pending: [...pending], askedFor };
 };
 
 /** True when a node is an action node currently awaiting an inbound callback. */
