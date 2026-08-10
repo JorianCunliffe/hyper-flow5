@@ -10,17 +10,44 @@ const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
 const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
 const ACCOUNT_ID = 'default_user';
 
-// User provided configuration
-const DEFAULT_CONFIG = {
-  apiKey: "AIzaSyDPFo1kN2hV1xK3a6lFeGXgUuUnJEfKGH4",
-  authDomain: "projectflow-storage.firebaseapp.com",
-  databaseURL: "https://projectflow-storage-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "projectflow-storage",
-  storageBucket: "projectflow-storage.firebasestorage.app",
-  messagingSenderId: "282501228704",
-  appId: "1:282501228704:web:e0dae10ef3f6cd9b8b81c5",
-  measurementId: "G-JCVTVXCS8T"
+/**
+ * Firebase config comes from the environment (VITE_FIREBASE_*), not from source.
+ *
+ * It used to be hardcoded here, which meant the project was baked into the
+ * bundle and the credentials lived in git. Deriving it from env lets each
+ * deployment point at its own Firebase project, and lets the server's
+ * FIREBASE_DATABASE_URL be kept in step with the client's.
+ *
+ * authDomain and storageBucket follow Firebase's own naming convention when not
+ * given explicitly, so a minimal config only needs the API key, project id,
+ * app id and database URL.
+ *
+ * When nothing is configured the app runs in local-only mode (localStorage).
+ * That is deliberate: falling back to some other project's database would
+ * silently write real data to the wrong place.
+ */
+const viteEnv: Record<string, string | undefined> = ((import.meta as any)?.env) || {};
+
+const buildEnvConfig = () => {
+  const projectId = viteEnv.VITE_FIREBASE_PROJECT_ID;
+  const apiKey = viteEnv.VITE_FIREBASE_API_KEY;
+  const databaseURL = viteEnv.VITE_FIREBASE_DATABASE_URL;
+
+  if (!projectId || !apiKey || !databaseURL) return null;
+
+  return {
+    apiKey,
+    projectId,
+    databaseURL,
+    authDomain: viteEnv.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+    storageBucket: viteEnv.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+    messagingSenderId: viteEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: viteEnv.VITE_FIREBASE_APP_ID,
+    measurementId: viteEnv.VITE_FIREBASE_MEASUREMENT_ID
+  };
 };
+
+const DEFAULT_CONFIG = buildEnvConfig();
 
 let db: any = null;
 let storage: any = null;
@@ -78,10 +105,17 @@ try {
   const isManuallyDisconnected = localStorage.getItem(DISCONNECT_FLAG_KEY) === 'true';
 
   if (!isManuallyDisconnected) {
-    // Check local storage first, otherwise use default
+    // A config pasted into the Cloud Setup modal overrides the build's env config.
     const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
     const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
-    
+
+    if (!config?.databaseURL) {
+      console.warn(
+        'Firebase is not configured — running in local-only mode. Set VITE_FIREBASE_API_KEY, ' +
+        'VITE_FIREBASE_PROJECT_ID and VITE_FIREBASE_DATABASE_URL, or paste a config in Cloud Setup.'
+      );
+    }
+
     if (config && config.databaseURL) {
       const app = initializeApp(config);
       db = getDatabase(app);

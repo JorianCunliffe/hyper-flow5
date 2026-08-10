@@ -91,6 +91,28 @@ Reviewers can attach an image, document, video or audio file to any answer.
 
 `GET`/`POST /api/asks/[token]?org=…&project=…` reads or answers a single ask. The token is a capability scoped to that one ask — it never authenticates a session and never exposes the surrounding project. Answering runs the same `respondToAsk` path the inbound channels use, then advances the flow server-side.
 
+## Choosing the Firebase project
+
+The Firebase config is read from the environment, not baked into the source. Set
+`VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID` and
+`VITE_FIREBASE_DATABASE_URL` (plus `VITE_FIREBASE_APP_ID` for auth), and the
+matching `FIREBASE_DATABASE_URL` / `FIREBASE_SERVICE_ACCOUNT` for the server.
+`authDomain` and `storageBucket` are derived from the project id unless given.
+
+**The browser and the server must point at the same database.** They are
+configured separately — `VITE_FIREBASE_DATABASE_URL` for the browser and
+`FIREBASE_DATABASE_URL` for webhooks — and if they diverge, a review answered in
+the app and one answered by webhook write to different places, with no error to
+tell you.
+
+With nothing configured the app runs local-only against `localStorage`. That is
+deliberate: there is no fallback project, because silently writing real data into
+the wrong database is worse than not connecting at all.
+
+Switching projects does **not** migrate data — a different Firebase project is a
+different, empty database. Remember to deploy `database.rules.json` to whichever
+project you point at, or every read and write will be denied.
+
 ### Server-side orchestration setup
 
 Set `PUBLIC_BASE_URL`, `WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT` and `FIREBASE_DATABASE_URL` (see `.env.example`). Without them the app still works, but phone calls fall back to browser polling and webhooks are rejected with `server_store_not_configured`.
