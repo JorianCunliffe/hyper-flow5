@@ -39,8 +39,23 @@ const buildCallbackUrl = (ctx: ExecuteContext | undefined, path: string): string
   const base = ctx.webhookBaseUrl.replace(/\/+$/, '');
   const url = new URL(`${base}${path}`);
   if (ctx.callbackSecret) url.searchParams.set('secret', ctx.callbackSecret);
+
+  // Vercel Deployment Protection intercepts requests to *.vercel.app URLs with an
+  // SSO redirect, which a provider's webhook POST can never satisfy — it would
+  // get a 302 instead of reaching the handler. Protection Bypass for Automation
+  // is the supported escape hatch for third-party webhooks that cannot set
+  // headers: Vercel injects VERCEL_AUTOMATION_BYPASS_SECRET at runtime once the
+  // secret is generated in project settings, and accepts it as a query param.
+  // Harmless when unset, or when the deployment is served from a custom domain.
+  const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (bypass) url.searchParams.set('x-vercel-protection-bypass', bypass);
+
   return url.toString();
 };
+
+/** Strips secrets from a callback URL before it goes anywhere near a log. */
+export const redactCallbackUrl = (url: string): string =>
+  url.replace(/([?&](?:secret|x-vercel-protection-bypass)=)[^&]+/g, '$1***');
 
 const substituteTemplate = (templateFile: string | undefined, projectData: Record<string, any> | undefined) => {
   let parsedContent = templateFile || '';
@@ -202,7 +217,7 @@ export async function executeTask(
       // the browser to poll. metadata comes back verbatim on the webhook payload,
       // which is how we find the run that started this call.
       const callbackUrl = buildCallbackUrl(ctx, '/api/inbound/voice/bland');
-      if (callbackUrl) logs.push(`Completion webhook: ${callbackUrl.replace(/secret=[^&]+/, 'secret=***')}`);
+      if (callbackUrl) logs.push(`Completion webhook: ${redactCallbackUrl(callbackUrl)}`);
       else logs.push('No webhook base URL configured — falling back to polling for this call.');
 
       const response = await fetch('https://api.bland.ai/v1/calls', {

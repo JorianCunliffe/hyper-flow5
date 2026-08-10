@@ -97,6 +97,15 @@ Set `PUBLIC_BASE_URL`, `WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT` and `FIREBAS
 
 In local development `PUBLIC_BASE_URL` must be a tunnel (ngrok or similar) — providers cannot reach `localhost`.
 
+**If the project has Vercel Deployment Protection enabled**, inbound webhooks will
+be intercepted by an SSO redirect and never reach the handler — a provider's POST
+cannot satisfy an interactive login. Either serve the app from a custom domain
+(protection exempts those), or turn on **Protection Bypass for Automation** in
+project settings. With bypass enabled, Vercel injects
+`VERCEL_AUTOMATION_BYPASS_SECRET` at runtime and callback URLs automatically
+carry it as a query parameter — the supported route for third-party webhooks that
+cannot set custom headers. Nothing to configure beyond generating the secret.
+
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/tasks/execute` | Runs one action. Injects the callback URL and secret server-side; the browser never sees the secret. |
