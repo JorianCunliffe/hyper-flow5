@@ -7,6 +7,9 @@ import { WebSocketServer } from "ws";
 
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
 import { executeTask } from "./lib/executeTask";
+import { normalizeBlandCallback } from "./lib/inboundVoice";
+import { advanceServerFlow, resolveCallbackAndAdvance } from "./lib/serverFlow";
+import { claimWebhookEvent, isServerStoreConfigured, releaseWebhookEvent } from "./lib/serverStore";
 
 async function startServer() {
   const app = express();
@@ -135,11 +138,76 @@ async function startServer() {
 
   app.post("/api/tasks/execute", async (req, res) => {
     try {
-      const { taskType, templateFile, projectData } = req.body;
-      const result = await executeTask(taskType, templateFile, projectData);
+      const { taskType, templateFile, projectData, correlation } = req.body;
+      const result = await executeTask(taskType, templateFile, projectData, {
+        webhookBaseUrl: process.env.PUBLIC_BASE_URL,
+        callbackSecret: process.env.WEBHOOK_SECRET,
+        correlation
+      });
       res.status(result.httpStatus).json(result.body);
     } catch(e) {
       res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // Inbound: Bland call completion. Mirrors api/inbound/voice/bland.ts so local
+  // dev (with a tunnel pointing at PUBLIC_BASE_URL) behaves like production.
+  app.post("/api/inbound/voice/bland", async (req, res) => {
+    const expected = process.env.WEBHOOK_SECRET;
+    if (expected && req.query.secret !== expected) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!isServerStoreConfigured()) {
+      console.error('Bland webhook received but server store is not configured');
+      return res.status(200).json({ ok: false, reason: 'server_store_not_configured' });
+    }
+
+    const event = normalizeBlandCallback(req.body);
+    if (!event.eventId) return res.status(400).json({ error: 'Missing call_id' });
+    if (!event.orgId || !event.projectId) {
+      console.error('Bland webhook missing correlation metadata', { callId: event.eventId });
+      return res.status(200).json({ ok: false, reason: 'missing_correlation' });
+    }
+
+    const claimed = await claimWebhookEvent('bland', event.eventId);
+    if (!claimed) return res.status(200).json({ ok: true, duplicate: true });
+
+    try {
+      const outcome = await resolveCallbackAndAdvance(
+        event.orgId,
+        event.projectId,
+        { runId: event.runId, externalId: event.eventId },
+        { status: event.status, output: event.output, logs: event.logs, error: event.error, resolvedBy: 'webhook:bland' }
+      );
+      if (!outcome.ok) {
+        console.warn('Bland webhook could not be applied', { callId: event.eventId, reason: outcome.reason });
+        return res.status(200).json({ ok: false, reason: outcome.reason });
+      }
+      return res.status(200).json({ ok: true, log: outcome.log, pending: outcome.pending });
+    } catch (e) {
+      await releaseWebhookEvent('bland', event.eventId);
+      console.error('Bland webhook handler failed', e);
+      return res.status(500).json({ error: 'Handler failed' });
+    }
+  });
+
+  app.post("/api/flow/advance", async (req, res) => {
+    const expected = process.env.WEBHOOK_SECRET;
+    if (!expected) return res.status(503).json({ error: 'WEBHOOK_SECRET is not configured' });
+    if (req.headers['x-webhook-secret'] !== expected) return res.status(403).json({ error: 'Forbidden' });
+    if (!isServerStoreConfigured()) {
+      return res.status(503).json({ error: 'Server-side persistence is not configured' });
+    }
+
+    const { orgId, projectId } = req.body || {};
+    if (!orgId || !projectId) return res.status(400).json({ error: 'orgId and projectId are required' });
+    try {
+      const outcome = await advanceServerFlow(String(orgId), String(projectId));
+      if (!outcome.ok) return res.status(404).json({ error: outcome.reason });
+      return res.status(200).json(outcome);
+    } catch (e: any) {
+      console.error('Server-side advance failed', e);
+      return res.status(500).json({ error: e?.message || String(e) });
     }
   });
 

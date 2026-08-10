@@ -72,11 +72,20 @@ export interface LoopConfig {
 }
 
 export interface ActionRun {
+  id?: string;       // correlates async provider callbacks back to this exact run
   at: number;
-  status: 'success' | 'error';
+  /**
+   * 'pending' means the action was dispatched but its result arrives later via an
+   * inbound webhook (e.g. a phone call). A pending run does not complete the node
+   * and its output is not merged into projectData until it resolves.
+   */
+  status: 'success' | 'error' | 'pending';
   output?: any;
   logs?: string[];
   error?: string;
+  externalId?: string;   // provider-side id (Bland call_id, Twilio sid, ...)
+  resolvedAt?: number;   // when an async run reached a terminal status
+  resolvedBy?: string;   // e.g. 'webhook:bland'
 }
 
 export interface ActionConfig {

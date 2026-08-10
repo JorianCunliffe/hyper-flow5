@@ -9,6 +9,30 @@ export interface TaskExecutionResult {
   body: any;
 }
 
+/**
+ * Correlation and callback context for actions whose result arrives later via an
+ * inbound webhook. When present, providers are told where to call back and are
+ * given the ids needed to find this exact run again.
+ */
+export interface ExecuteContext {
+  webhookBaseUrl?: string;
+  callbackSecret?: string;
+  correlation?: {
+    orgId?: string;
+    projectId?: string;
+    nodeId?: string;
+    runId?: string;
+  };
+}
+
+const buildCallbackUrl = (ctx: ExecuteContext | undefined, path: string): string | undefined => {
+  if (!ctx?.webhookBaseUrl) return undefined;
+  const base = ctx.webhookBaseUrl.replace(/\/+$/, '');
+  const url = new URL(`${base}${path}`);
+  if (ctx.callbackSecret) url.searchParams.set('secret', ctx.callbackSecret);
+  return url.toString();
+};
+
 const substituteTemplate = (templateFile: string | undefined, projectData: Record<string, any> | undefined) => {
   let parsedContent = templateFile || '';
   if (projectData && typeof parsedContent === 'string') {
@@ -30,7 +54,12 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
   return { parsedContent, templateData };
 };
 
-export async function executeTask(taskType: string, templateFile: string | undefined, projectData: Record<string, any> | undefined): Promise<TaskExecutionResult> {
+export async function executeTask(
+  taskType: string,
+  templateFile: string | undefined,
+  projectData: Record<string, any> | undefined,
+  ctx?: ExecuteContext
+): Promise<TaskExecutionResult> {
   const { parsedContent, templateData } = substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
@@ -159,6 +188,14 @@ export async function executeTask(taskType: string, templateFile: string | undef
       logs.push(`Dialing ${toPhone}...`);
 
       if (!process.env.BLAND_API_KEY) throw new Error('BLAND_API_KEY environment variable is required');
+
+      // Ask Bland to call us back when the call completes, instead of relying on
+      // the browser to poll. metadata comes back verbatim on the webhook payload,
+      // which is how we find the run that started this call.
+      const callbackUrl = buildCallbackUrl(ctx, '/api/inbound/voice/bland');
+      if (callbackUrl) logs.push(`Completion webhook: ${callbackUrl.replace(/secret=[^&]+/, 'secret=***')}`);
+      else logs.push('No webhook base URL configured — falling back to polling for this call.');
+
       const response = await fetch('https://api.bland.ai/v1/calls', {
         method: 'POST',
         headers: {
@@ -182,6 +219,8 @@ export async function executeTask(taskType: string, templateFile: string | undef
             proposal_interest: "boolean: whether the user wants to proceed with the proposal",
             call_summary: "string: summary of the conversation"
           },
+          ...(callbackUrl ? { webhook: callbackUrl } : {}),
+          ...(ctx?.correlation ? { metadata: { ...ctx.correlation, source: 'hyperflow' } } : {}),
           task: templateData.prompt || templateData.body || parsedContent || "Hello, this is a test call."
         })
       });
@@ -196,6 +235,10 @@ export async function executeTask(taskType: string, templateFile: string | undef
         httpStatus: 200,
         body: {
           status: 'success',
+          // The call has been placed, not completed. The orchestrator records this
+          // as a pending run so the node stays incomplete until the webhook lands.
+          pending: !!responseData.call_id,
+          externalId: responseData.call_id,
           output: responseData,
           logs
         }

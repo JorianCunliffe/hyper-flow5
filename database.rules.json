@@ -24,6 +24,14 @@
     },
     "accounts": {
       ".read": "true"
+    },
+    "webhookEvents": {
+      ".read": false,
+      ".write": false
+    },
+    "serverActivity": {
+      ".read": false,
+      ".write": false
     }
   }
 }
