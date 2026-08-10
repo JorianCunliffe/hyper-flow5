@@ -1,34 +1,49 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "invites": {
-      ".read": "true",
-      ".write": "auth != null && (data.exists() ? true : root.child('users').child(auth.uid).child('orgId').val() == newData.child('orgId').val())"
+      ".read": false,
+      ".write": false,
+      "$token": {
+        ".read": "auth != null && data.child('createdAt').val() > (now - 604800000)",
+        ".write": "auth != null && ((!data.exists() && newData.child('orgId').val() === root.child('users').child(auth.uid).child('orgId').val()) || (data.exists() && !newData.exists() && data.child('orgId').val() === root.child('users').child(auth.uid).child('orgId').val()))",
+        ".validate": "newData.hasChildren(['orgId', 'invitedBy', 'createdAt']) && newData.child('invitedBy').val() === auth.uid"
+      }
     },
+
     "projects": {
       "$orgId": {
         ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
         ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
       }
     },
+
     "users": {
       "$uid": {
         ".read": "$uid === auth.uid",
         ".write": "$uid === auth.uid"
       }
     },
+
     "organizations": {
       "$orgId": {
         ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
         ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
       }
     },
+
     "accounts": {
-      ".read": "true"
+      ".read": false,
+      ".write": false
     },
+
     "webhookEvents": {
       ".read": false,
       ".write": false
     },
+
     "serverActivity": {
       ".read": false,
       ".write": false

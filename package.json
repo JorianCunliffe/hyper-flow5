@@ -10,7 +10,8 @@
     "lint": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "start": "node dist/server.cjs",
-    "test:e2e": "node tests/e2e/inbound.e2e.mjs"
+    "test:e2e": "node tests/e2e/inbound.e2e.mjs",
+    "test:rules": "node tests/e2e/rules.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",

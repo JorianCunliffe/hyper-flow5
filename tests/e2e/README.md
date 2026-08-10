@@ -75,6 +75,27 @@ npm run test:e2e
 namespace produces a confusing `project_not_found` while the emulator plainly
 holds the data — the suite's `NS` constant must match the URL.
 
+## Security rules suite
+
+`npm run test:rules` checks `database.rules.json` against the emulator, using the
+real invite flow from `services/firebaseService.ts` plus the attacks the rules
+are meant to stop. Run the emulator with the repo's rules on port 9010:
+
+```bash
+cd tests/e2e
+env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  firebase emulators:start --only database --project hyper-flow-a459b \
+  --config firebase.rules.json
+```
+
+then `npm run test:rules`. It needs no server and no service account — the
+emulator accepts unsigned JWTs, so the suite can act as several different users.
+
+Rules are the only thing standing between the database and the public internet,
+so changing them without running this is how you either lock everyone out or
+leave a hole open. Against the rules as they were before this suite existed, 10
+of its 25 checks failed.
+
 ## What it covers
 
 - auth guards on every endpoint (missing / wrong secret, missing params)
