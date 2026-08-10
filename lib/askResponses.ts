@@ -1,4 +1,4 @@
-import { AskChannel, AskDecision, AskField, Attachment, HumanAsk, HumanResponse } from '../types';
+import { AskChannel, AskDecision, AskField, Attachment, HumanAsk, HumanResponse } from '../types.js';
 
 /**
  * Turning what a person actually sent into a structured HumanResponse.

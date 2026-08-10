@@ -1,7 +1,7 @@
 import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
-import { ActivityLog, Project } from '../types';
-import { normalizeNodeAsks } from './humanAsk';
+import { ActivityLog, Project } from '../types.js';
+import { normalizeNodeAsks } from './humanAsk.js';
 
 /**
  * Server-side persistence via the Firebase Admin SDK.

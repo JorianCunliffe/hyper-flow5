@@ -1,4 +1,4 @@
-import { Milestone, NodeType } from '../types';
+import { Milestone, NodeType } from '../types.js';
 
 /**
  * Node-type helpers, kept separate from the engine so both the engine and the

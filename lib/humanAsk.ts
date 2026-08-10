@@ -9,8 +9,8 @@ import {
   NodeType,
   Project,
   ReviewPolicy
-} from '../types';
-import { getNodeType, isActionNode } from './nodeTypes';
+} from '../types.js';
+import { getNodeType, isActionNode } from './nodeTypes.js';
 
 /**
  * Human-in-the-loop asks: pure logic only.

@@ -1,11 +1,11 @@
-import { Milestone, Project, NodeType, ActionRun } from '../types';
-import { checkReadyCondition } from './taskReadinessUtils';
-import { isReviewSatisfied, needsApprovalAsk } from './humanAsk';
+import { Milestone, Project, NodeType, ActionRun } from '../types.js';
+import { checkReadyCondition } from './taskReadinessUtils.js';
+import { isReviewSatisfied, needsApprovalAsk } from './humanAsk.js';
 
 export type NodeResolution = 'pending' | 'complete' | 'skipped';
 
-export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes';
-import { getNodeType, isActionNode } from './nodeTypes';
+export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes.js';
+import { getNodeType, isActionNode } from './nodeTypes.js';
 
 const isSubtaskComplete = (status: string) => status === 'Completed' || status === 'Complete';
 

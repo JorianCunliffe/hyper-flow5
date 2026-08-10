@@ -1,8 +1,8 @@
-import { HumanAsk, HumanResponse } from '../types';
-import { executeTask } from './executeTask';
-import { ActionExecutor, advanceProjectFlow, resolvePendingRun } from './flowOrchestrator';
-import { applyAskToProject, findAskByToken, recordAskResponse, upsertAsk } from './humanAsk';
-import { findProject, writeProject } from './serverStore';
+import { HumanAsk, HumanResponse } from '../types.js';
+import { executeTask } from './executeTask.js';
+import { ActionExecutor, advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
+import { applyAskToProject, findAskByToken, recordAskResponse, upsertAsk } from './humanAsk.js';
+import { findProject, writeProject } from './serverStore.js';
 
 /**
  * Server-side flow execution. Actions are executed in-process rather than over

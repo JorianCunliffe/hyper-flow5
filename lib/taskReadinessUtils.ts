@@ -1,4 +1,4 @@
-import { Project, Subtask, SubtaskStatus, ReadyCondition } from '../types';
+import { Project, Subtask, SubtaskStatus, ReadyCondition } from '../types.js';
 
 /**
  * Extracts variables from a template string (e.g. {{project_name}})

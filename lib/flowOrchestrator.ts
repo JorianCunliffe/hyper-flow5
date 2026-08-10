@@ -1,6 +1,6 @@
-import { ActionRun, HumanAsk, Milestone, Project } from '../types';
-import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine';
-import { createApprovalAsk, upsertAsk } from './humanAsk';
+import { ActionRun, HumanAsk, Milestone, Project } from '../types.js';
+import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine.js';
+import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 
 /**
  * Environment-agnostic flow orchestration.
