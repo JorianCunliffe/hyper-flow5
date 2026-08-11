@@ -15,7 +15,7 @@ import path from 'node:path';
  *
  * This shipped. api/tasks/execute.ts worked because executeTask.ts has no
  * relative imports of its own, so the build looked fine and one endpoint was
- * genuinely healthy — while the Bland webhook died at module load with
+ * genuinely healthy — while an inbound webhook died at module load with
  * ERR_MODULE_NOT_FOUND, after placing a real phone call and holding a real
  * conversation. The failure only appeared in production, in the one path that
  * costs money and someone's time to exercise.
@@ -62,8 +62,8 @@ describe('module specifiers in shipped code', () => {
   }
 
   test('the entry points that broke are covered', () => {
-    const names = files.map(f => path.relative(ROOT, f));
-    for (const expected of ['lib/serverFlow.ts', 'lib/executeTask.ts', 'api/inbound/voice/bland.ts']) {
+    const names = files.map(f => path.relative(ROOT, f).replaceAll('\\', '/'));
+    for (const expected of ['lib/serverFlow.ts', 'lib/executeTask.ts', 'api/events.ts']) {
       assert.ok(names.includes(expected), `${expected} should be checked`);
     }
   });

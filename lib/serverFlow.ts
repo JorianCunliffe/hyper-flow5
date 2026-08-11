@@ -1,8 +1,10 @@
-import { HumanAsk, HumanResponse } from '../types.js';
-import { executeTask } from './executeTask.js';
-import { ActionExecutor, advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
-import { applyAskToProject, findAskByToken, recordAskResponse, upsertAsk } from './humanAsk.js';
+import { HumanAsk } from '../types.js';
+import { advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
+import { findAskByToken } from './humanAsk.js';
+import { serverExecutor } from './serverExecutor.js';
 import { findProject, writeProject } from './serverStore.js';
+import { deliverRaisedAsks } from './asks/deliverRaisedAsks.js';
+export { respondToAsk } from './asks/respondToAsk.js';
 
 /**
  * Server-side flow execution. Actions are executed in-process rather than over
@@ -10,32 +12,6 @@ import { findProject, writeProject } from './serverStore.js';
  * answering by phone (and, later, email or SMS) moves the flow forward whether
  * or not anyone has the app open.
  */
-
-export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
-  const result = await executeTask(taskType, templateFile, projectData, {
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-    callbackSecret: process.env.WEBHOOK_SECRET,
-    correlation: {
-      orgId: ctx.orgId,
-      projectId: ctx.projectId,
-      nodeId: ctx.nodeId,
-      runId: ctx.runId
-    },
-    revision: ctx.revision
-  });
-
-  const body = result.body || {};
-  if (result.httpStatus >= 400 || (body.status && body.status !== 'success')) {
-    return { status: 'error', error: body.error || `Action failed (HTTP ${result.httpStatus})`, logs: body.logs };
-  }
-
-  return {
-    status: body.pending ? 'pending' : 'success',
-    output: body.output,
-    logs: body.logs,
-    externalId: body.externalId
-  };
-};
 
 export interface AdvanceOutcome {
   ok: boolean;
@@ -49,13 +25,14 @@ export const advanceServerFlow = async (orgId: string, projectId: string): Promi
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
-  const { project, log, pending } = await advanceProjectFlow(located.project, serverExecutor, {
+  const { project, log, pending, askedFor } = await advanceProjectFlow(located.project, serverExecutor, {
     orgId,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL
   });
 
-  await writeProject(orgId, located.index, project);
-  return { ok: true, log, pending };
+  const delivered = await deliverRaisedAsks(project, orgId, askedFor);
+  await writeProject(orgId, located.index, delivered.project);
+  return { ok: true, log: [...log, ...delivered.log], pending };
 };
 
 export interface AskLookup {
@@ -83,60 +60,6 @@ export const readAskByToken = async (
   return { ask: found.ask, nodeName: found.node.name, projectName: located.project.name };
 };
 
-export interface RespondOutcome extends AdvanceOutcome {
-  askStatus?: HumanAsk['status'];
-}
-
-/**
- * Records a human's answer, folds it into the project, and advances the flow.
- *
- * This is the single place an answer becomes project state, whichever channel it
- * arrived on — web, email reply, SMS or voice all normalise into a HumanResponse
- * and land here.
- */
-export const respondToAsk = async (
-  orgId: string,
-  projectId: string,
-  token: string,
-  response: HumanResponse
-): Promise<RespondOutcome> => {
-  const located = await findProject(orgId, projectId);
-  if (!located) return { ok: false, reason: 'project_not_found' };
-
-  const found = findAskByToken(located.project, token);
-  if (!found) return { ok: false, reason: 'ask_not_found' };
-  if (found.ask.status === 'cancelled') return { ok: false, reason: 'ask_cancelled' };
-  if (found.ask.status === 'answered') {
-    // Not an error: a reviewer clicking twice, or a provider retrying, should be
-    // inert rather than reopening settled work.
-    return { ok: false, reason: 'already_answered', askStatus: 'answered' };
-  }
-
-  const updatedAsk = recordAskResponse(found.ask, response);
-  let project = {
-    ...located.project,
-    milestones: located.project.milestones.map(m => (m.id === found.ask.nodeId ? upsertAsk(m, updatedAsk) : m))
-  };
-
-  if (updatedAsk.status === 'answered') {
-    project = applyAskToProject(project, updatedAsk.id);
-  }
-
-  const advanced = await advanceProjectFlow(project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-
-  await writeProject(orgId, located.index, advanced.project);
-
-  return {
-    ok: true,
-    askStatus: updatedAsk.status,
-    log: advanced.log,
-    pending: advanced.pending
-  };
-};
-
 /**
  * Resolves an action run that was waiting on a provider callback, then advances
  * the flow so downstream nodes react to whatever the human just told us.
@@ -144,20 +67,63 @@ export const respondToAsk = async (
 export const resolveCallbackAndAdvance = async (
   orgId: string,
   projectId: string,
-  match: { runId?: string; externalId?: string },
+  match: { nodeId?: string; runId?: string; externalId?: string },
   result: { status: 'success' | 'error'; output?: any; logs?: string[]; error?: string; resolvedBy: string }
 ): Promise<AdvanceOutcome> => {
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
   const resolved = resolvePendingRun(located.project, match, result);
-  if (!resolved) return { ok: false, reason: 'no_matching_pending_run' };
+  if (!resolved) {
+    // Legacy workflow definitions can put executable task types on subtasks.
+    // They use the same explicit correlation and waiting lifecycle as action
+    // nodes, so complete them deterministically instead of leaving an orphaned
+    // communication behind.
+    let found = false;
+    const milestones = located.project.milestones.map(m => ({
+      ...m,
+      subtasks: m.subtasks.map(task => {
+        if (found || !match.nodeId || task.id !== match.nodeId) return task;
+        if (match.runId && task.externalRunId !== match.runId) return task;
+        if (match.externalId && task.externalExecutionId !== match.externalId) return task;
+        if (task.status === 'Completed') return task;
+        found = true;
+        return {
+          ...task,
+          status: result.status === 'success' ? 'Completed' : 'Not Complete',
+          taskOutput: { ...(task.taskOutput || {}), ...(result.output || {}) },
+          evaluationResult: result.status === 'success' ? 'Completed from external event' : (result.error || 'External communication failed')
+        };
+      })
+    }));
+    if (!found) return { ok: false, reason: 'no_matching_pending_run' };
+
+    const output = result.status === 'success' && result.output && typeof result.output === 'object'
+      ? result.output
+      : {};
+    const subtaskProject = {
+      ...located.project,
+      milestones,
+      projectData: { ...(located.project.projectData || {}), ...output }
+    };
+    const advanced = await advanceProjectFlow(subtaskProject, serverExecutor, {
+      orgId,
+      webhookBaseUrl: process.env.PUBLIC_BASE_URL
+    });
+    const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
+    await writeProject(orgId, located.index, delivered.project);
+    return {
+      ok: true,
+      log: ['Subtask completed from external event', ...advanced.log, ...delivered.log],
+      pending: advanced.pending
+    };
+  }
 
   const advanced = await advanceProjectFlow(resolved.project, serverExecutor, {
     orgId,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL
   });
-
-  await writeProject(orgId, located.index, advanced.project);
-  return { ok: true, log: [...resolved.log, ...advanced.log], pending: advanced.pending };
+  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
+  await writeProject(orgId, located.index, delivered.project);
+  return { ok: true, log: [...resolved.log, ...advanced.log, ...delivered.log], pending: advanced.pending };
 };

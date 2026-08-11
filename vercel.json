@@ -3,6 +3,9 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/forms/ask/:token", "destination": "/api/asks/:token" }
+  ],
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 60

@@ -7,10 +7,9 @@ import { WebSocketServer } from "ws";
 
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
 import { executeTask } from "./lib/executeTask";
-import { normalizeBlandCallback } from "./lib/inboundVoice";
-import { buildResponse, validateResponse } from "./lib/askResponses";
-import { advanceServerFlow, readAskByToken, respondToAsk, resolveCallbackAndAdvance } from "./lib/serverFlow";
-import { claimWebhookEvent, isServerStoreConfigured, releaseWebhookEvent } from "./lib/serverStore";
+import { advanceServerFlow, readAskByToken, respondToAsk } from "./lib/serverFlow";
+import { receiveExternalEvent } from "./lib/externalEvents";
+import { isServerStoreConfigured } from "./lib/serverStore";
 
 async function startServer() {
   const app = express();
@@ -152,50 +151,26 @@ async function startServer() {
     }
   });
 
-  // Inbound: Bland call completion. Mirrors api/inbound/voice/bland.ts so local
-  // dev (with a tunnel pointing at PUBLIC_BASE_URL) behaves like production.
-  app.post("/api/inbound/voice/bland", async (req, res) => {
-    const expected = process.env.WEBHOOK_SECRET;
-    if (expected && req.query.secret !== expected) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    if (!isServerStoreConfigured()) {
-      console.error('Bland webhook received but server store is not configured');
-      return res.status(200).json({ ok: false, reason: 'server_store_not_configured' });
-    }
-
-    const event = normalizeBlandCallback(req.body);
-    if (!event.eventId) return res.status(400).json({ error: 'Missing call_id' });
-    if (!event.orgId || !event.projectId) {
-      console.error('Bland webhook missing correlation metadata', { callId: event.eventId });
-      return res.status(200).json({ ok: false, reason: 'missing_correlation' });
-    }
-
-    const claimed = await claimWebhookEvent('bland', event.eventId);
-    if (!claimed) return res.status(200).json({ ok: true, duplicate: true });
+  // Durable provider-neutral inbox. Mirrors api/events.ts for local development.
+  app.post("/api/events", async (req, res) => {
+    const apiKey = process.env.COMMUNICATIONS_API_KEY;
+    if (!apiKey) return res.status(503).json({ error: 'COMMUNICATIONS_API_KEY is not configured' });
+    if (req.headers.authorization !== `Bearer ${apiKey}`) return res.status(403).json({ error: 'Forbidden' });
+    if (!isServerStoreConfigured()) return res.status(503).json({ error: 'Server-side persistence is not configured' });
 
     try {
-      const outcome = await resolveCallbackAndAdvance(
-        event.orgId,
-        event.projectId,
-        { runId: event.runId, externalId: event.eventId },
-        { status: event.status, output: event.output, logs: event.logs, error: event.error, resolvedBy: 'webhook:bland' }
-      );
-      if (!outcome.ok) {
-        console.warn('Bland webhook could not be applied', { callId: event.eventId, reason: outcome.reason });
-        return res.status(200).json({ ok: false, reason: outcome.reason });
-      }
-      return res.status(200).json({ ok: true, log: outcome.log, pending: outcome.pending });
-    } catch (e) {
-      await releaseWebhookEvent('bland', event.eventId);
-      console.error('Bland webhook handler failed', e);
+      const outcome = await receiveExternalEvent(req.body);
+      return res.status(outcome.retryable ? 409 : 200).json(outcome);
+    } catch (error: any) {
+      if (/required|JSON object/.test(error?.message || '')) return res.status(400).json({ error: error.message });
+      console.error('External event handler failed', error);
       return res.status(500).json({ error: 'Handler failed' });
     }
   });
 
   // Read or answer a single ask, authorised by its token. Mirrors
   // api/asks/[token].ts so a review link works the same in local dev.
-  app.all("/api/asks/:token", async (req, res) => {
+  app.all(["/api/asks/:token", "/forms/ask/:token"], async (req, res) => {
     if (!isServerStoreConfigured()) {
       return res.status(503).json({ error: 'Server-side persistence is not configured' });
     }
@@ -234,24 +209,24 @@ async function startServer() {
           return res.status(413).json({ error: 'Comment is too long' });
         }
 
-        const response = buildResponse(found.ask, {
-          via: 'web',
-          actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
-          decision, text, values, attachments
+        const outcome = await respondToAsk({
+          orgId, projectId, askToken: token, channel: 'web',
+          response: {
+            actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+            decision, text, structured: values, attachments
+          }
         });
-
-        const invalid = validateResponse(found.ask, response);
-        if (invalid) return res.status(400).json({ error: invalid });
-
-        const outcome = await respondToAsk(orgId, projectId, token, response);
         if (!outcome.ok) {
-          return res.status(outcome.reason === 'already_answered' ? 409 : 404).json({ error: outcome.reason });
+          const status = outcome.reason === 'already_answered' ? 409
+            : outcome.reason === 'ask_not_found' || outcome.reason === 'project_not_found' ? 404
+            : 400;
+          return res.status(status).json({ error: outcome.reason });
         }
         return res.status(200).json({
           ok: true,
           askStatus: outcome.askStatus,
           log: outcome.log,
-          needsInterpretation: response.needsInterpretation ?? false
+          needsInterpretation: outcome.response?.needsInterpretation ?? false
         });
       }
 
@@ -282,22 +257,6 @@ async function startServer() {
     }
   });
 
-
-  app.get("/api/calls/status/:call_id", async (req, res) => {
-    try {
-      if (!process.env.BLAND_API_KEY) throw new Error('BLAND_API_KEY environment variable is required');
-      const response = await fetch(`https://api.bland.ai/v1/calls/${req.params.call_id}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': process.env.BLAND_API_KEY
-        }
-      });
-      const data = await response.json();
-      res.json(data);
-    } catch(e) {
-      res.status(500).json({ error: String(e) });
-    }
-  });
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

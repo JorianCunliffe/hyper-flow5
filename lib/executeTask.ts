@@ -1,5 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { Resend } from 'resend';
+import { createCommunicationsClient } from './communications/client.js';
+import type { CommunicationCorrelation, CommunicationResult } from './communications/types.js';
 
 // Shared task execution logic used by the local Express server (server.ts)
 // and the Vercel serverless function (api/tasks/execute.ts).
@@ -34,29 +36,6 @@ export interface ExecuteContext {
   };
 }
 
-const buildCallbackUrl = (ctx: ExecuteContext | undefined, path: string): string | undefined => {
-  if (!ctx?.webhookBaseUrl) return undefined;
-  const base = ctx.webhookBaseUrl.replace(/\/+$/, '');
-  const url = new URL(`${base}${path}`);
-  if (ctx.callbackSecret) url.searchParams.set('secret', ctx.callbackSecret);
-
-  // Vercel Deployment Protection intercepts requests to *.vercel.app URLs with an
-  // SSO redirect, which a provider's webhook POST can never satisfy — it would
-  // get a 302 instead of reaching the handler. Protection Bypass for Automation
-  // is the supported escape hatch for third-party webhooks that cannot set
-  // headers: Vercel injects VERCEL_AUTOMATION_BYPASS_SECRET at runtime once the
-  // secret is generated in project settings, and accepts it as a query param.
-  // Harmless when unset, or when the deployment is served from a custom domain.
-  const bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (bypass) url.searchParams.set('x-vercel-protection-bypass', bypass);
-
-  return url.toString();
-};
-
-/** Strips secrets from a callback URL before it goes anywhere near a log. */
-export const redactCallbackUrl = (url: string): string =>
-  url.replace(/([?&](?:secret|x-vercel-protection-bypass)=)[^&]+/g, '$1***');
-
 const substituteTemplate = (templateFile: string | undefined, projectData: Record<string, any> | undefined) => {
   let parsedContent = templateFile || '';
   if (projectData && typeof parsedContent === 'string') {
@@ -76,6 +55,52 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
     // Fallback to text
   }
   return { parsedContent, templateData };
+};
+
+const communicationCorrelation = (ctx: ExecuteContext | undefined): CommunicationCorrelation => {
+  const correlation = ctx?.correlation;
+  if (!correlation?.projectId || !correlation.nodeId || !correlation.runId) {
+    throw new Error('Communications tasks require projectId, nodeId and runId correlation');
+  }
+  return {
+    tenant_id: correlation.orgId,
+    project_id: correlation.projectId,
+    run_id: correlation.runId,
+    task_id: correlation.nodeId
+  };
+};
+
+const communicationResponse = (
+  result: CommunicationResult,
+  logs: string[],
+  output: Record<string, unknown>
+): TaskExecutionResult => {
+  if (result.status === 'failed') {
+    const error = result.error || 'Communications API reported a failed communication';
+    logs.push(`Communication failed: ${error}`);
+    return { httpStatus: 502, body: { status: 'error', error, logs } };
+  }
+
+  const completed = result.status === 'completed';
+  logs.push(`Communication ${result.id} ${completed ? 'completed' : `accepted with status ${result.status}`}`);
+  return {
+    httpStatus: completed ? 200 : 202,
+    body: {
+      status: 'success',
+      pending: !completed,
+      externalId: result.id,
+      externalExecutionId: result.id,
+      externalService: 'communications',
+      startedAt: Date.now(),
+      output: {
+        ...output,
+        ...(result.output || {}),
+        communication_id: result.id,
+        communication_status: result.status
+      },
+      logs
+    }
+  };
 };
 
 export const TASK_TYPES = ['send_email', 'send_sms', 'outgoing_call', 'webhook', 'write_report'] as const;
@@ -157,45 +182,20 @@ export async function executeTask(
     logs.push(`SMS To: ${smsTo || 'Unknown'}`);
     logs.push(`SMS Content: ${smsBody}`);
 
-    const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = process.env;
-    if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER) {
-      try {
-        logs.push('--- SENDING SMS VIA TWILIO ---');
-        if (!smsTo) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
-        const twilioRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`, {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Basic ' + Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64'),
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: new URLSearchParams({ To: smsTo, From: TWILIO_FROM_NUMBER, Body: smsBody })
-        });
-        const twilioData: any = await twilioRes.json();
-        if (!twilioRes.ok) throw new Error(`Twilio error ${twilioRes.status}: ${twilioData.message || JSON.stringify(twilioData)}`);
-        logs.push(`Twilio SID: ${twilioData.sid}`);
-        return {
-          httpStatus: 200,
-          body: {
-            status: 'success',
-            output: { sms_sent: true, sms_sid: twilioData.sid, sms_data: templateData },
-            logs
-          }
-        };
-      } catch (smsError: any) {
-        logs.push(`SMS Error: ${smsError.message}`);
-        return { httpStatus: 500, body: { error: smsError.message, logs } };
-      }
+    try {
+      if (!smsTo) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
+      logs.push('--- DISPATCHING SMS VIA COMMUNICATIONS API ---');
+      const result = await createCommunicationsClient().sendSms({
+        channel: 'sms',
+        to: String(smsTo),
+        content: String(smsBody || ''),
+        correlation: communicationCorrelation(ctx)
+      });
+      return communicationResponse(result, logs, { sms_data: templateData });
+    } catch (smsError: any) {
+      logs.push(`Communications Error: ${smsError.message}`);
+      return { httpStatus: 500, body: { status: 'error', error: smsError.message, logs } };
     }
-
-    logs.push('--- TWILIO SMS STUB (set TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER to send for real) ---');
-    return {
-      httpStatus: 200,
-      body: {
-        status: 'success',
-        output: { sms_sent: true, sms_data: templateData },
-        logs
-      }
-    };
   } else if (taskType === 'webhook') {
     try {
       const url = templateData.url;
@@ -239,71 +239,26 @@ export async function executeTask(
       return { httpStatus: 500, body: { error: hookError.message, logs } };
     }
   } else if (taskType === 'outgoing_call') {
-    const toPhone = templateData.to || projectData?.contact_phone || projectData?.phone_number || '+61415828522';
+    const toPhone = templateData.to || projectData?.contact_phone || projectData?.phone_number;
 
     try {
-      logs.push('--- AI VOICE CALL INITIATED (BLAND AI ULTRA-FAST) ---');
+      logs.push('--- DISPATCHING VOICE CALL VIA COMMUNICATIONS API ---');
       logs.push(`Dialing ${toPhone}...`);
 
-      if (!process.env.BLAND_API_KEY) throw new Error('BLAND_API_KEY environment variable is required');
+      if (!toPhone) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
+      const instruction = templateData.instruction || templateData.prompt || templateData.body || parsedContent;
+      if (!instruction) throw new Error('Outgoing call requires an instruction, prompt or body');
 
-      // Ask Bland to call us back when the call completes, instead of relying on
-      // the browser to poll. metadata comes back verbatim on the webhook payload,
-      // which is how we find the run that started this call.
-      const callbackUrl = buildCallbackUrl(ctx, '/api/inbound/voice/bland');
-      if (callbackUrl) logs.push(`Completion webhook: ${redactCallbackUrl(callbackUrl)}`);
-      else logs.push('No webhook base URL configured — falling back to polling for this call.');
-
-      const response = await fetch('https://api.bland.ai/v1/calls', {
-        method: 'POST',
-        headers: {
-          'Authorization': process.env.BLAND_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          phone_number: toPhone,
-          wait_for_greeting: false,
-          record: true,
-          answered_by_enabled: true,
-          noise_cancellation: false,
-          interruption_threshold: 500,
-          block_interruptions: false,
-          max_duration: 12,
-          model: "base",
-          language: "babel-en",
-          background_track: "none",
-          voicemail_action: "hangup",
-          analysis_schema: {
-            proposal_interest: "boolean: whether the user wants to proceed with the proposal",
-            call_summary: "string: summary of the conversation"
-          },
-          ...(callbackUrl ? { webhook: callbackUrl } : {}),
-          ...(ctx?.correlation ? { metadata: { ...ctx.correlation, source: 'hyperflow' } } : {}),
-          task: templateData.prompt || templateData.body || parsedContent || "Hello, this is a test call."
-        })
+      const result = await createCommunicationsClient().startCall({
+        channel: 'voice',
+        to: String(toPhone),
+        instruction: String(instruction),
+        correlation: communicationCorrelation(ctx)
       });
-      const responseData: any = await response.json();
-      logs.push(`Bland AI Response: ${JSON.stringify(responseData)}`);
-
-      if (!response.ok) {
-        throw new Error("Bland AI failed: " + JSON.stringify(responseData));
-      }
-
-      return {
-        httpStatus: 200,
-        body: {
-          status: 'success',
-          // The call has been placed, not completed. The orchestrator records this
-          // as a pending run so the node stays incomplete until the webhook lands.
-          pending: !!responseData.call_id,
-          externalId: responseData.call_id,
-          output: responseData,
-          logs
-        }
-      };
+      return communicationResponse(result, logs, { call_data: templateData });
     } catch (callError: any) {
-      logs.push(`Call Error: ${callError.message}`);
-      return { httpStatus: 500, body: { error: callError.message, logs } };
+      logs.push(`Communications Error: ${callError.message}`);
+      return { httpStatus: 500, body: { status: 'error', error: callError.message, logs } };
     }
   } else if (taskType === 'write_report') {
     logs.push('--- REPORT WRITING MULTI-STEP GENERATION ---');

@@ -72,6 +72,8 @@ interface EditTaskModalProps {
   task: Subtask;
   milestoneName: string;
   projectName: string;
+  projectId?: string;
+  orgId?: string;
   projectData?: any;
   settings: AppSettings;
   onUpdate: (updates: Partial<Subtask>) => void;
@@ -81,7 +83,7 @@ interface EditTaskModalProps {
 }
 
 export const EditTaskModal: React.FC<EditTaskModalProps> = ({ 
-  isOpen, onClose, task, milestoneName, projectName, projectData, settings, onUpdate, onDelete, children, projectTimeUnit 
+  isOpen, onClose, task, milestoneName, projectName, projectId, orgId, projectData, settings, onUpdate, onDelete, children, projectTimeUnit
 }) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionOutput, setExecutionOutput] = useState<string | null>(null);
@@ -524,6 +526,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                        setIsExecuting(true);
                        setExecutionOutput(null);
                        try {
+                         const externalRunId = `subtask_${task.id}_${Date.now().toString(36)}`;
                          const res = await fetch('/api/tasks/execute', {
                            method: 'POST',
                            headers: { 'Content-Type': 'application/json' },
@@ -531,7 +534,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                              taskType: task.taskType,
                              templateFile: task.templateFile,
                              projectData: projectData || {},
-                             baseUrl: window.location.origin
+                             correlation: { orgId, projectId, nodeId: task.id, runId: externalRunId }
                            })
                          });
                          
@@ -576,47 +579,17 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                               }
                            }
                            
-                           let isPendingCall = false;
-                           if (finalOutput?.call_id) {
-                               isPendingCall = true;
-                               // Schedule a check after 5 minutes
-                               setTimeout(async () => {
-                                  try {
-                                    const pollRes = await fetch(`/api/calls/status/${data.output.call_id}`);
-                                    const pollData = await pollRes.json();
-                                    
-                                    // You would ideally update the task output here using a global state dispatcher
-                                    // but doing this here ensures the data gets logged at least.
-                                    console.log("Polled 5m call status:", pollData);
-                                    
-                                    // Update task output with analysis if completed
-                                    if (pollData.status === 'completed') {
-                                        onUpdate({
-                                            taskOutput: {
-                                                ...data.output,
-                                                call_completed: true,
-                                                remote_status: pollData.status,
-                                                call_length: pollData.call_length,
-                                                call_summary: pollData.summary,
-                                                proposal_interest: pollData.analysis?.proposal_interest === "true" || pollData.analysis?.proposal_interest === true
-                                            },
-                                            status: 'Completed',
-                                            evaluationResult: "Call completed successfully",
-                                            triggerWriteBack: true
-                                        });
-                                    }
-                                  } catch (e) {
-                                      console.error("Polling error:", e);
-                                  }
-                               }, 5 * 60 * 1000); // 5 minutes
-                           }
-
-                           onUpdate({ 
-                             taskOutput: isPendingCall ? { ...finalOutput, call_initiated_at: Date.now() } : finalOutput,
-                             status: isPendingCall ? 'In Progress' : 'Completed',
-                             evaluationResult: isPendingCall ? "Call initiated. Waiting for completion..." : "Task completed remotely",
-                             triggerWriteBack: !isPendingCall
-                           });
+                           const isWaiting = data.pending === true;
+                           onUpdate({
+                             taskOutput: finalOutput,
+                             status: isWaiting ? 'Held' : 'Completed',
+                             evaluationResult: isWaiting ? "Communication dispatched. Waiting for an external event..." : "Task completed remotely",
+                             externalRunId: isWaiting ? externalRunId : undefined,
+                             externalExecutionId: isWaiting ? data.externalExecutionId : undefined,
+                             externalService: isWaiting ? data.externalService : undefined,
+                             externalStartedAt: isWaiting ? data.startedAt : undefined,
+                             triggerWriteBack: !isWaiting
+                           } as any);
                          } else {
                            setExecutionOutput("Task execution failed: " + (data.error || "unknown task type.\\nLogs:\\n") + (data.logs||[]).join('\n'));
                          }
@@ -631,42 +604,6 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                     {isExecuting ? 'Executing...' : 'Execute Automated Action'}
                   </button>
                   
-                  {task.taskOutput?.call_id && task.status !== 'Completed' && (
-                     <button
-                        onClick={async (e) => {
-                           e.preventDefault();
-                           try {
-                               setExecutionOutput("Checking call status...");
-                               const pollRes = await fetch(`/api/calls/status/${task.taskOutput.call_id}`);
-                               const pollData = await pollRes.json();
-                               
-                               if (pollData.status === 'completed') {
-                                   setExecutionOutput("Call completed. Summary: " + pollData.summary);
-                                   onUpdate({
-                                       taskOutput: {
-                                           ...task.taskOutput,
-                                           call_completed: true,
-                                           remote_status: pollData.status,
-                                           call_length: pollData.call_length,
-                                           call_summary: pollData.summary,
-                                           proposal_interest: pollData.analysis?.proposal_interest === "true" || pollData.analysis?.proposal_interest === true
-                                       },
-                                       status: 'Completed',
-                                       evaluationResult: "Call completed successfully",
-                                       triggerWriteBack: true
-                                   });
-                               } else {
-                                   setExecutionOutput(`Call status: ${pollData.status}`);
-                               }
-                           } catch (err) {
-                               setExecutionOutput("Error checking status: " + String(err));
-                           }
-                        }}
-                        className="w-full font-bold px-4 py-2 mt-2 rounded-xl transition flex justify-center items-center gap-2 bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100"
-                     >
-                        Check Call Status
-                     </button>
-                  )}
                 </div>
              )}
 

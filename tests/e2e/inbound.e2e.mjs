@@ -50,7 +50,7 @@ const seedProject = async () => {
             nodeType: 'phone_call',
             actionConfig: {
               template: '{"to":"{{contact_phone}}"}', autoExecute: false,
-              lastRun: { id: 'run_1', at: 1, status: 'pending', externalId: 'call_xyz', logs: ['Dialing...'] }
+              lastRun: { id: 'run_1', at: 1, status: 'pending', externalId: 'comm_xyz', externalExecutionId: 'comm_xyz', externalService: 'communications', logs: ['Dialing...'] }
             }
           },
           {
@@ -88,16 +88,15 @@ const seedProject = async () => {
   });
 };
 
-const blandPayload = () => ({
-  call_id: 'call_xyz', status: 'completed', completed: true, call_length: 2.1,
-  summary: 'Client is keen, wants pricing.',
-  analysis: { proposal_interest: 'true' },
-  metadata: { orgId: ORG, projectId: 'proj_1', nodeId: 'CALL', runId: 'run_1' }
+const communicationEvent = () => ({
+  event_id: 'evt_call_xyz', source: 'communications', type: 'call.completed', communication_id: 'comm_xyz',
+  correlation: { tenant_id: ORG, project_id: 'proj_1', task_id: 'CALL', run_id: 'run_1' },
+  payload: { proposal_interest: true, call_summary: 'Client is keen, wants pricing.' }
 });
 
 const run = async () => {
   // Clear prior state so idempotency claims from an earlier run don't mask results.
-  await dbPut('webhookEvents', null);
+  await dbPut('external_events', null);
   await dbPut(`projects/${ORG}`, null);
 
   section('Guards (auth, method, validation)');
@@ -108,36 +107,36 @@ const run = async () => {
     r = await req('POST', '/api/flow/advance', { orgId: ORG, projectId: 'proj_1' }, { 'x-webhook-secret': 'wrong' });
     ok(r.status === 403, 'flow/advance with wrong secret → 403', `got ${r.status}`);
 
-    r = await req('POST', '/api/inbound/voice/bland?secret=wrong', blandPayload());
-    ok(r.status === 403, 'bland webhook with wrong secret → 403', `got ${r.status}`);
+    r = await req('POST', '/api/events', communicationEvent(), { Authorization: 'Bearer wrong' });
+    ok(r.status === 403, 'event inbox with wrong API key → 403', `got ${r.status}`);
 
-    r = await req('POST', `/api/inbound/voice/bland?secret=${SECRET}`, { status: 'completed' });
-    ok(r.status === 400, 'bland webhook without call_id → 400', `got ${r.status}`);
+    r = await req('POST', '/api/events', { source: 'communications', type: 'call.completed' }, { Authorization: `Bearer ${SECRET}` });
+    ok(r.status === 400, 'event without event_id → 400', `got ${r.status}`);
 
-    r = await req('POST', `/api/inbound/voice/bland?secret=${SECRET}`, { call_id: 'orphan_1', status: 'completed', completed: true });
-    ok(r.status === 200 && r.json?.reason === 'missing_correlation',
-      'bland webhook without correlation → 200 missing_correlation', JSON.stringify(r.json));
+    r = await req('POST', '/api/events', { event_id: 'evt_orphan', source: 'communications', type: 'call.completed' }, { Authorization: `Bearer ${SECRET}` });
+    ok(r.status === 200 && /missing .*correlation/.test(r.json?.reason || ''),
+      'event without correlation → persisted processing failure', JSON.stringify(r.json));
 
     r = await req('GET', '/api/asks/tok_x');
     ok(r.status === 400, 'ask endpoint without org/project → 400', `got ${r.status}`);
   }
 
-  section('Inbound voice: webhook resolves a pending run and advances the flow');
+  section('External event inbox resolves a waiting run and advances the flow');
   await seedProject();
   {
     const before = await dbGet(`projects/${ORG}/projects/0`);
     ok(before.milestones[0].actionConfig.lastRun.status === 'pending', 'seed: call run starts pending');
     ok(!before.milestones[1].decisionConfig.selectedTargetId, 'seed: decision undecided');
 
-    const r = await req('POST', `/api/inbound/voice/bland?secret=${SECRET}`, blandPayload());
-    ok(r.status === 200 && r.json?.ok === true, 'webhook accepted → 200 ok', JSON.stringify(r.json));
+    const r = await req('POST', '/api/events', communicationEvent(), { Authorization: `Bearer ${SECRET}` });
+    ok(r.status === 200 && r.json?.ok === true, 'event accepted → 200 ok', JSON.stringify(r.json));
 
     const after = await dbGet(`projects/${ORG}/projects/0`);
     const call = after.milestones.find(m => m.id === 'CALL');
     ok(call.actionConfig.lastRun.status === 'success', 'pending run resolved to success', call.actionConfig.lastRun.status);
-    ok(call.actionConfig.lastRun.resolvedBy === 'webhook:bland', 'run records how it was resolved');
+    ok(call.actionConfig.lastRun.resolvedBy === 'event:communications', 'run records how it was resolved');
     ok(!call.actionConfig.runHistory, 'resolving is not archived as a separate run');
-    ok(after.projectData.proposal_interest === true, '"true" coerced to boolean in projectData', JSON.stringify(after.projectData));
+    ok(after.projectData.proposal_interest === true, 'event payload merged into projectData', JSON.stringify(after.projectData));
     ok(after.projectData.call_summary === 'Client is keen, wants pricing.', 'call summary persisted');
 
     const decision = after.milestones.find(m => m.id === 'D');
@@ -150,13 +149,13 @@ const run = async () => {
     ok(root.settings?.people?.[0] === 'Jorian', 'path-scoped write left settings untouched');
   }
 
-  section('Idempotency: duplicate webhook delivery');
+  section('Idempotency: duplicate event delivery');
   {
-    const r = await req('POST', `/api/inbound/voice/bland?secret=${SECRET}`, blandPayload());
-    ok(r.status === 200 && r.json?.duplicate === true, 'replayed webhook → duplicate, no work done', JSON.stringify(r.json));
+    const r = await req('POST', '/api/events', communicationEvent(), { Authorization: `Bearer ${SECRET}` });
+    ok(r.status === 200 && r.json?.duplicate === true, 'replayed event → duplicate, no work done', JSON.stringify(r.json));
 
-    const claim = await dbGet('webhookEvents/bland/call_xyz');
-    ok(claim && typeof claim.at === 'number', 'event id claimed in webhookEvents');
+    const claim = await dbGet('external_events/evt_call_xyz');
+    ok(claim?.processing_status === 'processed', 'event persisted and marked processed');
   }
 
   section('Review gate: reading and answering an ask by token');

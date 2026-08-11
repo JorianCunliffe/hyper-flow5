@@ -1326,7 +1326,10 @@ export const App: React.FC = () => {
       status: data.pending ? 'pending' : 'success',
       output: data.output,
       logs: data.logs,
-      externalId: data.externalId
+      externalId: data.externalId,
+      externalExecutionId: data.externalExecutionId,
+      externalService: data.externalService,
+      startedAt: data.startedAt
     };
   };
 
@@ -2756,6 +2759,8 @@ export const App: React.FC = () => {
            task={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.subtasks[isEditingSubtask.sIdx!]!}
            milestoneName={activeProject.milestones.find(m => m.id === isEditingSubtask.mId)?.name || 'Unknown'}
            projectName={activeProject.name}
+           projectId={activeProject.id}
+           orgId={currentOrgId || undefined}
            projectData={activeProject.projectData}
            projectTimeUnit={activeProject.timeUnit || 'days'}
            settings={settings}

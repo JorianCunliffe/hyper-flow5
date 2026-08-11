@@ -11,6 +11,7 @@ import {
   ReviewPolicy
 } from '../types.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
+import { createAsk } from './asks/createAsk.js';
 
 /**
  * Human-in-the-loop asks: pure logic only.
@@ -59,6 +60,7 @@ export const normalizeAsk = (ask: any): HumanAsk => ({
   responses: arr<HumanResponse>(ask?.responses).map(r => ({ ...r, attachments: arr<Attachment>(r?.attachments) })),
   assignees: arr<string>(ask?.assignees),
   channels: arr<AskChannel>(ask?.channels),
+  deliveries: ask?.deliveries ? arr<any>(ask.deliveries) : undefined,
   fields: ask?.fields ? arr<AskField>(ask.fields) : undefined,
   writeBack: ask?.writeBack ? arr<any>(ask.writeBack) : undefined
 });
@@ -135,6 +137,8 @@ export interface CreateAskOptions {
   now?: number;
   id?: string;
   token?: string;
+  projectId?: string;
+  personId?: string;
 }
 
 const resolveAssignees = (policy: ReviewPolicy | undefined, node: Milestone, explicit?: string[]): string[] => {
@@ -178,19 +182,21 @@ export const createApprovalAsk = (node: Milestone, opts: CreateAskOptions = {}):
   const revision = node.actionConfig?.revision?.count ?? 0;
 
   return {
-    id: opts.id || newAskId(),
-    token: opts.token || newAskToken(),
-    kind: 'approval',
-    status: 'open',
-    prompt: opts.prompt || `Review "${node.name}" and approve, or send it back with changes.`,
-    nodeId: node.id,
-    runId,
+    ...createAsk({
+      taskId: node.id,
+      projectId: opts.projectId,
+      runId,
+      personId: opts.personId || resolveAssignees(policy, node, opts.assignees)[0],
+      question: opts.prompt || `Review "${node.name}" and approve, or send it back with changes.`,
+      responseType: 'approval',
+      assignees: resolveAssignees(policy, node, opts.assignees),
+      channels: opts.channels || policy?.channels || DEFAULT_CHANNELS,
+      expiresAt: policy?.slaHours ? now + hoursToMs(policy.slaHours) : undefined,
+      now,
+      askId: opts.id,
+      askToken: opts.token
+    }),
     artifact: artifactFromRun(node),
-    assignees: resolveAssignees(policy, node, opts.assignees),
-    channels: opts.channels || policy?.channels || DEFAULT_CHANNELS,
-    createdAt: now,
-    dueAt: policy?.slaHours ? now + hoursToMs(policy.slaHours) : undefined,
-    responses: [],
     revision
   };
 };
@@ -215,29 +221,30 @@ export const createQuestionAsk = (
     required: true
   }));
 
-  return {
-    id: opts.id || newAskId(),
-    token: opts.token || newAskToken(),
-    kind: 'question',
-    status: 'open',
-    prompt:
-      opts.prompt ||
-      `"${node.name}" needs ${missingVariables.length === 1 ? 'one detail' : `${missingVariables.length} details`} before it can run: ${missingVariables.join(', ')}.`,
-    nodeId: node.id,
-    fields,
-    assignees: resolveAssignees(node.reviewPolicy, node, opts.assignees),
-    channels: opts.channels || node.reviewPolicy?.channels || DEFAULT_CHANNELS,
-    createdAt: now,
-    dueAt: node.reviewPolicy?.slaHours ? now + hoursToMs(node.reviewPolicy.slaHours) : undefined,
-    responses: [],
-    // Answers to a question ask flow straight into project data.
-    writeBack: missingVariables.map(name => ({
+  const writeBack = missingVariables.map(name => ({
       name,
       type: 'string',
       write_on: 'approval',
       value_source: 'task_output'
-    }))
-  };
+    } as const));
+
+  return createAsk({
+    taskId: node.id,
+    projectId: opts.projectId,
+    personId: opts.personId || resolveAssignees(node.reviewPolicy, node, opts.assignees)[0],
+    question:
+      opts.prompt ||
+      `"${node.name}" needs ${missingVariables.length === 1 ? 'one detail' : `${missingVariables.length} details`} before it can run: ${missingVariables.join(', ')}.`,
+    responseType: 'question',
+    fields,
+    assignees: resolveAssignees(node.reviewPolicy, node, opts.assignees),
+    channels: opts.channels || node.reviewPolicy?.channels || DEFAULT_CHANNELS,
+    expiresAt: node.reviewPolicy?.slaHours ? now + hoursToMs(node.reviewPolicy.slaHours) : undefined,
+    now,
+    askId: opts.id,
+    askToken: opts.token,
+    writeBack
+  });
 };
 
 /**
@@ -299,6 +306,9 @@ export const findAskInProject = (
 
 export const findAskByToken = (project: Project, token: string) =>
   findAskInProject(project, ask => ask.token === token);
+
+export const findAskById = (project: Project, askId: string) =>
+  findAskInProject(project, ask => ask.id === askId);
 
 /**
  * Folds an answered ask into the project.

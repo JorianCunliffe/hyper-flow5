@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { buildResponse, validateResponse } from '../../lib/askResponses.js';
 import { readAskByToken, respondToAsk } from '../../lib/serverFlow.js';
 import { isServerStoreConfigured } from '../../lib/serverStore.js';
 
@@ -61,31 +60,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const found = await readAskByToken(orgId, projectId, token);
-      if (!found) return res.status(404).json({ error: 'Not found' });
-
       const { decision, text, values, attachments, actor } = req.body || {};
       if (typeof text === 'string' && text.length > MAX_TEXT) {
         return res.status(413).json({ error: 'Comment is too long' });
       }
 
-      const response = buildResponse(found.ask, {
-        via: 'web',
-        // Holding the token is the authorisation; the display name is not trusted
-        // as identity, so it is recorded as claimed rather than verified.
-        actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
-        decision,
-        text,
-        values,
-        attachments
+      const outcome = await respondToAsk({
+        orgId,
+        projectId,
+        askToken: token,
+        channel: 'web',
+        response: {
+          actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+          decision,
+          text,
+          structured: values,
+          attachments
+        }
       });
-
-      const invalid = validateResponse(found.ask, response);
-      if (invalid) return res.status(400).json({ error: invalid });
-
-      const outcome = await respondToAsk(orgId, projectId, token, response);
       if (!outcome.ok) {
-        const status = outcome.reason === 'already_answered' ? 409 : 404;
+        const status = outcome.reason === 'already_answered' ? 409
+          : outcome.reason === 'ask_not_found' || outcome.reason === 'project_not_found' ? 404
+          : 400;
         return res.status(status).json({ error: outcome.reason });
       }
 
@@ -93,7 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ok: true,
         askStatus: outcome.askStatus,
         log: outcome.log,
-        needsInterpretation: response.needsInterpretation ?? false
+        needsInterpretation: outcome.response?.needsInterpretation ?? false
       });
     }
 

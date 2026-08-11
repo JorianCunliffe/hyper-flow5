@@ -39,7 +39,7 @@
       ".write": false
     },
 
-    "webhookEvents": {
+    "external_events": {
       ".read": false,
       ".write": false
     },

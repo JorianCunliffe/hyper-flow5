@@ -30,6 +30,9 @@ export interface ActionOutcome {
   logs?: string[];
   error?: string;
   externalId?: string;
+  externalExecutionId?: string;
+  externalService?: string;
+  startedAt?: number;
 }
 
 export type ActionExecutor = (
@@ -87,14 +90,16 @@ export const applyActionRun = (project: Project, nodeId: string, run: ActionRun)
 /** Finds the node holding a pending run with the given run id or provider external id. */
 export const findNodeByRun = (
   project: Project,
-  match: { runId?: string; externalId?: string }
+  match: { nodeId?: string; runId?: string; externalId?: string }
 ): Milestone | undefined =>
   project.milestones.find(m => {
     const run = m.actionConfig?.lastRun;
     if (!run) return false;
-    if (match.runId && run.id === match.runId) return true;
-    if (match.externalId && run.externalId && run.externalId === match.externalId) return true;
-    return false;
+    if (!match.nodeId && !match.runId && !match.externalId) return false;
+    if (match.nodeId && m.id !== match.nodeId) return false;
+    if (match.runId && run.id !== match.runId) return false;
+    if (match.externalId && run.externalExecutionId !== match.externalId && run.externalId !== match.externalId) return false;
+    return true;
   });
 
 /** Executes a single action node and folds the result back into the project. */
@@ -132,10 +137,17 @@ export const runActionNode = async (
     id: runId,
     at: Date.now(),
     status: outcome.status,
+    executionState:
+      outcome.status === 'pending' ? 'waiting'
+      : outcome.status === 'success' ? 'completed'
+      : 'failed',
     output: outcome.output,
     logs: outcome.logs,
     error: outcome.error,
-    externalId: outcome.externalId
+    externalId: outcome.externalId,
+    externalExecutionId: outcome.externalExecutionId || outcome.externalId,
+    externalService: outcome.externalService,
+    startedAt: outcome.startedAt || Date.now()
   };
 
   const label =
@@ -152,7 +164,7 @@ export const runActionNode = async (
  */
 export const resolvePendingRun = (
   project: Project,
-  match: { runId?: string; externalId?: string },
+  match: { nodeId?: string; runId?: string; externalId?: string },
   result: { status: 'success' | 'error'; output?: any; logs?: string[]; error?: string; resolvedBy: string }
 ): { project: Project; log: string[]; nodeId: string } | null => {
   const node = findNodeByRun(project, match);
@@ -164,6 +176,7 @@ export const resolvePendingRun = (
   const run: ActionRun = {
     ...prior,
     status: result.status,
+    executionState: result.status === 'success' ? 'completed' : 'failed',
     output: { ...(prior.output || {}), ...(result.output || {}) },
     logs: [...(prior.logs || []), ...(result.logs || [])],
     error: result.error,
@@ -206,7 +219,7 @@ export const advanceProjectFlow = async (
     for (const nodeId of asksToOpen) {
       const node = current.milestones.find(m => m.id === nodeId);
       if (!node) continue;
-      const ask = createApprovalAsk(node);
+      const ask = createApprovalAsk(node, { projectId: current.id });
       current = { ...current, milestones: current.milestones.map(m => (m.id === nodeId ? upsertAsk(m, ask) : m)) };
       askedFor.push({ nodeId, ask });
       log.push(`${node.name}: awaiting review by ${(ask.assignees || []).join(', ') || 'an unassigned reviewer'}`);

@@ -118,7 +118,7 @@ describe('resolvePendingRun', () => {
       status: 'success',
       output: { proposal_interest: true },
       logs: ['callback'],
-      resolvedBy: 'webhook:bland'
+      resolvedBy: 'event:communications'
     });
 
     assert.ok(res);
@@ -126,12 +126,12 @@ describe('resolvePendingRun', () => {
     assert.equal(res!.project.projectData!.proposal_interest, true, 'output reaches projectData once the run succeeds');
     const run = res!.project.milestones[0].actionConfig!.lastRun!;
     assert.equal(run.status, 'success');
-    assert.equal(run.resolvedBy, 'webhook:bland');
+    assert.equal(run.resolvedBy, 'event:communications');
     assert.deepEqual(run.logs, ['dialing', 'callback'], 'dispatch logs are preserved');
   });
 
   test('resolves by run id', () => {
-    const res = resolvePendingRun(pendingProject(), { runId: 'r1' }, { status: 'success', resolvedBy: 'webhook:bland' });
+    const res = resolvePendingRun(pendingProject(), { runId: 'r1' }, { status: 'success', resolvedBy: 'event:communications' });
     assert.ok(res);
     assert.equal(res!.nodeId, 'CALL');
   });
@@ -139,12 +139,12 @@ describe('resolvePendingRun', () => {
   test('returns null when the run is already resolved — a duplicate callback is a no-op', () => {
     const p = pendingProject();
     p.milestones[0].actionConfig!.lastRun!.status = 'success';
-    const res = resolvePendingRun(p, { externalId: 'call_1' }, { status: 'success', resolvedBy: 'webhook:bland' });
+    const res = resolvePendingRun(p, { externalId: 'call_1' }, { status: 'success', resolvedBy: 'event:communications' });
     assert.equal(res, null);
   });
 
   test('returns null for an unknown external id', () => {
-    const res = resolvePendingRun(pendingProject(), { externalId: 'nope' }, { status: 'success', resolvedBy: 'webhook:bland' });
+    const res = resolvePendingRun(pendingProject(), { externalId: 'nope' }, { status: 'success', resolvedBy: 'event:communications' });
     assert.equal(res, null);
   });
 
@@ -153,7 +153,7 @@ describe('resolvePendingRun', () => {
       status: 'error',
       output: { proposal_interest: true },
       error: 'no answer',
-      resolvedBy: 'webhook:bland'
+      resolvedBy: 'event:communications'
     });
     assert.ok(res);
     assert.deepEqual(res!.project.projectData, {});

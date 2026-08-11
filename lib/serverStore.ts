@@ -2,6 +2,7 @@ import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-a
 import { getDatabase } from 'firebase-admin/database';
 import { ActivityLog, Project } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
+import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
 
 /**
  * Server-side persistence via the Firebase Admin SDK.
@@ -232,24 +233,38 @@ export const appendActivityLog = async (orgId: string, log: ActivityLog): Promis
   await getDb().ref(`serverActivity/${orgId}`).push(JSON.parse(JSON.stringify(log)));
 };
 
-/**
- * Claims a provider event id exactly once. Returns false when the event was
- * already processed — every inbound webhook provider retries on non-2xx and on
- * timeouts, and replaying a flow advance can reset subtask state via loops.
- */
-export const claimWebhookEvent = async (provider: string, eventId: string): Promise<boolean> => {
-  const safeId = encodeURIComponent(eventId).replace(/[.#$/[\]]/g, '_');
-  const ref = getDb().ref(`webhookEvents/${provider}/${safeId}`);
-  const result = await ref.transaction(current => (current === null ? { at: Date.now() } : undefined));
+const externalEventRef = (eventId: string) => {
+  // encodeURIComponent covers every RTDB-forbidden key character except dot.
+  // Encode dot instead of replacing with '_' so distinct event ids cannot collide.
+  const safeId = encodeURIComponent(eventId).replace(/\./g, '%2E');
+  return getDb().ref(`external_events/${safeId}`);
+};
+
+/** Durable event inbox insert. The transaction makes event_id the idempotency key. */
+export const persistExternalEvent = async (event: ExternalEventRecord): Promise<boolean> => {
+  const result = await externalEventRef(event.event_id).transaction(current =>
+    current === null ? JSON.parse(JSON.stringify(event)) : undefined
+  );
   return result.committed;
 };
 
-/** Best-effort release, so a failed handler can be retried by the provider. */
-export const releaseWebhookEvent = async (provider: string, eventId: string): Promise<void> => {
-  const safeId = encodeURIComponent(eventId).replace(/[.#$/[\]]/g, '_');
-  try {
-    await getDb().ref(`webhookEvents/${provider}/${safeId}`).remove();
-  } catch {
-    /* non-fatal: worst case the retry is treated as a duplicate */
-  }
+/** Claims a received or previously-failed event for one processing attempt. */
+export const claimExternalEventProcessing = async (eventId: string): Promise<boolean> => {
+  const result = await externalEventRef(eventId).transaction(current => {
+    if (!current || !['received', 'processing_failed'].includes(current.processing_status)) return undefined;
+    return { ...current, processing_status: 'processing', processing_error: null };
+  });
+  return result.committed;
+};
+
+export const finishExternalEventProcessing = async (
+  eventId: string,
+  status: Extract<ExternalEventProcessingStatus, 'processed' | 'processing_failed'>,
+  error?: string
+): Promise<void> => {
+  await externalEventRef(eventId).update({
+    processing_status: status,
+    processed_at: new Date().toISOString(),
+    processing_error: error || null
+  });
 };

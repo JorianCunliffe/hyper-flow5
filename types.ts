@@ -80,12 +80,17 @@ export interface ActionRun {
    * and its output is not merged into projectData until it resolves.
    */
   status: 'success' | 'error' | 'pending';
+  /** Provider-neutral execute-until-held lifecycle. Kept alongside status for UI compatibility. */
+  executionState?: 'ready' | 'running' | 'waiting' | 'completed' | 'failed';
   output?: any;
   logs?: string[];
   error?: string;
-  externalId?: string;   // provider-side id (Bland call_id, Twilio sid, ...)
+  externalId?: string;   // legacy alias for externalExecutionId
+  externalExecutionId?: string;
+  externalService?: 'communications' | string;
+  startedAt?: number;
   resolvedAt?: number;   // when an async run reached a terminal status
-  resolvedBy?: string;   // e.g. 'webhook:bland'
+  resolvedBy?: string;   // e.g. 'event:communications'
 }
 
 export interface ActionConfig {
@@ -164,6 +169,9 @@ export interface HumanResponse {
   /** Set when `values` were inferred from prose rather than entered directly. */
   confidence?: number;
   needsInterpretation?: boolean;
+  /** Provider-neutral delivery identifiers retained for end-to-end audit. */
+  communicationId?: string;
+  transcriptId?: string;
   /** Original provider payload, kept for audit. */
   raw?: any;
 }
@@ -205,6 +213,10 @@ export interface HumanAsk {
   prompt: string;
 
   nodeId: string;
+  /** Durable routing identity. `nodeId` remains the task id for compatibility. */
+  projectId?: string;
+  personId?: string;
+  responseType?: AskKind;
   /** Binds an approval to one specific action run, so a stale approval cannot
    *  satisfy a later run of the same node. */
   runId?: string;
@@ -215,6 +227,14 @@ export interface HumanAsk {
 
   assignees: string[];
   channels: AskChannel[];
+  deliveries?: {
+    channel: Exclude<AskChannel, 'web'>;
+    personId: string;
+    communicationId?: string;
+    status: 'accepted' | 'failed';
+    at: number;
+    error?: string;
+  }[];
 
   createdAt: number;
   dueAt?: number;
@@ -260,6 +280,10 @@ export interface Subtask {
   outputVariables?: OutputVariable[];
   taskOutput?: any; 
   evaluationResult?: string;
+  externalRunId?: string;
+  externalExecutionId?: string;
+  externalService?: string;
+  externalStartedAt?: number;
   
   // Extended Metadata
   estimatedTime?: number;

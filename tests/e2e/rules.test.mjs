@@ -59,7 +59,7 @@ const seed = async () => {
   await admin('PUT', 'invites/token_fresh', { orgId: 'org_a', invitedBy: 'alice', email: 'bob@x.com', createdAt: Date.now() });
   await admin('PUT', 'invites/token_stale', { orgId: 'org_a', invitedBy: 'alice', email: 'old@x.com', createdAt: Date.now() - 30 * DAY });
   await admin('PUT', 'accounts/default_user', { projectflow_v1: { projects: [] } });
-  await admin('PUT', 'webhookEvents/bland/call_1', { at: Date.now() });
+  await admin('PUT', 'external_events/evt_1', { event_id: 'evt_1', processing_status: 'processed' });
 };
 
 const run = async () => {
@@ -159,11 +159,11 @@ const run = async () => {
     r = await as('mallory', 'GET', 'accounts/default_user');
     ok(!r.ok, 'nor readable by an authenticated user', `got ${r.status}`);
 
-    r = await as('mallory', 'GET', 'webhookEvents');
-    ok(!r.ok, 'webhook idempotency claims are server-only', `got ${r.status}`);
+    r = await as('mallory', 'GET', 'external_events');
+    ok(!r.ok, 'external event inbox records are server-only', `got ${r.status}`);
 
-    r = await as('mallory', 'PUT', 'webhookEvents/bland/call_2', { at: 1 });
-    ok(!r.ok, 'and cannot be forged by a client to suppress a real webhook', `got ${r.status}`);
+    r = await as('mallory', 'PUT', 'external_events/evt_2', { event_id: 'evt_2' });
+    ok(!r.ok, 'and cannot be forged by a client to suppress a real event', `got ${r.status}`);
 
     r = await as('mallory', 'GET', 'serverActivity');
     ok(!r.ok, 'server activity log is server-only', `got ${r.status}`);
