@@ -60,6 +60,19 @@ describe('normalizeBlandCallback', () => {
     assert.equal(e.runId, 'r1');
   });
 
+  test("carries Bland's own disposition through to project data", () => {
+    // Observed on a real call: Bland sets disposition_tag independently of the
+    // analysis schema, so it is available to branch on.
+    const e = normalizeBlandCallback(completedPayload({ disposition_tag: 'NOT_INTERESTED' }));
+    assert.equal(e.output.call_disposition, 'NOT_INTERESTED');
+    assert.match(e.logs.join('\n'), /Disposition: NOT_INTERESTED/);
+  });
+
+  test('omits the disposition when the provider does not send one', () => {
+    const e = normalizeBlandCallback(completedPayload());
+    assert.equal(e.output.call_disposition, undefined);
+  });
+
   test('a completed call is a success and its analysis becomes branchable project data', () => {
     const e = normalizeBlandCallback(completedPayload());
     assert.equal(e.status, 'success');

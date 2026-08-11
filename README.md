@@ -58,6 +58,13 @@ Some actions finish long after they're dispatched — a phone call is placed, th
 
 When the provider calls back, the pending run resolves, its output merges into Project Data, and the flow advances from the server — **no browser required**. This is what makes a human answering by phone (and, later, email or SMS) actually move the workflow.
 
+**Verified end to end against production** with a real Bland call: dispatched →
+recorded pending → the person answered → Bland posted to
+`/api/inbound/voice/bland` → the run resolved and the flow advanced. A resolved
+run's log holds the dispatch lines and the callback lines together, because
+`resolvePendingRun` merges them — that concatenation is the signature of a run
+completed by webhook rather than by a browser.
+
 ## Human review: asks and answers
 
 Any node can carry a **review policy** (node config → Human Review). When required, the node's work is held for a person: the node does not complete, and everything downstream stays blocked, until someone signs it off.

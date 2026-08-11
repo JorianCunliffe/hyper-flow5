@@ -67,6 +67,10 @@ export const normalizeBlandCallback = (rawBody: any): NormalizedVoiceEvent => {
   if (payload.recording_url) output.call_recording_url = payload.recording_url;
   if (payload.concatenated_transcript) output.call_transcript = payload.concatenated_transcript;
   if (payload.answered_by) output.call_answered_by = payload.answered_by;
+  // Bland populates this on real calls (observed: "NOT_INTERESTED"). It is its own
+  // read of how the call went, independent of the analysis schema, so it is worth
+  // having in project data for branching.
+  if (payload.disposition_tag) output.call_disposition = payload.disposition_tag;
 
   return {
     eventId: payload.call_id ? String(payload.call_id) : '',
