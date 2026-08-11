@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { resolveCallbackAndAdvance } from '../../../lib/serverFlow.js';
-import { claimWebhookEvent, isServerStoreConfigured, releaseWebhookEvent } from '../../../lib/serverStore.js';
+import { claimWebhookEvent, releaseWebhookEvent, serverStoreStatus } from '../../../lib/serverStore.js';
 import { normalizeBlandCallback } from '../../../lib/inboundVoice.js';
 
 /**
@@ -21,10 +21,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (provided !== expected) return res.status(403).json({ error: 'Forbidden' });
   }
 
-  if (!isServerStoreConfigured()) {
-    // 200 so the provider does not retry a request that can never succeed.
-    console.error('Bland webhook received but server store is not configured');
-    return res.status(200).json({ ok: false, reason: 'server_store_not_configured' });
+  const storeStatus = serverStoreStatus();
+  if (!storeStatus.ok) {
+    // 200 so the provider does not retry a request that can never succeed, but
+    // log the specific misconfiguration rather than a generic "not configured".
+    console.error('Bland webhook rejected — server store unusable:', storeStatus.reason);
+    return res.status(200).json({ ok: false, reason: 'server_store_not_configured', detail: storeStatus.reason });
   }
 
   const event = normalizeBlandCallback(req.body);

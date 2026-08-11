@@ -22,17 +22,97 @@ const APP_NAME = 'hyperflow-server';
 
 export class ServerStoreUnavailable extends Error {}
 
+export class ServiceAccountError extends Error {}
+
+/** Paste artifacts: some UIs and shells wrap a pasted value in quotes. */
+const stripWrappingQuotes = (s: string): string => {
+  const t = s.trim();
+  const quoted = (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"));
+  return quoted && t.length > 1 ? t.slice(1, -1) : t;
+};
+
+/** Parses JSON, unwrapping a value that was JSON-encoded twice. */
+const tryJson = (s: string, depth = 0): any => {
+  try {
+    const v = JSON.parse(s);
+    if (v && typeof v === 'object') return v;
+    if (typeof v === 'string' && depth < 2) return tryJson(v, depth + 1);
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const tryBase64 = (s: string): any => {
+  const compact = s.replace(/\s+/g, '');
+  // Only attempt a decode when the value really is base64. Node's decoder
+  // silently discards anything outside the alphabet, so feeding it arbitrary
+  // text yields binary noise and a JSON error that describes the noise rather
+  // than the actual problem.
+  if (compact.length < 40 || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(compact)) return null;
+  try {
+    const standard = compact.replace(/-/g, '+').replace(/_/g, '/'); // tolerate base64url
+    return tryJson(Buffer.from(standard, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+};
+
+/** Describes a bad value without ever echoing key material. */
+const describeValue = (raw: string): string => {
+  const t = raw.trim();
+  const shape =
+    t.startsWith('{') ? 'looks like JSON but did not parse'
+    : t.startsWith('"') || t.startsWith("'") ? 'is wrapped in quotes'
+    : t.startsWith('-----BEGIN') ? 'looks like a bare private key, not the whole service-account JSON'
+    : /^[A-Za-z0-9+/_\-\s]+={0,2}$/.test(t) ? 'looks like base64 but did not decode to JSON'
+    : t.includes('/') || t.includes('\\') ? 'looks like a file path — paste the file contents, not its location'
+    : 'is not recognisable as JSON or base64';
+  return `${shape} (${t.length} characters, starts with ${JSON.stringify(t.slice(0, 2))})`;
+};
+
 const parseServiceAccount = (raw: string): ServiceAccount => {
-  // Accept either raw JSON or base64-encoded JSON, since env vars in some hosts
-  // mangle embedded newlines in the private key.
-  const text = raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
-  const parsed = JSON.parse(text);
-  if (parsed.private_key) parsed.private_key = String(parsed.private_key).replace(/\\n/g, '\n');
-  return {
-    projectId: parsed.project_id || parsed.projectId,
-    clientEmail: parsed.client_email || parsed.clientEmail,
-    privateKey: parsed.private_key || parsed.privateKey
-  };
+  const trimmed = raw.trim();
+  const cleaned = stripWrappingQuotes(raw);
+  // Try the value as given before stripping quotes: a properly JSON-encoded
+  // string parses via tryJson's unwrapping, and stripping first would corrupt
+  // its escapes. Stripping only helps for shell-style or unescaped wrapping.
+  const parsed =
+    tryJson(trimmed) ?? tryJson(cleaned) ?? tryBase64(trimmed) ?? tryBase64(cleaned);
+
+  if (!parsed) {
+    throw new ServiceAccountError(
+      `FIREBASE_SERVICE_ACCOUNT could not be read: it ${describeValue(raw)}. ` +
+        `Paste the service-account JSON exactly as downloaded from the Firebase console, ` +
+        `or its base64 encoding.`
+    );
+  }
+
+  const projectId = parsed.project_id || parsed.projectId;
+  const clientEmail = parsed.client_email || parsed.clientEmail;
+  let privateKey = parsed.private_key || parsed.privateKey;
+
+  const missing = [
+    !projectId && 'project_id',
+    !clientEmail && 'client_email',
+    !privateKey && 'private_key'
+  ].filter(Boolean);
+  if (missing.length) {
+    throw new ServiceAccountError(
+      `FIREBASE_SERVICE_ACCOUNT parsed but is missing ${missing.join(', ')}. ` +
+        `Use the service-account key file, not the web app config.`
+    );
+  }
+
+  // Hosts that store the value as a single line turn real newlines into "\n".
+  privateKey = String(privateKey).replace(/\\n/g, '\n');
+  if (!privateKey.includes('BEGIN') || !privateKey.includes('PRIVATE KEY')) {
+    throw new ServiceAccountError(
+      'FIREBASE_SERVICE_ACCOUNT has a private_key that is not a PEM block — it was probably truncated in transit.'
+    );
+  }
+
+  return { projectId, clientEmail, privateKey };
 };
 
 /**
@@ -48,8 +128,30 @@ export const getDatabaseUrl = (): string => process.env.FIREBASE_DATABASE_URL ||
 /**
  * Only the service-account key is genuinely required — it is the one real
  * secret, and there is no sensible default for it.
+ *
+ * Validates that the value can actually be parsed, not merely that it is set. A
+ * malformed key otherwise surfaces as a JSON parse stack trace from deep inside
+ * a webhook, which says nothing about which environment variable is at fault.
  */
-export const isServerStoreConfigured = (): boolean => !!process.env.FIREBASE_SERVICE_ACCOUNT;
+let configCheck: { ok: boolean; reason?: string } | null = null;
+
+export const serverStoreStatus = (): { ok: boolean; reason?: string } => {
+  if (configCheck) return configCheck;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) {
+    configCheck = { ok: false, reason: 'FIREBASE_SERVICE_ACCOUNT is not set.' };
+  } else {
+    try {
+      parseServiceAccount(raw);
+      configCheck = { ok: true };
+    } catch (e: any) {
+      configCheck = { ok: false, reason: e?.message || 'FIREBASE_SERVICE_ACCOUNT is invalid.' };
+    }
+  }
+  return configCheck;
+};
+
+export const isServerStoreConfigured = (): boolean => serverStoreStatus().ok;
 
 const getDb = () => {
   if (!isServerStoreConfigured()) {
