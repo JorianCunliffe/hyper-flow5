@@ -1683,7 +1683,13 @@ export const App: React.FC = () => {
                <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded border border-red-200 text-left">
                  <strong>Authentication Error:</strong><br/>
                  {authError}
-                 <p className="mt-2 text-xs">If you see an "unauthorized domain" error, make sure to add <code>{window.location.hostname}</code> to your Firebase console under Authentication &gt; Settings &gt; Authorized Domains.</p>
+                 <p className="mt-2 text-xs text-red-600/80">
+                   Signing in needs two things set up on Firebase project{' '}
+                   <code>{firebaseService.getProjectId() || 'unknown'}</code>: the sign-in method
+                   enabled under <b>Authentication → Sign-in method</b>, and{' '}
+                   <code>{window.location.hostname}</code> listed under{' '}
+                   <b>Authentication → Settings → Authorized domains</b>.
+                 </p>
                </div>
              )}
 

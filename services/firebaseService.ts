@@ -165,8 +165,53 @@ try {
   console.error("Firebase Initialization Error:", e);
 }
 
+/**
+ * Turns a Firebase auth error code into something that names the actual cause
+ * and where to fix it. These codes almost always mean the Firebase project is
+ * missing configuration, not that the user did anything wrong — and the raw
+ * message ("admin-restricted-operation") gives no hint which setting is at fault.
+ */
+export const describeAuthError = (e: any): Error => {
+  const projectId = DEFAULT_CONFIG?.projectId || 'your Firebase project';
+  const domain = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+  const detail = ((): string | null => {
+    switch (e?.code) {
+      case 'auth/unauthorized-domain':
+        return `"${domain}" is not an authorised domain on Firebase project "${projectId}". ` +
+               `Add it under Authentication → Settings → Authorized domains.`;
+      case 'auth/admin-restricted-operation':
+        return `Anonymous sign-in is disabled on Firebase project "${projectId}". ` +
+               `Enable it under Authentication → Sign-in method, or use another sign-in option.`;
+      case 'auth/operation-not-allowed':
+        return `That sign-in method is not enabled on Firebase project "${projectId}". ` +
+               `Enable it under Authentication → Sign-in method.`;
+      case 'auth/popup-blocked':
+        return 'The sign-in popup was blocked by the browser. Allow popups for this site and try again.';
+      case 'auth/popup-closed-by-user':
+      case 'auth/cancelled-popup-request':
+        return 'The sign-in popup closed before completing.';
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'That email and password combination was not recognised.';
+      case 'auth/email-already-in-use':
+        return 'An account already exists for that email — sign in instead of registering.';
+      case 'auth/network-request-failed':
+        return 'Could not reach Firebase. Check the network connection and try again.';
+      default:
+        return null;
+    }
+  })();
+
+  const err = new Error(detail || e?.message || 'Sign-in failed.');
+  (err as any).code = e?.code;
+  return err;
+};
+
 export const firebaseService = {
   isConfigured: () => isConfigured,
+  getProjectId: () => DEFAULT_CONFIG?.projectId,
 
   configure: (configString: string) => {
     const config = parseConfig(configString);
@@ -194,12 +239,11 @@ export const firebaseService = {
       return result.user;
     } catch (e: any) {
       console.error("Login failed:", e);
-      if (e.code === 'auth/unauthorized-domain') {
-         console.log("Falling back to anonymous auth due to unauthorized domain");
-         const anonResult = await signInAnonymously(auth);
-         return anonResult.user;
-      }
-      throw e; // Rethrow to let the UI catch and display the error
+      // This used to silently retry as an anonymous sign-in when the domain was
+      // unauthorised. If anonymous sign-in was also unavailable the user was
+      // shown *that* failure instead — an error from an operation they never
+      // asked for, pointing at the wrong cause. Report what actually failed.
+      throw describeAuthError(e);
     }
   },
 
@@ -210,7 +254,7 @@ export const firebaseService = {
       return result.user;
     } catch (e: any) {
       console.error("Email login failed", e);
-      throw e;
+      throw describeAuthError(e);
     }
   },
 
@@ -221,7 +265,7 @@ export const firebaseService = {
       return result.user;
     } catch (e: any) {
       console.error("Email signup failed", e);
-      throw e;
+      throw describeAuthError(e);
     }
   },
 
@@ -232,7 +276,7 @@ export const firebaseService = {
       return result.user;
     } catch (e: any) {
       console.error("Anonymous login failed", e);
-      throw e;
+      throw describeAuthError(e);
     }
   },
 
