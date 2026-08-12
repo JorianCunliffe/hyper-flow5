@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { Resend } from 'resend';
 import { createCommunicationsClient } from './communications/client.js';
-import type { CommunicationCorrelation, CommunicationResult } from './communications/types.js';
+import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides } from './communications/types.js';
 
 // Shared task execution logic used by the local Express server (server.ts)
 // and the Vercel serverless function (api/tasks/execute.ts).
@@ -19,6 +19,7 @@ export interface TaskExecutionResult {
 export interface ExecuteContext {
   webhookBaseUrl?: string;
   callbackSecret?: string;
+  communicationsFromNumber?: string;
   correlation?: {
     orgId?: string;
     projectId?: string;
@@ -59,8 +60,8 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
 
 const communicationCorrelation = (ctx: ExecuteContext | undefined): CommunicationCorrelation => {
   const correlation = ctx?.correlation;
-  if (!correlation?.projectId || !correlation.nodeId || !correlation.runId) {
-    throw new Error('Communications tasks require projectId, nodeId and runId correlation');
+  if (!correlation?.orgId || !correlation.projectId || !correlation.nodeId || !correlation.runId) {
+    throw new Error('Communications tasks require orgId, projectId, nodeId and runId correlation');
   }
   return {
     tenant_id: correlation.orgId,
@@ -69,6 +70,36 @@ const communicationCorrelation = (ctx: ExecuteContext | undefined): Communicatio
     task_id: correlation.nodeId
   };
 };
+
+const E164 = /^\+[1-9]\d{7,14}$/;
+
+const communicationFromNumber = (
+  templateData: Record<string, any>,
+  projectData: Record<string, any> | undefined,
+  ctx: ExecuteContext | undefined
+): string => {
+  const from = String(
+    templateData.from || projectData?.communications_from_number || ctx?.communicationsFromNumber ||
+    process.env.COMMUNICATIONS_FROM_NUMBER || ''
+  ).trim();
+  if (!E164.test(from)) throw new Error('A valid E.164 Communications sending number is required');
+  return from;
+};
+
+const communicationCallbackUrl = (ctx: ExecuteContext | undefined): string => {
+  const baseUrl = String(ctx?.webhookBaseUrl || process.env.PUBLIC_BASE_URL || '').trim();
+  let parsed: URL;
+  try { parsed = new URL(baseUrl); } catch { throw new Error('PUBLIC_BASE_URL must be an absolute HTTPS URL'); }
+  if (parsed.protocol !== 'https:') throw new Error('PUBLIC_BASE_URL must use HTTPS for Communications callbacks');
+  return `${parsed.toString().replace(/\/$/, '')}/api/events`;
+};
+
+const callOverrides = (instruction: string): HyperFlowCallOverrides => ({
+  systemMessage: `You are making an outbound call for HyperFlow. Complete this instruction and stay focused on it: ${instruction}`,
+  greetingText: `Begin the call briefly and then: ${instruction}`,
+  aiSpeaksFirst: true,
+  liveTranscript: true
+});
 
 const communicationResponse = (
   result: CommunicationResult,
@@ -184,12 +215,14 @@ export async function executeTask(
 
     try {
       if (!smsTo) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
+      if (!E164.test(String(smsTo))) throw new Error('SMS destination number must use E.164 format');
       logs.push('--- DISPATCHING SMS VIA COMMUNICATIONS API ---');
       const result = await createCommunicationsClient().sendSms({
-        channel: 'sms',
         to: String(smsTo),
-        content: String(smsBody || ''),
-        correlation: communicationCorrelation(ctx)
+        from: communicationFromNumber(templateData, projectData, ctx),
+        body: String(smsBody || ''),
+        correlation: communicationCorrelation(ctx),
+        callback_url: communicationCallbackUrl(ctx)
       });
       return communicationResponse(result, logs, { sms_data: templateData });
     } catch (smsError: any) {
@@ -246,14 +279,16 @@ export async function executeTask(
       logs.push(`Dialing ${toPhone}...`);
 
       if (!toPhone) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
+      if (!E164.test(String(toPhone))) throw new Error('Call destination number must use E.164 format');
       const instruction = templateData.instruction || templateData.prompt || templateData.body || parsedContent;
       if (!instruction) throw new Error('Outgoing call requires an instruction, prompt or body');
 
       const result = await createCommunicationsClient().startCall({
-        channel: 'voice',
         to: String(toPhone),
-        instruction: String(instruction),
-        correlation: communicationCorrelation(ctx)
+        from: communicationFromNumber(templateData, projectData, ctx),
+        overrides: callOverrides(String(instruction)),
+        correlation: communicationCorrelation(ctx),
+        callback_url: communicationCallbackUrl(ctx)
       });
       return communicationResponse(result, logs, { call_data: templateData });
     } catch (callError: any) {

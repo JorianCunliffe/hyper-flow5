@@ -1,6 +1,6 @@
 import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
-import { ActivityLog, Project } from '../types.js';
+import { ActivityLog, AppSettings, CommunicationsSettings, Project, TeamMemberDetails } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
 
@@ -213,6 +213,56 @@ export const findProject = async (orgId: string, projectId: string): Promise<Loc
       )
     }
   };
+};
+
+export const readTenantCommunicationsSettings = async (orgId: string): Promise<CommunicationsSettings> => {
+  const snap = await getDb().ref(`projects/${orgId}/settings/communications`).get();
+  const value = snap.exists() && snap.val() && typeof snap.val() === 'object' ? snap.val() : {};
+  return { fromNumber: typeof value.fromNumber === 'string' ? value.fromNumber.trim() : undefined };
+};
+
+export const resolveIdentityFromSettings = (
+  details: Record<string, TeamMemberDetails>,
+  personId: string,
+  channel: 'email' | 'sms' | 'voice'
+): string => {
+  const direct = personId.trim();
+  if (channel === 'email' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(direct)) return direct;
+  if (channel !== 'email' && /^\+[1-9]\d{7,14}$/.test(direct)) return direct;
+
+  const exact = details[personId];
+  const matches = exact
+    ? [exact]
+    : Object.entries(details)
+        .filter(([name]) => name.trim().toLowerCase() === direct.toLowerCase())
+        .map(([, value]) => value);
+  if (matches.length !== 1) {
+    throw new Error(matches.length > 1
+      ? `Person identity "${personId}" is ambiguous in tenant settings`
+      : `Person identity "${personId}" has no configured ${channel === 'email' ? 'email address' : 'phone number'}`);
+  }
+  const identity = channel === 'email' ? matches[0].email?.trim() : matches[0].phone?.trim();
+  if (!identity) throw new Error(`Person identity "${personId}" has no configured ${channel === 'email' ? 'email address' : 'phone number'}`);
+  if (channel === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identity)) {
+    throw new Error(`Person identity "${personId}" has an invalid email address`);
+  }
+  if (channel !== 'email' && !/^\+[1-9]\d{7,14}$/.test(identity)) {
+    throw new Error(`Person identity "${personId}" phone number must use E.164 format`);
+  }
+  return identity;
+};
+
+export const resolveTeamMemberIdentity = async (
+  orgId: string,
+  personId: string,
+  channel: 'email' | 'sms' | 'voice'
+): Promise<string> => {
+  const snap = await getDb().ref(`projects/${orgId}/settings`).get();
+  const settings = (snap.exists() ? snap.val() : {}) as Partial<AppSettings>;
+  const details = settings.teamMemberDetails && typeof settings.teamMemberDetails === 'object'
+    ? settings.teamMemberDetails as Record<string, TeamMemberDetails>
+    : {};
+  return resolveIdentityFromSettings(details, personId, channel);
 };
 
 /**

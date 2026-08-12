@@ -1,35 +1,41 @@
 export interface CommunicationCorrelation {
-  tenant_id?: string;
+  tenant_id: string;
   project_id: string;
   run_id: string;
   task_id: string;
+  person_id?: string;
+}
+
+export interface CommunicationPurpose {
+  type: 'human_ask';
+  ask_id: string;
+  token?: string;
 }
 
 export interface SendSmsRequest {
-  channel: 'sms';
   to: string;
-  content: string;
+  from: string;
+  body: string;
   correlation: CommunicationCorrelation;
+  purpose?: CommunicationPurpose;
+  callback_url?: string;
+}
+
+/** The only Communications voice overrides HyperFlow is allowed to send. */
+export interface HyperFlowCallOverrides {
+  systemMessage: string;
+  greetingText: string;
+  aiSpeaksFirst: true;
+  liveTranscript: true;
 }
 
 export interface StartCallRequest {
-  channel: 'voice';
   to: string;
-  instruction: string;
+  from: string;
+  overrides: HyperFlowCallOverrides;
   correlation: CommunicationCorrelation;
-}
-
-export interface DeliverAskRequest {
-  ask_id: string;
-  ask_token: string;
-  channel: 'email' | 'sms' | 'voice';
-  person_id: string;
-  question: string;
-  response_type: string;
-  response_schema?: Record<string, unknown>;
-  reply_to?: string;
-  form_url?: string;
-  correlation: Omit<CommunicationCorrelation, 'run_id'> & { run_id?: string };
+  purpose?: CommunicationPurpose;
+  callback_url?: string;
 }
 
 export type CommunicationStatus =
@@ -50,9 +56,15 @@ export interface CommunicationResult {
   error?: string;
 }
 
+export interface ResolveAskResult {
+  ask_id: string;
+  status: 'resolved' | 'already_resolved';
+  communication_id: string;
+}
+
 export interface CommunicationsClient {
   sendSms(request: SendSmsRequest): Promise<CommunicationResult>;
   startCall(request: StartCallRequest): Promise<CommunicationResult>;
-  deliverAsk(request: DeliverAskRequest): Promise<CommunicationResult>;
   getCommunication(id: string): Promise<CommunicationResult>;
+  resolveAsk(askId: string, communicationId: string): Promise<ResolveAskResult>;
 }

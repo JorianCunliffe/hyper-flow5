@@ -54,7 +54,12 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   if (!found) return { ok: false, reason: 'ask_not_found' };
   if (found.ask.status === 'cancelled') return { ok: false, reason: 'ask_cancelled' };
   if (found.ask.status === 'expired') return { ok: false, reason: 'ask_expired' };
-  if (found.ask.status === 'answered') return { ok: false, reason: 'already_answered', askStatus: 'answered' };
+  if (found.ask.status === 'answered') {
+    const sameResponse = input.communicationId
+      ? found.ask.responses.find(response => response.communicationId === input.communicationId)
+      : undefined;
+    return { ok: false, reason: 'already_answered', askStatus: 'answered', response: sameResponse };
+  }
 
   const response: HumanResponse = isHumanResponse(input.response)
     ? { ...input.response }

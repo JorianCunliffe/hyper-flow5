@@ -1,6 +1,7 @@
 import { resolveCallbackAndAdvance } from './serverFlow.js';
 import { respondToAsk } from './asks/respondToAsk.js';
 import type { AskChannel } from '../types.js';
+import { createCommunicationsClient } from './communications/client.js';
 import {
   claimExternalEventProcessing,
   finishExternalEventProcessing,
@@ -31,6 +32,17 @@ export interface ExternalEventEnvelope {
   payload: Record<string, unknown>;
 }
 
+const transcriptText = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return undefined;
+  const object = value as Record<string, unknown>;
+  if (typeof object.text === 'string') return object.text;
+  if (typeof object.transcript === 'string') return object.transcript;
+  // Keep structured evidence human-readable but unclassified. Approval parsing
+  // will mark this as needing interpretation instead of silently resolving it.
+  try { return JSON.stringify(value); } catch { return undefined; }
+};
+
 export interface ExternalEventRecord {
   id: string;
   event_id: string;
@@ -44,10 +56,10 @@ export interface ExternalEventRecord {
   processing_error?: string;
 }
 
-export const normalizeExternalEvent = (raw: any): ExternalEventEnvelope => {
+export const normalizeExternalEvent = (raw: any, defaultSource?: 'communications'): ExternalEventEnvelope => {
   if (!raw || typeof raw !== 'object') throw new Error('Event body must be a JSON object');
   const eventId = typeof raw.event_id === 'string' ? raw.event_id.trim() : '';
-  const source = typeof raw.source === 'string' ? raw.source.trim() : '';
+  const source = typeof raw.source === 'string' ? raw.source.trim() : (defaultSource || '');
   const type = typeof raw.type === 'string' ? raw.type.trim() : '';
   if (!eventId) throw new Error('event_id is required');
   if (!source) throw new Error('source is required');
@@ -62,7 +74,9 @@ export const normalizeExternalEvent = (raw: any): ExternalEventEnvelope => {
     occurred_at: raw.occurred_at,
     communication_id: typeof raw.communication_id === 'string' ? raw.communication_id : undefined,
     transcript_id: typeof raw.transcript_id === 'string' ? raw.transcript_id : undefined,
-    ask_id: typeof (raw.ask_id ?? payload.ask_id) === 'string' ? String(raw.ask_id ?? payload.ask_id) : undefined,
+    ask_id: typeof (raw.ask_id ?? raw.purpose?.ask_id ?? payload.ask_id) === 'string'
+      ? String(raw.ask_id ?? raw.purpose?.ask_id ?? payload.ask_id)
+      : undefined,
     channel: ['email', 'sms', 'voice', 'web'].includes(raw.channel ?? payload.channel)
       ? (raw.channel ?? payload.channel) as AskChannel
       : undefined,
@@ -70,7 +84,11 @@ export const normalizeExternalEvent = (raw: any): ExternalEventEnvelope => {
       ? raw.response
       : payload.response && typeof payload.response === 'object'
         ? payload.response as ExternalEventEnvelope['response']
-        : undefined,
+        : {
+            text: (raw.channel ?? payload.channel) === 'voice'
+              ? transcriptText(payload.transcript)
+              : typeof payload.content === 'string' ? payload.content : undefined
+          },
     correlation: {
       tenant_id: correlation.tenant_id || correlation.org_id || correlation.orgId,
       project_id: correlation.project_id || correlation.projectId,
@@ -106,12 +124,15 @@ export interface ExternalEventOutcome {
   pending?: string[];
 }
 
-const terminalStatus = (type: string): 'success' | 'error' | null => {
-  const suffix = type.toLowerCase().split('.').at(-1);
-  if (suffix === 'completed') return 'success';
-  if (suffix === 'failed') return 'error';
-  return null;
+const TERMINAL_EVENTS: Readonly<Record<string, 'success' | 'error'>> = {
+  'call.completed': 'success',
+  'call.failed': 'error',
+  'sms.delivered': 'success',
+  'sms.failed': 'error'
 };
+
+export const terminalExternalEventStatus = (type: string): 'success' | 'error' | null =>
+  TERMINAL_EVENTS[type.toLowerCase()] || null;
 
 /** Persist first, then deterministically apply an explicitly-correlated terminal event. */
 export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutcome> => {
@@ -158,6 +179,19 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         return { ok: false, reason };
       }
 
+      const canonicalResponseUsesCommunication = Boolean(
+        event.communication_id && outcome.response?.communicationId === event.communication_id
+      );
+      if (outcome.askStatus === 'answered' && canonicalResponseUsesCommunication) {
+        try {
+          await createCommunicationsClient().resolveAsk(event.ask_id, event.communication_id!);
+        } catch (error: any) {
+          const reason = `Communications Ask resolution failed: ${error?.message || String(error)}`;
+          await finishExternalEventProcessing(event.event_id, 'processing_failed', reason);
+          return { ok: false, retryable: true, reason };
+        }
+      }
+
       await finishExternalEventProcessing(event.event_id, 'processed');
       return {
         ok: true,
@@ -168,15 +202,15 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       };
     }
 
-    const status = terminalStatus(event.type);
+    const status = terminalExternalEventStatus(event.type);
     if (!status) {
       await finishExternalEventProcessing(event.event_id, 'processed');
       return { ok: true, ignored: true, reason: 'non_terminal_event' };
     }
 
     const { tenant_id: tenantId, project_id: projectId, run_id: runId, task_id: taskId } = event.correlation;
-    if (!tenantId || !projectId || !taskId) {
-      const reason = 'missing tenant_id, project_id or task_id correlation';
+    if (!tenantId || !projectId || !runId || !taskId) {
+      const reason = 'missing tenant_id, project_id, run_id or task_id correlation';
       await finishExternalEventProcessing(event.event_id, 'processing_failed', reason);
       return { ok: false, reason };
     }

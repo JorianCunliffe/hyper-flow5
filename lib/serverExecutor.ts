@@ -1,11 +1,15 @@
 import { executeTask } from './executeTask.js';
 import type { ActionExecutor } from './flowOrchestrator.js';
+import { readTenantCommunicationsSettings } from './serverStore.js';
 
 /** Server-side action execution shared by flow advancement and ask responses. */
 export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
+  let communicationsFromNumber: string | undefined;
+  try { communicationsFromNumber = (await readTenantCommunicationsSettings(ctx.orgId)).fromNumber; } catch { /* use project/env fallback */ }
   const result = await executeTask(taskType, templateFile, projectData, {
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
     callbackSecret: process.env.WEBHOOK_SECRET,
+    communicationsFromNumber,
     correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId },
     revision: ctx.revision
   });

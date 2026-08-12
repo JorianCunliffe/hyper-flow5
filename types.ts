@@ -22,12 +22,18 @@ export interface TeamMemberDetails {
   phone?: string;
 }
 
+export interface CommunicationsSettings {
+  /** Public E.164 service number used as the sender for SMS and voice. */
+  fromNumber?: string;
+}
+
 export interface AppSettings {
   projectTypes: string[];
   companies: string[];
   people: string[];
   roles: string[];
   teamMemberDetails?: Record<string, TeamMemberDetails>; // name -> details
+  communications?: CommunicationsSettings;
   statuses: string[];
   dateFormat: 'DD/MM/YY' | 'MM/DD/YY';
   nextProjectId?: number;

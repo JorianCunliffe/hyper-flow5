@@ -57,7 +57,7 @@ FIREBASE_SERVICE_ACCOUNT="$(cat /tmp/sa.json)" \
 FIREBASE_DATABASE_URL="https://demo-hyperflow-default-rtdb.firebaseio.com" \
 FIREBASE_DATABASE_EMULATOR_HOST="127.0.0.1:9000" \
 WEBHOOK_SECRET="test-secret-123" \
-COMMUNICATIONS_API_KEY="test-secret-123" \
+COMMUNICATIONS_WEBHOOK_SECRET="test-secret-123" \
 PUBLIC_BASE_URL="http://localhost:3000" \
 npx tsx server.ts
 ```
@@ -99,7 +99,7 @@ of its 25 checks failed.
 
 ## What it covers
 
-- auth guards on every endpoint (missing / wrong secret, missing params)
+- auth guards on every endpoint (including exact raw-body Communications HMAC verification)
 - a Communications API event resolving a waiting run, merging its payload into
   project data, and a downstream decision branching on it — with no browser involved
 - duplicate webhook delivery claimed and rejected via an RTDB transaction

@@ -1,0 +1,22 @@
+{
+  "event_id": "evt_ask_1",
+  "communication_id": "comm_answer_1",
+  "type": "ask.response.received",
+  "occurred_at": "2026-08-12T01:02:03.000Z",
+  "purpose": {
+    "type": "human_ask",
+    "ask_id": "ask_42"
+  },
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "project_1",
+    "run_id": "run_1",
+    "task_id": "task_1",
+    "person_id": "person_7"
+  },
+  "payload": {
+    "ask_id": "ask_42",
+    "channel": "sms",
+    "content": "Approved"
+  }
+}

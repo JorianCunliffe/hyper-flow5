@@ -1,6 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createExternalEventRecord, normalizeExternalEvent } from '../lib/externalEvents';
+import { readFileSync } from 'node:fs';
+import { createExternalEventRecord, normalizeExternalEvent, terminalExternalEventStatus } from '../lib/externalEvents';
+
+const fixture = (name: string): any => JSON.parse(readFileSync(
+  new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
+));
 
 describe('external event inbox envelope', () => {
   test('normalizes explicit communications correlation', () => {
@@ -25,6 +30,33 @@ describe('external event inbox envelope', () => {
     assert.equal(event.transcript_id, 'tr_42');
     assert.equal(event.correlation.person_id, 'person_7');
     assert.deepEqual(event.response?.structured, { decision: 'approved' });
+  });
+
+  test('normalizes the real SMS Ask event fixture after authenticated source defaulting', () => {
+    const event = normalizeExternalEvent(fixture('ask-response-event.json'), 'communications');
+    assert.equal(event.source, 'communications');
+    assert.equal(event.ask_id, 'ask_42');
+    assert.equal(event.channel, 'sms');
+    assert.equal(event.response?.text, 'Approved');
+  });
+
+  test('normalizes structured voice transcript evidence without classifying it', () => {
+    const transcript = { segments: [{ speaker: 'caller', text: 'Maybe, let me check.' }] };
+    const event = normalizeExternalEvent({
+      event_id: 'evt_voice', type: 'ask.response.received', purpose: { ask_id: 'ask_1' },
+      correlation: {}, payload: { channel: 'voice', transcript }
+    }, 'communications');
+    assert.equal(event.response?.text, JSON.stringify(transcript));
+    assert.deepEqual(event.payload.transcript, transcript);
+  });
+
+  test('uses an explicit terminal event map', () => {
+    assert.equal(terminalExternalEventStatus('call.completed'), 'success');
+    assert.equal(terminalExternalEventStatus('call.failed'), 'error');
+    assert.equal(terminalExternalEventStatus('sms.delivered'), 'success');
+    assert.equal(terminalExternalEventStatus('sms.failed'), 'error');
+    assert.equal(terminalExternalEventStatus('transcript.completed'), null);
+    assert.equal(terminalExternalEventStatus('future.completed'), null);
   });
 
   test('creates a persist-first inbox record with audit fields', () => {

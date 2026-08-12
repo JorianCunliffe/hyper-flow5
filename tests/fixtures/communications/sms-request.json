@@ -1,0 +1,12 @@
+{
+  "to": "+61400000000",
+  "from": "+61411111111",
+  "body": "Can you attend?",
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "p1",
+    "run_id": "r1",
+    "task_id": "SMS"
+  },
+  "callback_url": "https://hyperflow.example/api/events"
+}

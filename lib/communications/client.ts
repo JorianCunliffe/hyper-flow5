@@ -2,7 +2,7 @@ import { CommunicationsApiError, CommunicationsConfigurationError } from './erro
 import type {
   CommunicationResult,
   CommunicationsClient,
-  DeliverAskRequest,
+  ResolveAskResult,
   SendSmsRequest,
   StartCallRequest
 } from './types.js';
@@ -42,33 +42,71 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   }
 
   sendSms(request: SendSmsRequest): Promise<CommunicationResult> {
-    return this.request('/v1/messages', { method: 'POST', body: request });
+    return this.communicationRequest('/v1/messages', { method: 'POST', body: request });
   }
 
   startCall(request: StartCallRequest): Promise<CommunicationResult> {
-    return this.request('/v1/calls', { method: 'POST', body: request });
-  }
-
-  deliverAsk(request: DeliverAskRequest): Promise<CommunicationResult> {
-    return this.request('/v1/asks', { method: 'POST', body: request });
+    return this.communicationRequest('/v1/calls', { method: 'POST', body: request });
   }
 
   getCommunication(id: string): Promise<CommunicationResult> {
     if (!id) throw new CommunicationsApiError('Communication id is required');
-    return this.request(`/v1/communications/${encodeURIComponent(id)}`, { method: 'GET' });
+    return this.communicationRequest(`/v1/communications/${encodeURIComponent(id)}`, { method: 'GET' });
   }
 
-  private async request(
+  async resolveAsk(askId: string, communicationId: string): Promise<ResolveAskResult> {
+    if (!askId) throw new CommunicationsApiError('Ask id is required');
+    if (!communicationId) throw new CommunicationsApiError('Communication id is required');
+    try {
+      const body = await this.rawRequest(`/v1/asks/${encodeURIComponent(askId)}/resolve`, {
+        method: 'POST', body: { communication_id: communicationId }
+      });
+      return {
+        ask_id: typeof body?.ask_id === 'string' ? body.ask_id : askId,
+        status: 'resolved',
+        communication_id: typeof body?.communication_id === 'string' ? body.communication_id : communicationId
+      };
+    } catch (error: any) {
+      // Communications currently returns 409 without the existing resolution
+      // identity. HyperFlow calls this only after confirming its canonical
+      // response already points at this communication, making replay safe.
+      if (error instanceof CommunicationsApiError && error.status === 409) {
+        return { ask_id: askId, status: 'already_resolved', communication_id: communicationId };
+      }
+      throw error;
+    }
+  }
+
+  private async communicationRequest(
     path: string,
-    options: { method: 'GET' | 'POST'; body?: SendSmsRequest | StartCallRequest | DeliverAskRequest }
+    options: { method: 'GET' | 'POST'; body?: SendSmsRequest | StartCallRequest }
   ): Promise<CommunicationResult> {
+    const body = await this.rawRequest(path, options);
+    const result = body?.communication ?? body;
+    const id = result?.communication_id ?? result?.id;
+    if (typeof id !== 'string' || !id) {
+      throw new CommunicationsApiError('Communications API response did not include a communication_id', undefined, body);
+    }
+    return {
+      id,
+      status: result.status || 'accepted',
+      channel: result.channel,
+      output: result.output,
+      error: result.error
+    };
+  }
+
+  private async rawRequest(
+    path: string,
+    options: { method: 'GET' | 'POST'; body?: unknown }
+  ): Promise<any> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: options.method,
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          'X-API-Key': this.apiKey,
           Accept: 'application/json',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
@@ -87,18 +125,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
           body
         );
       }
-
-      const result = body?.communication ?? body;
-      if (!result || typeof result.id !== 'string' || !result.id) {
-        throw new CommunicationsApiError('Communications API response did not include a communication id', response.status, body);
-      }
-      return {
-        id: result.id,
-        status: result.status || 'accepted',
-        channel: result.channel,
-        output: result.output,
-        error: result.error
-      };
+      return body;
     } catch (error: any) {
       if (error instanceof CommunicationsApiError) throw error;
       if (error?.name === 'AbortError') throw new CommunicationsApiError('Communications API request timed out');

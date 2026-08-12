@@ -108,6 +108,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Client"
   ],
   teamMemberDetails: {},
+  communications: {},
   statuses: [
     "Not started",
     "Needs preparation",
@@ -134,6 +135,7 @@ const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   merged.roles = merged.roles || DEFAULT_SETTINGS.roles || [];
   merged.statuses = merged.statuses || DEFAULT_SETTINGS.statuses;
   merged.teamMemberDetails = merged.teamMemberDetails || {};
+  merged.communications = merged.communications || {};
   
   // Migration: If we detect the old default status order, update to new order
   const oldOrderJSON = JSON.stringify(["Started", "Held", "Complete", "Not started"]);

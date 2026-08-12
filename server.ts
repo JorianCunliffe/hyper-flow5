@@ -9,13 +9,36 @@ import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
 import { executeTask } from "./lib/executeTask";
 import { advanceServerFlow, readAskByToken, respondToAsk } from "./lib/serverFlow";
 import { receiveExternalEvent } from "./lib/externalEvents";
-import { isServerStoreConfigured } from "./lib/serverStore";
+import { parseSignedJsonBody, verifyCommunicationsSignature } from "./lib/communications/webhook";
+import { isServerStoreConfigured, readTenantCommunicationsSettings } from "./lib/serverStore";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(cors());
+
+  // This route must precede express.json(): Communications signs the exact raw
+  // bytes, and parsing/re-serializing JSON would invalidate legitimate HMACs.
+  app.post("/api/events", express.raw({ type: 'application/json', limit: '1mb' }), async (req, res) => {
+    const secret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
+    if (!secret) return res.status(503).json({ error: 'COMMUNICATIONS_WEBHOOK_SECRET is not configured' });
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+    if (!verifyCommunicationsSignature(rawBody, req.headers['x-communications-signature'], secret)) {
+      return res.status(401).json({ error: 'Invalid or missing Communications signature' });
+    }
+    if (!isServerStoreConfigured()) return res.status(503).json({ error: 'Server-side persistence is not configured' });
+
+    try {
+      const body = parseSignedJsonBody(rawBody);
+      const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });
+      return res.status(outcome.retryable ? 409 : 200).json(outcome);
+    } catch (error: any) {
+      if (/required|JSON object|valid JSON/.test(error?.message || '')) return res.status(400).json({ error: error.message });
+      console.error('External event handler failed', error);
+      return res.status(500).json({ error: 'Handler failed' });
+    }
+  });
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
@@ -139,32 +162,20 @@ async function startServer() {
   app.post("/api/tasks/execute", async (req, res) => {
     try {
       const { taskType, templateFile, projectData, correlation, revision } = req.body;
+      let communicationsFromNumber: string | undefined;
+      if (correlation?.orgId && isServerStoreConfigured()) {
+        try { communicationsFromNumber = (await readTenantCommunicationsSettings(correlation.orgId)).fromNumber; } catch { /* project/env fallback */ }
+      }
       const result = await executeTask(taskType, templateFile, projectData, {
         webhookBaseUrl: process.env.PUBLIC_BASE_URL,
         callbackSecret: process.env.WEBHOOK_SECRET,
+        communicationsFromNumber,
         correlation,
         revision
       });
       res.status(result.httpStatus).json(result.body);
     } catch(e) {
       res.status(500).json({ error: String(e) });
-    }
-  });
-
-  // Durable provider-neutral inbox. Mirrors api/events.ts for local development.
-  app.post("/api/events", async (req, res) => {
-    const apiKey = process.env.COMMUNICATIONS_API_KEY;
-    if (!apiKey) return res.status(503).json({ error: 'COMMUNICATIONS_API_KEY is not configured' });
-    if (req.headers.authorization !== `Bearer ${apiKey}`) return res.status(403).json({ error: 'Forbidden' });
-    if (!isServerStoreConfigured()) return res.status(503).json({ error: 'Server-side persistence is not configured' });
-
-    try {
-      const outcome = await receiveExternalEvent(req.body);
-      return res.status(outcome.retryable ? 409 : 200).json(outcome);
-    } catch (error: any) {
-      if (/required|JSON object/.test(error?.message || '')) return res.status(400).json({ error: error.message });
-      console.error('External event handler failed', error);
-      return res.status(500).json({ error: 'Handler failed' });
     }
   });
 

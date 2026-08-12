@@ -2,6 +2,8 @@
 // Exercises the paths unit tests cannot: real HTTP, real firebase-admin reads
 // and path-scoped writes, and the transaction-based webhook idempotency claim.
 
+import { createHmac } from 'node:crypto';
+
 const APP = 'http://localhost:3000';
 const DB = 'http://127.0.0.1:9000';
 // The admin SDK derives the emulator namespace from the databaseURL hostname,
@@ -34,6 +36,9 @@ const req = async (method, path, body, headers = {}) => {
   try { json = JSON.parse(text); } catch { /* keep text */ }
   return { status: r.status, json, text };
 };
+const signedHeaders = (body, secret = SECRET) => ({
+  'X-Communications-Signature': `sha256=${createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex')}`
+});
 
 const seedProject = async () => {
   await dbPut(`projects/${ORG}`, {
@@ -107,13 +112,15 @@ const run = async () => {
     r = await req('POST', '/api/flow/advance', { orgId: ORG, projectId: 'proj_1' }, { 'x-webhook-secret': 'wrong' });
     ok(r.status === 403, 'flow/advance with wrong secret → 403', `got ${r.status}`);
 
-    r = await req('POST', '/api/events', communicationEvent(), { Authorization: 'Bearer wrong' });
-    ok(r.status === 403, 'event inbox with wrong API key → 403', `got ${r.status}`);
+    r = await req('POST', '/api/events', communicationEvent(), signedHeaders(communicationEvent(), 'wrong'));
+    ok(r.status === 401, 'event inbox with wrong HMAC signature → 401', `got ${r.status}`);
 
-    r = await req('POST', '/api/events', { source: 'communications', type: 'call.completed' }, { Authorization: `Bearer ${SECRET}` });
+    const missingId = { type: 'call.completed' };
+    r = await req('POST', '/api/events', missingId, signedHeaders(missingId));
     ok(r.status === 400, 'event without event_id → 400', `got ${r.status}`);
 
-    r = await req('POST', '/api/events', { event_id: 'evt_orphan', source: 'communications', type: 'call.completed' }, { Authorization: `Bearer ${SECRET}` });
+    const orphan = { event_id: 'evt_orphan', type: 'call.completed' };
+    r = await req('POST', '/api/events', orphan, signedHeaders(orphan));
     ok(r.status === 200 && /missing .*correlation/.test(r.json?.reason || ''),
       'event without correlation → persisted processing failure', JSON.stringify(r.json));
 
@@ -128,7 +135,8 @@ const run = async () => {
     ok(before.milestones[0].actionConfig.lastRun.status === 'pending', 'seed: call run starts pending');
     ok(!before.milestones[1].decisionConfig.selectedTargetId, 'seed: decision undecided');
 
-    const r = await req('POST', '/api/events', communicationEvent(), { Authorization: `Bearer ${SECRET}` });
+    const event = communicationEvent();
+    const r = await req('POST', '/api/events', event, signedHeaders(event));
     ok(r.status === 200 && r.json?.ok === true, 'event accepted → 200 ok', JSON.stringify(r.json));
 
     const after = await dbGet(`projects/${ORG}/projects/0`);
@@ -151,7 +159,8 @@ const run = async () => {
 
   section('Idempotency: duplicate event delivery');
   {
-    const r = await req('POST', '/api/events', communicationEvent(), { Authorization: `Bearer ${SECRET}` });
+    const event = communicationEvent();
+    const r = await req('POST', '/api/events', event, signedHeaders(event));
     ok(r.status === 200 && r.json?.duplicate === true, 'replayed event → duplicate, no work done', JSON.stringify(r.json));
 
     const claim = await dbGet('external_events/evt_call_xyz');

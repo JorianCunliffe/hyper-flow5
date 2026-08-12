@@ -1,5 +1,6 @@
 import type { HumanAsk, Project } from '../../types.js';
 import { upsertAsk } from '../humanAsk.js';
+import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
 import { deliverAsk } from './deliverAsk.js';
 
 export interface RaisedAsk {
@@ -15,6 +16,13 @@ export const deliverRaisedAsks = async (
 ): Promise<{ project: Project; log: string[] }> => {
   let current = project;
   const log: string[] = [];
+  let configuredFromNumber: string | undefined;
+  try {
+    configuredFromNumber = (await readTenantCommunicationsSettings(orgId)).fromNumber;
+  } catch {
+    // Email-only asks do not require Communications configuration. Individual
+    // channel attempts below retain the actionable failure when it is needed.
+  }
 
   for (const item of raised) {
     let ask = item.ask;
@@ -23,7 +31,13 @@ export const deliverRaisedAsks = async (
     for (const personId of people) {
       for (const channel of channels) {
         try {
-          const result = await deliverAsk({ ask, orgId, projectId: current.id, personId, channel });
+          const recipient = await resolveTeamMemberIdentity(orgId, personId, channel);
+          const result = await deliverAsk({
+            ask, orgId, projectId: current.id, personId, recipient, channel,
+            fromNumber: typeof current.projectData?.communications_from_number === 'string'
+              ? current.projectData.communications_from_number
+              : configuredFromNumber
+          });
           ask = {
             ...ask,
             deliveries: [...(ask.deliveries || []), {

@@ -295,6 +295,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <div className="border-t border-slate-100 pt-10 mb-16">
+            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Phone size={24} className="text-indigo-600" /> Communications</h4>
+            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
+              <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-from-number">Sending phone number</label>
+              <input
+                id="communications-from-number"
+                type="tel"
+                value={settings.communications?.fromNumber || ''}
+                onChange={(e) => onUpdateSettings({
+                  ...settings,
+                  communications: { ...settings.communications, fromNumber: e.target.value.trim() || undefined }
+                })}
+                placeholder="+61411111111"
+                className="w-full max-w-md bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              />
+              <p className="text-xs text-slate-500 mt-3 max-w-2xl">
+                Use E.164 format. This non-secret tenant setting supplies the SMS and voice sender. Communications API keys and webhook secrets remain backend environment variables and are never stored here.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-10 mb-16">
             <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Cloud size={24} className="text-indigo-600" /> Cloud & Organization</h4>
             <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200 flex flex-col md:flex-row gap-8 items-center justify-between">
                <div>
