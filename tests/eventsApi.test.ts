@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { externalEventHttpStatus, POST } from '../api/events.js';
-import { projectIdsMatch } from '../lib/serverStore.js';
+import { projectIdsMatch, projectRevisionsMatch } from '../lib/serverStore.js';
 
 const originalSecret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
 
@@ -15,6 +15,12 @@ describe('Vercel Communications event intake', () => {
     assert.equal(projectIdsMatch(1787628008985, '1787628008985'), true);
     assert.equal(projectIdsMatch('1787628008985', '1787628008985'), true);
     assert.equal(projectIdsMatch(1787628008985, '1787628008986'), false);
+  });
+
+  test('treats missing revisions as zero and rejects stale project writes', () => {
+    assert.equal(projectRevisionsMatch(undefined, 0), true);
+    assert.equal(projectRevisionsMatch(3, 3), true);
+    assert.equal(projectRevisionsMatch(4, 3), false);
   });
 
   test('only acknowledges accepted events and exposes retryable failures as 5xx', () => {

@@ -343,6 +343,7 @@ export interface Project {
   markers?: TimelineMarker[];
   createdAt: number;
   updatedAt: number; // tracks any modification to the project
+  revision?: number;
   isArchived?: boolean;
   
   // Project Data File

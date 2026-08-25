@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref as dbRef, set, onValue, get } from 'firebase/database';
+import { getDatabase, ref as dbRef, set, onValue, get, runTransaction } from 'firebase/database';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { Project, AppSettings, ScratchTask, ActivityLog } from '../types';
@@ -73,6 +73,7 @@ let auth: any = null;
 let currentUser: User | null = null;
 let currentOrgId: string | null = null;
 let isConfigured = false;
+let currentDataRevision = 0;
 
 // specific parsing to handle the user pasting the raw JS object from Firebase console
 const parseConfig = (raw: string | null) => {
@@ -454,6 +455,7 @@ export const firebaseService = {
       return onValue(dataRef, 
         (snapshot) => {
           const data = snapshot.val();
+          currentDataRevision = Number(data?.dataRevision || 0);
           // Map backend multi-tenant format if necessary, or just return them
           // Here we assume mapping is needed or they're stored directly as the legacy structure inside `projects/${orgId}`
           // To make it easy, assume `projects/${orgId}` contains the same structure as legacy `projectflow_v1`
@@ -508,7 +510,22 @@ export const firebaseService = {
     if (USE_MULTI_TENANT) {
        if (!currentUser || !currentOrgId) return;
        const dataRef = dbRef(db, `projects/${currentOrgId}`);
-       await set(dataRef, cleanData);
+       const expectedRevision = currentDataRevision;
+       const result = await runTransaction(dataRef, current => {
+         const remoteRevision = Number(current?.dataRevision || 0);
+         if (remoteRevision !== expectedRevision) return;
+         return {
+           ...(current || {}),
+           ...cleanData,
+           projects: cleanData.projects.map((project: Project) => ({
+             ...project,
+             revision: Number(project.revision || 0) + 1
+           })),
+           dataRevision: remoteRevision + 1
+         };
+       }, { applyLocally: false });
+       if (!result.committed) throw new Error('Cloud data changed while saving. The latest version has been loaded; review and retry your edit.');
+       currentDataRevision = Number(result.snapshot.val()?.dataRevision || expectedRevision + 1);
     } else {
        const dataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
        await set(dataRef, cleanData);

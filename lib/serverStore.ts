@@ -183,10 +183,15 @@ export interface LocatedProject {
   index: number;
 }
 
+export class ProjectConflictError extends Error {}
+
 export const projectIdsMatch = (storedId: unknown, requestedId: unknown): boolean =>
   storedId !== null && storedId !== undefined
   && requestedId !== null && requestedId !== undefined
   && String(storedId) === String(requestedId);
+
+export const projectRevisionsMatch = (storedRevision: unknown, expectedRevision: unknown): boolean =>
+  Number(storedRevision || 0) === Number(expectedRevision || 0);
 
 export const findProject = async (orgId: string, projectId: string): Promise<LocatedProject | null> => {
   const snap = await getDb().ref(`projects/${orgId}/projects`).get();
@@ -201,6 +206,7 @@ export const findProject = async (orgId: string, projectId: string): Promise<Loc
     index,
     project: {
       ...project,
+      revision: Number(project.revision || 0),
       milestones: toArray(project.milestones).map((m: any) =>
         normalizeNodeAsks({
           ...m,
@@ -276,11 +282,26 @@ export const resolveTeamMemberIdentity = async (
  * client's save path does.
  */
 export const writeProject = async (orgId: string, index: number, project: Project): Promise<void> => {
-  const clean = JSON.parse(JSON.stringify({ ...project, updatedAt: Date.now() }));
-  await getDb().ref(`projects/${orgId}`).update({
-    [`projects/${index}`]: clean,
-    lastUpdated: Date.now()
+  const expectedRevision = Number(project.revision || 0);
+  const clean = JSON.parse(JSON.stringify({
+    ...project,
+    revision: expectedRevision + 1,
+    updatedAt: Date.now()
+  }));
+  const result = await getDb().ref(`projects/${orgId}`).transaction(current => {
+    if (!current) return undefined;
+    const projects = toArray<Project>(current.projects);
+    const stored = projects[index];
+    if (!stored || !projectIdsMatch(stored.id, project.id) || !projectRevisionsMatch(stored.revision, expectedRevision)) return undefined;
+    projects[index] = clean;
+    return {
+      ...current,
+      projects,
+      dataRevision: Number(current.dataRevision || 0) + 1,
+      lastUpdated: Date.now()
+    };
   });
+  if (!result.committed) throw new ProjectConflictError(`Project ${project.id} changed concurrently; retry the operation`);
 };
 
 export const appendActivityLog = async (orgId: string, log: ActivityLog): Promise<void> => {

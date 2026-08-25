@@ -379,11 +379,6 @@ export const App: React.FC = () => {
       isDbInitialized.current = true; 
 
       if (data) {
-        // Prevent echo loop from Firebase triggering instantly after our writes
-        if (data.lastUpdated && Date.now() - localUpdatedAt.current < 2000) {
-           return;
-        }
-
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
         isRemoteUpdate.current = true;
         
