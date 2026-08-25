@@ -283,16 +283,31 @@ export const resolveTeamMemberIdentity = async (
  */
 export const writeProject = async (orgId: string, index: number, project: Project): Promise<void> => {
   const expectedRevision = Number(project.revision || 0);
+  let conflictReason = 'transaction_not_committed';
   const clean = JSON.parse(JSON.stringify({
     ...project,
     revision: expectedRevision + 1,
     updatedAt: Date.now()
   }));
   const result = await getDb().ref(`projects/${orgId}`).transaction(current => {
-    if (!current) return undefined;
+    if (!current) {
+      conflictReason = 'tenant_data_missing';
+      return undefined;
+    }
     const projects = toArray<Project>(current.projects);
     const stored = projects[index];
-    if (!stored || !projectIdsMatch(stored.id, project.id) || !projectRevisionsMatch(stored.revision, expectedRevision)) return undefined;
+    if (!stored) {
+      conflictReason = `project_index_missing:${index}`;
+      return undefined;
+    }
+    if (!projectIdsMatch(stored.id, project.id)) {
+      conflictReason = 'project_id_mismatch';
+      return undefined;
+    }
+    if (!projectRevisionsMatch(stored.revision, expectedRevision)) {
+      conflictReason = `revision_mismatch:stored=${Number(stored.revision || 0)},expected=${expectedRevision}`;
+      return undefined;
+    }
     projects[index] = clean;
     return {
       ...current,
@@ -301,7 +316,7 @@ export const writeProject = async (orgId: string, index: number, project: Projec
       lastUpdated: Date.now()
     };
   });
-  if (!result.committed) throw new ProjectConflictError(`Project ${project.id} changed concurrently; retry the operation`);
+  if (!result.committed) throw new ProjectConflictError(`Project ${project.id} write conflict (${conflictReason}); retry the operation`);
 };
 
 export const appendActivityLog = async (orgId: string, log: ActivityLog): Promise<void> => {
