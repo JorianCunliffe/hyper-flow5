@@ -25,6 +25,7 @@ describe('HttpCommunicationsClient current Communications Service contract', () 
     assert.equal(result.id, 'comm_1');
     assert.equal(calls[0].url, 'https://communications.example/v1/messages');
     assert.equal(calls[0].init.headers['X-API-Key'], 'secret');
+    assert.equal(calls[0].init.headers['Idempotency-Key'], 'hyperflow:org_1:p1:r1:SMS:sms:action');
     assert.equal(calls[0].init.headers.Authorization, undefined);
     assert.deepEqual(JSON.parse(calls[0].init.body), request);
   });

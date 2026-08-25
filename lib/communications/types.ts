@@ -1,6 +1,8 @@
 export interface CommunicationCorrelation {
   tenant_id: string;
-  project_id: string;
+  external_project_id?: string;
+  /** @deprecated transition alias accepted by Communications Service */
+  project_id?: string;
   run_id: string;
   task_id: string;
   person_id?: string;

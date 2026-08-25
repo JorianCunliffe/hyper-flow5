@@ -42,11 +42,11 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   }
 
   sendSms(request: SendSmsRequest): Promise<CommunicationResult> {
-    return this.communicationRequest('/v1/messages', { method: 'POST', body: request });
+    return this.communicationRequest('/v1/messages', { method: 'POST', body: request, idempotencyKey: this.operationKey('sms', request) });
   }
 
   startCall(request: StartCallRequest): Promise<CommunicationResult> {
-    return this.communicationRequest('/v1/calls', { method: 'POST', body: request });
+    return this.communicationRequest('/v1/calls', { method: 'POST', body: request, idempotencyKey: this.operationKey('voice', request) });
   }
 
   getCommunication(id: string): Promise<CommunicationResult> {
@@ -79,7 +79,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
 
   private async communicationRequest(
     path: string,
-    options: { method: 'GET' | 'POST'; body?: SendSmsRequest | StartCallRequest }
+    options: { method: 'GET' | 'POST'; body?: SendSmsRequest | StartCallRequest; idempotencyKey?: string }
   ): Promise<CommunicationResult> {
     const body = await this.rawRequest(path, options);
     const result = body?.communication ?? body;
@@ -98,7 +98,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
 
   private async rawRequest(
     path: string,
-    options: { method: 'GET' | 'POST'; body?: unknown }
+    options: { method: 'GET' | 'POST'; body?: unknown; idempotencyKey?: string }
   ): Promise<any> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -107,6 +107,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
         method: options.method,
         headers: {
           'X-API-Key': this.apiKey,
+          ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
           Accept: 'application/json',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
@@ -133,6 +134,12 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private operationKey(channel: 'sms' | 'voice', request: SendSmsRequest | StartCallRequest): string {
+    const correlation = request.correlation;
+    const purpose = request.purpose?.ask_id || 'action';
+    return `hyperflow:${correlation.tenant_id}:${correlation.external_project_id || correlation.project_id}:${correlation.run_id}:${correlation.task_id}:${channel}:${purpose}`;
   }
 }
 
