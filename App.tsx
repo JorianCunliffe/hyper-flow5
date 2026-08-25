@@ -434,6 +434,10 @@ export const App: React.FC = () => {
     }
 
     localUpdatedAt.current = Date.now();
+    // Capture the cloud revision when this render schedules its save. Reading
+    // it later inside the debounce would let a callback advance the revision
+    // while this closure still holds an older pending project snapshot.
+    const scheduledAtRevision = firebaseService.getDataRevision();
 
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
@@ -441,7 +445,10 @@ export const App: React.FC = () => {
 
         setCloudStatus('syncing');
         try {
-          await firebaseService.save({ projects, settings, scratchTasks, activityLogs });
+          await firebaseService.save(
+            { projects, settings, scratchTasks, activityLogs },
+            scheduledAtRevision
+          );
           setCloudStatus('connected');
           setSyncError(null);
         } catch (err: any) {

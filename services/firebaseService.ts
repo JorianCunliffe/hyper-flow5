@@ -3,6 +3,7 @@ import { getDatabase, ref as dbRef, set, onValue, get, runTransaction } from 'fi
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { Project, AppSettings, ScratchTask, ActivityLog } from '../types';
+import { projectCollectionsShareRevisions } from '../lib/projectRevisionGuard';
 
 export const USE_MULTI_TENANT = true;
 
@@ -292,6 +293,7 @@ export const firebaseService = {
 
   getCurrentUser: () => currentUser,
   getCurrentOrgId: () => currentOrgId,
+  getDataRevision: () => currentDataRevision,
 
   createOrganization: async (orgName: string) => {
     if (!currentUser || !db) return false;
@@ -497,7 +499,10 @@ export const firebaseService = {
     }
   },
 
-  save: async (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[] }) => {
+  save: async (
+    data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[] },
+    scheduledAtRevision = currentDataRevision
+  ) => {
     if (!db) return;
     const cleanData = JSON.parse(JSON.stringify({
       projects: data.projects || [],
@@ -510,10 +515,13 @@ export const firebaseService = {
     if (USE_MULTI_TENANT) {
        if (!currentUser || !currentOrgId) return;
        const dataRef = dbRef(db, `projects/${currentOrgId}`);
-       const expectedRevision = currentDataRevision;
+       const expectedRevision = scheduledAtRevision;
        const result = await runTransaction(dataRef, current => {
          const remoteRevision = Number(current?.dataRevision || 0);
-         if (remoteRevision !== expectedRevision) return;
+         if (
+           remoteRevision !== expectedRevision
+           || !projectCollectionsShareRevisions(current?.projects, cleanData.projects)
+         ) return;
          return {
            ...(current || {}),
            ...cleanData,
