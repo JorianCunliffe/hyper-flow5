@@ -290,21 +290,12 @@ export const writeProject = async (orgId: string, index: number, project: Projec
     updatedAt: Date.now()
   }));
   const tenantRef = getDb().ref(`projects/${orgId}`);
-  // Admin transactions may invoke the update function with an empty local
-  // cache before reading the server. Prime this exact parent path so treating
-  // a null value as a missing tenant cannot abort a valid first transaction.
-  await tenantRef.get();
-  const result = await tenantRef.transaction(current => {
-    if (!current) {
-      conflictReason = 'tenant_data_missing';
-      return undefined;
-    }
-    const projects = toArray<Project>(current.projects);
-    const stored = projects[index];
-    if (!stored) {
-      conflictReason = `project_index_missing:${index}`;
-      return undefined;
-    }
+  const projectRef = tenantRef.child(`projects/${index}`);
+  const result = await projectRef.transaction(stored => {
+    // Firebase can invoke the update function with an empty local cache before
+    // it has read the server. Propose the value: if the project exists remotely,
+    // Firebase retries this function with the real value before committing.
+    if (!stored) return clean;
     if (!projectIdsMatch(stored.id, project.id)) {
       conflictReason = 'project_id_mismatch';
       return undefined;
@@ -313,15 +304,11 @@ export const writeProject = async (orgId: string, index: number, project: Projec
       conflictReason = `revision_mismatch:stored=${Number(stored.revision || 0)},expected=${expectedRevision}`;
       return undefined;
     }
-    projects[index] = clean;
-    return {
-      ...current,
-      projects,
-      dataRevision: Number(current.dataRevision || 0) + 1,
-      lastUpdated: Date.now()
-    };
+    return clean;
   });
   if (!result.committed) throw new ProjectConflictError(`Project ${project.id} write conflict (${conflictReason}); retry the operation`);
+  await tenantRef.child('dataRevision').transaction(current => Number(current || 0) + 1);
+  await tenantRef.update({ lastUpdated: Date.now() });
 };
 
 export const appendActivityLog = async (orgId: string, log: ActivityLog): Promise<void> => {
