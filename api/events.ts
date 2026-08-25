@@ -4,6 +4,16 @@ import { serverStoreStatus } from '../lib/serverStore.js';
 
 const json = (body: unknown, status: number): Response => Response.json(body, { status });
 
+type ExternalEventOutcome = {
+  ok: boolean;
+  retryable?: boolean;
+};
+
+export const externalEventHttpStatus = (outcome: ExternalEventOutcome): number => {
+  if (outcome.ok) return 200;
+  return outcome.retryable ? 503 : 422;
+};
+
 // Vercel's Web Request handler exposes the untouched body stream. Reading it as
 // an ArrayBuffer preserves the exact bytes Communications signed; reconstructing
 // JSON from VercelRequest.body would change whitespace and invalidate the HMAC.
@@ -26,7 +36,15 @@ export const POST = async (request: Request): Promise<Response> => {
   try {
     const body = parseSignedJsonBody(rawBody);
     const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });
-    return json(outcome, outcome.retryable ? 409 : 200);
+    if (!outcome.ok) {
+      console.warn('External event was not accepted', {
+        event_id: body.event_id,
+        event_type: body.type,
+        reason: outcome.reason,
+        retryable: outcome.retryable
+      });
+    }
+    return json(outcome, externalEventHttpStatus(outcome));
   } catch (error: any) {
     if (/required|JSON object|valid JSON/.test(error?.message || '')) return json({ error: error.message }, 400);
     console.error('External event handler failed', error);

@@ -183,12 +183,17 @@ export interface LocatedProject {
   index: number;
 }
 
+export const projectIdsMatch = (storedId: unknown, requestedId: unknown): boolean =>
+  storedId !== null && storedId !== undefined
+  && requestedId !== null && requestedId !== undefined
+  && String(storedId) === String(requestedId);
+
 export const findProject = async (orgId: string, projectId: string): Promise<LocatedProject | null> => {
   const snap = await getDb().ref(`projects/${orgId}/projects`).get();
   if (!snap.exists()) return null;
 
   const list = toArray<Project>(snap.val());
-  const index = list.findIndex(p => p && p.id === projectId);
+  const index = list.findIndex(p => p && projectIdsMatch(p.id, projectId));
   if (index === -1) return null;
 
   const project = list[index];
