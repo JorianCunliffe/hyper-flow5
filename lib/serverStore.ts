@@ -289,7 +289,12 @@ export const writeProject = async (orgId: string, index: number, project: Projec
     revision: expectedRevision + 1,
     updatedAt: Date.now()
   }));
-  const result = await getDb().ref(`projects/${orgId}`).transaction(current => {
+  const tenantRef = getDb().ref(`projects/${orgId}`);
+  // Admin transactions may invoke the update function with an empty local
+  // cache before reading the server. Prime this exact parent path so treating
+  // a null value as a missing tenant cannot abort a valid first transaction.
+  await tenantRef.get();
+  const result = await tenantRef.transaction(current => {
     if (!current) {
       conflictReason = 'tenant_data_missing';
       return undefined;
