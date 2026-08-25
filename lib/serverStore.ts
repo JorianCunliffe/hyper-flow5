@@ -332,13 +332,25 @@ export const persistExternalEvent = async (event: ExternalEventRecord): Promise<
 };
 
 /** Claims a received or previously-failed event for one processing attempt. */
-export const claimExternalEventProcessing = async (eventId: string): Promise<boolean> => {
-  const result = await externalEventRef(eventId).transaction(current => {
+type ExternalEventClaimRef = {
+  get: () => Promise<unknown>;
+  transaction: (update: (current: any) => any) => Promise<{ committed: boolean }>;
+};
+
+export const claimExternalEventProcessingAtRef = async (ref: ExternalEventClaimRef): Promise<boolean> => {
+  // Firebase Admin transactions may invoke the updater first with an empty
+  // local cache. Prime this exact path so an existing inbox record is not
+  // mistaken for a missing event and silently left in `received`.
+  await ref.get();
+  const result = await ref.transaction(current => {
     if (!current || !['received', 'processing_failed'].includes(current.processing_status)) return undefined;
     return { ...current, processing_status: 'processing', processing_error: null };
   });
   return result.committed;
 };
+
+export const claimExternalEventProcessing = async (eventId: string): Promise<boolean> =>
+  claimExternalEventProcessingAtRef(externalEventRef(eventId));
 
 export const finishExternalEventProcessing = async (
   eventId: string,

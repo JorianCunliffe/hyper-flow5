@@ -140,7 +140,10 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
   const record = createExternalEventRecord(event);
   const inserted = await persistExternalEvent(record);
   const claimed = await claimExternalEventProcessing(event.event_id);
-  if (!claimed) return { ok: true, duplicate: !inserted };
+  if (!claimed) {
+    if (inserted) return { ok: false, retryable: true, reason: 'event_claim_failed' };
+    return { ok: true, duplicate: true };
+  }
 
   try {
     if (event.source !== 'communications') {

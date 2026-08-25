@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { externalEventHttpStatus, POST } from '../api/events.js';
-import { projectIdsMatch, projectRevisionsMatch } from '../lib/serverStore.js';
+import { claimExternalEventProcessingAtRef, projectIdsMatch, projectRevisionsMatch } from '../lib/serverStore.js';
 
 const originalSecret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
 
@@ -27,6 +27,22 @@ describe('Vercel Communications event intake', () => {
     assert.equal(externalEventHttpStatus({ ok: true }), 200);
     assert.equal(externalEventHttpStatus({ ok: false, retryable: true }), 503);
     assert.equal(externalEventHttpStatus({ ok: false, retryable: false }), 422);
+  });
+
+  test('primes the event path before claiming an existing inbox record', async () => {
+    let primed = false;
+    const event = { processing_status: 'received', processing_error: 'prior failure' };
+    const ref = {
+      get: async () => { primed = true; },
+      transaction: async (update: (current: any) => any) => {
+        const next = update(primed ? event : null);
+        assert.deepEqual(next, { processing_status: 'processing', processing_error: null });
+        return { committed: next !== undefined };
+      }
+    };
+
+    assert.equal(await claimExternalEventProcessingAtRef(ref), true);
+    assert.equal(primed, true);
   });
 
   test('reads application/json as raw bytes before signature verification', async () => {
