@@ -17,7 +17,7 @@ interface NodeConfigModalProps {
   milestones: Milestone[];
   people?: string[];
   onSave: (updates: Partial<Milestone>) => void;
-  onRun: () => void;
+  onRun: (updates: Partial<Milestone>) => void;
   isRunning: boolean;
   onClose: () => void;
 }
@@ -387,8 +387,10 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
           {isActionNode(draftNode) && (
             <button
               onClick={() => {
-                onSave({ nodeType, actionConfig: { ...(milestone.actionConfig || {}), template, autoExecute } });
-                onRun();
+                onRun({
+                  nodeType,
+                  actionConfig: { ...(milestone.actionConfig || {}), template, autoExecute }
+                });
               }}
               disabled={isRunning}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors mr-auto"
