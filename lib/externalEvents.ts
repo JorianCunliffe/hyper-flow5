@@ -3,9 +3,8 @@ import { respondToAsk } from './asks/respondToAsk.js';
 import type { AskChannel } from '../types.js';
 import { createCommunicationsClient } from './communications/client.js';
 import {
-  claimExternalEventProcessing,
-  finishExternalEventProcessing,
-  persistExternalEvent
+  beginExternalEventProcessing,
+  finishExternalEventProcessing
 } from './serverStore.js';
 
 export type ExternalEventProcessingStatus = 'received' | 'processing' | 'processed' | 'processing_failed';
@@ -54,6 +53,8 @@ export interface ExternalEventRecord {
   processing_status: ExternalEventProcessingStatus;
   processed_at?: string;
   processing_error?: string;
+  processing_claim_id?: string;
+  processing_started_at?: string;
 }
 
 export const normalizeExternalEvent = (raw: any, defaultSource?: 'communications'): ExternalEventEnvelope => {
@@ -134,16 +135,14 @@ const TERMINAL_EVENTS: Readonly<Record<string, 'success' | 'error'>> = {
 export const terminalExternalEventStatus = (type: string): 'success' | 'error' | null =>
   TERMINAL_EVENTS[type.toLowerCase()] || null;
 
-/** Persist first, then deterministically apply an explicitly-correlated terminal event. */
+/** Atomically persist/claim, then apply an explicitly-correlated terminal event. */
 export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutcome> => {
-  const event = normalizeExternalEvent(raw);
-  const record = createExternalEventRecord(event);
-  const inserted = await persistExternalEvent(record);
-  const claimed = await claimExternalEventProcessing(event.event_id);
-  if (!claimed) {
-    if (inserted) return { ok: false, retryable: true, reason: 'event_claim_failed' };
-    return { ok: true, duplicate: true };
-  }
+  const incomingEvent = normalizeExternalEvent(raw);
+  const claim = await beginExternalEventProcessing(createExternalEventRecord(incomingEvent));
+  if (!claim.claimed) return { ok: true, duplicate: true };
+  // A replay with the same event_id must process the originally persisted
+  // envelope, never a later body that merely reused its idempotency key.
+  const event = claim.record?.payload || incomingEvent;
 
   try {
     if (event.source !== 'communications') {

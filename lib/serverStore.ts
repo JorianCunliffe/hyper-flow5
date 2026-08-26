@@ -1,5 +1,6 @@
 import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
+import { randomUUID } from 'node:crypto';
 import { ActivityLog, AppSettings, CommunicationsSettings, Project, TeamMemberDetails } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
@@ -323,34 +324,67 @@ const externalEventRef = (eventId: string) => {
   return getDb().ref(`external_events/${safeId}`);
 };
 
-/** Durable event inbox insert. The transaction makes event_id the idempotency key. */
-export const persistExternalEvent = async (event: ExternalEventRecord): Promise<boolean> => {
-  const result = await externalEventRef(event.event_id).transaction(current =>
-    current === null ? JSON.parse(JSON.stringify(event)) : undefined
-  );
-  return result.committed;
+type ExternalEventInboxRef = {
+  transaction: (update: (current: any) => any) => Promise<{
+    committed: boolean;
+    snapshot: { val: () => any };
+  }>;
 };
 
-/** Claims a received or previously-failed event for one processing attempt. */
-type ExternalEventClaimRef = {
-  get: () => Promise<unknown>;
-  transaction: (update: (current: any) => any) => Promise<{ committed: boolean }>;
-};
+export interface ExternalEventProcessingClaim {
+  claimed: boolean;
+  record?: ExternalEventRecord;
+}
 
-export const claimExternalEventProcessingAtRef = async (ref: ExternalEventClaimRef): Promise<boolean> => {
-  // Firebase Admin transactions may invoke the updater first with an empty
-  // local cache. Prime this exact path so an existing inbox record is not
-  // mistaken for a missing event and silently left in `received`.
-  await ref.get();
+const EXTERNAL_EVENT_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+/** Atomically inserts and claims an event, using event_id as the idempotency key. */
+export const beginExternalEventProcessingAtRef = async (
+  ref: ExternalEventInboxRef,
+  event: ExternalEventRecord,
+  claimId: string,
+  now = new Date(),
+  leaseMs = EXTERNAL_EVENT_CLAIM_LEASE_MS
+): Promise<ExternalEventProcessingClaim> => {
+  const startedAt = now.toISOString();
+  const nowMs = now.getTime();
   const result = await ref.transaction(current => {
-    if (!current || !['received', 'processing_failed'].includes(current.processing_status)) return undefined;
-    return { ...current, processing_status: 'processing', processing_error: null };
+    // Firebase Admin may initially invoke this updater with `null` before it
+    // has read the server value. Propose the insert instead of aborting; if a
+    // row already exists Firebase reruns the updater with that canonical row.
+    if (current === null) {
+      return {
+        ...JSON.parse(JSON.stringify(event)),
+        processing_status: 'processing',
+        processing_claim_id: claimId,
+        processing_started_at: startedAt,
+        processing_error: null,
+        processed_at: null
+      };
+    }
+
+    const startedMs = Date.parse(current.processing_started_at || '');
+    const staleProcessing = current.processing_status === 'processing'
+      && (!Number.isFinite(startedMs) || nowMs - startedMs >= leaseMs);
+    if (!['received', 'processing_failed'].includes(current.processing_status) && !staleProcessing) return undefined;
+    return {
+      ...current,
+      processing_status: 'processing',
+      processing_claim_id: claimId,
+      processing_started_at: startedAt,
+      processing_error: null,
+      processed_at: null
+    };
   });
-  return result.committed;
+  const stored = result.snapshot.val() as ExternalEventRecord | null;
+  const claimed = Boolean(result.committed && stored?.processing_claim_id === claimId);
+  return { claimed, record: claimed && stored ? stored : undefined };
 };
 
-export const claimExternalEventProcessing = async (eventId: string): Promise<boolean> =>
-  claimExternalEventProcessingAtRef(externalEventRef(eventId));
+export const beginExternalEventProcessing = async (
+  event: ExternalEventRecord
+): Promise<ExternalEventProcessingClaim> =>
+  beginExternalEventProcessingAtRef(externalEventRef(event.event_id), event, randomUUID());
 
 export const finishExternalEventProcessing = async (
   eventId: string,
@@ -360,6 +394,8 @@ export const finishExternalEventProcessing = async (
   await externalEventRef(eventId).update({
     processing_status: status,
     processed_at: new Date().toISOString(),
-    processing_error: error || null
+    processing_error: error || null,
+    processing_claim_id: null,
+    processing_started_at: null
   });
 };
