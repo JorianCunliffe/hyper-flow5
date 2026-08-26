@@ -13,7 +13,7 @@ Flows can keep moving without an open browser. Long-running communications enter
 | Loops | Repeat a section until exit conditions pass or the iteration limit is reached. |
 | Email | Send email through Resend. |
 | SMS | Send messages through the provider-neutral Communications API. |
-| Phone calls | Start voice calls through the Communications API. |
+| Phone calls | Start voice calls through the Communications API and wait for a verified human outcome. |
 | Webhooks | Call an external HTTP endpoint. |
 | Reports | Generate, evaluate, and revise a report with Gemini. |
 | Human asks | Pause work for approval, revision, rejection, missing information, or an upload. |
@@ -53,6 +53,8 @@ Settings → Communications contains only the non-secret tenant sending number. 
 
 The current Communications Service create endpoints return `201` canonical communication objects without a workflow status. HyperFlow normalizes those responses to `accepted`, returns `202` from `/api/tasks/execute`, and records the action as waiting. It does not merge communication output or unlock downstream nodes until a mapped terminal event arrives at `POST /api/events`.
 
+For voice, Twilio's provider status `completed` is not success. Communications sends `call.completed` only after verifying a meaningful response from the intended human. Voicemail, wrong number, no answer, busy, fax, automated systems, provider failure, and non-meaningful responses arrive as `call.failed`. HyperFlow records the disposition and memory-eligibility flag on the action run, displays a specific failure label, keeps downstream work blocked, and never merges failed-call output into Project Data. Pending actions display as **Waiting**, not failed.
+
 ## Human asks
 
 An ask is a durable, channel-independent request for a person to respond. It carries one `ask_id` and one capability-scoped `ask_token` across web, email, SMS, and voice.
@@ -61,7 +63,7 @@ The lifecycle is:
 
 1. Work completes and the flow raises an ask.
 2. Email asks are delivered through Resend; SMS and voice asks use Communications `/v1/messages` or `/v1/calls` with a `human_ask` purpose.
-3. The response arrives through the tokenized form or a Communications API event.
+3. The response arrives through the tokenized form or an eligible Communications API event. A failed voice call does not count as a response.
 4. [`respondToAsk`](./lib/asks/respondToAsk.ts) normalizes, validates, records, and applies the response.
 5. HyperFlow applies an accepted response in memory, advances the flow, attempts newly raised Ask deliveries, and persists the resulting project state.
 6. If the accepted response came from Communications, HyperFlow then calls `/v1/asks/{ask_id}/resolve` with that response's `communication_id`.
@@ -91,7 +93,8 @@ Vercel rewrites this to the JSON `/api/asks/{ask_token}` handler. A client or th
 | Server execution | [`lib/serverExecutor.ts`](./lib/serverExecutor.ts), [`lib/serverFlow.ts`](./lib/serverFlow.ts) | Runs actions and advances persisted projects without a browser. |
 | Ask services | [`lib/asks`](./lib/asks) | Creates, delivers, expires, and responds to asks. |
 | Communications client | [`lib/communications`](./lib/communications) | Current Communications Service SMS, voice, Ask-resolution, and signed-event contracts. |
-| Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, idempotent inbound event processing. |
+| Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, idempotent inbound event processing with fail-closed call outcomes. |
+| Run outcome UI | [`lib/actionRunPresentation.ts`](./lib/actionRunPresentation.ts) | Human-readable waiting/success/failure labels and durable voice outcome fields. |
 
 `external_events/{event_id}` is the durable inbox. Events move through `received`, `processing`, `processed`, or `processing_failed`. The event ID is claimed transactionally, so a processed replay is inert and a failed event can be claimed again when Communications retries the same event ID.
 
@@ -144,7 +147,7 @@ npm.cmd test
 npm.cmd run build
 ```
 
-The test suite covers flow decisions and loops, waiting action resolution, ask normalization and review gates, current Communications Service fixtures and HMAC behavior, event envelopes, Firebase shape handling, and serverless module specifiers.
+The test suite covers flow decisions and loops, waiting action resolution, voicemail/wrong-number failure presentation, failed-output isolation, ask normalization and review gates, current Communications Service fixtures and HMAC behavior, event envelopes, Firebase shape handling, and serverless module specifiers.
 
 ## Known limitation
 

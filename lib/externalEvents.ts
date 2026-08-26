@@ -135,6 +135,34 @@ const TERMINAL_EVENTS: Readonly<Record<string, 'success' | 'error'>> = {
 export const terminalExternalEventStatus = (type: string): 'success' | 'error' | null =>
   TERMINAL_EVENTS[type.toLowerCase()] || null;
 
+export const terminalExternalEventResult = (event: ExternalEventEnvelope): {
+  status: 'success' | 'error'; error?: string; log: string;
+} | null => {
+  let status = terminalExternalEventStatus(event.type);
+  if (!status) return null;
+  const disposition = typeof event.payload.disposition === 'string' ? event.payload.disposition : undefined;
+  const successful = typeof event.payload.successful === 'boolean' ? event.payload.successful : undefined;
+  const memoryEligible = typeof event.payload.memory_eligible === 'boolean' ? event.payload.memory_eligible : undefined;
+
+  // A contradictory producer payload must fail closed even if its event name
+  // says completed. Provider completion is not verified human success.
+  if (event.type.toLowerCase() === 'call.completed' && (
+    successful === false || memoryEligible === false || (disposition && disposition !== 'human_completed')
+  )) status = 'error';
+
+  const failure = String(
+    event.payload.failure_reason || event.payload.error ||
+    (disposition ? `Call outcome: ${disposition.replace(/_/g, ' ')}` : 'Communication failed')
+  );
+  return {
+    status,
+    error: status === 'error' ? failure : undefined,
+    log: status === 'error'
+      ? `Communication failed${disposition ? ` (${disposition.replace(/_/g, ' ')})` : ''}: ${failure}`
+      : 'Communication completed with a verified human response'
+  };
+};
+
 /** Atomically persist/claim, then apply an explicitly-correlated terminal event. */
 export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutcome> => {
   const incomingEvent = normalizeExternalEvent(raw);
@@ -156,6 +184,14 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         const reason = 'missing ask_id, tenant_id or project_id correlation';
         await finishExternalEventProcessing(event.event_id, 'processing_failed', reason);
         return { ok: false, reason };
+      }
+
+      if (event.channel === 'voice' && (
+        event.payload.successful === false || event.payload.memory_eligible === false ||
+        (typeof event.payload.disposition === 'string' && event.payload.disposition !== 'human_completed')
+      )) {
+        await finishExternalEventProcessing(event.event_id, 'processed');
+        return { ok: true, ignored: true, reason: 'ineligible_voice_response' };
       }
 
       const occurredAt = event.occurred_at ? new Date(event.occurred_at).getTime() : undefined;
@@ -204,8 +240,8 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       };
     }
 
-    const status = terminalExternalEventStatus(event.type);
-    if (!status) {
+    const terminal = terminalExternalEventResult(event);
+    if (!terminal) {
       await finishExternalEventProcessing(event.event_id, 'processed');
       return { ok: true, ignored: true, reason: 'non_terminal_event' };
     }
@@ -222,10 +258,13 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       projectId,
       { nodeId: taskId, runId, externalId: event.communication_id },
       {
-        status,
+        status: terminal.status,
         output: { communication_id: event.communication_id, ...event.payload },
-        logs: [`External event ${event.event_id} (${event.type}) received from communications`],
-        error: status === 'error' ? String(event.payload.error || 'Communication failed') : undefined,
+        logs: [
+          `External event ${event.event_id} (${event.type}) received from communications`,
+          terminal.log
+        ],
+        error: terminal.error,
         resolvedBy: `event:${event.source}`
       }
     );

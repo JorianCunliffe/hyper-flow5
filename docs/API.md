@@ -2,7 +2,7 @@
 
 This document describes the HTTP surface currently implemented by the Vercel functions under `api/` and mirrored by the local Express server where applicable.
 
-The outbound and event examples were audited against the Communications Service [`main` API reference](https://github.com/JorianCunliffe/communications-service/blob/main/docs/API_REFERENCE.md) dated 12 August 2026. HyperFlow's compatibility behavior is documented separately where it intentionally accepts legacy or defensive shapes not emitted by that reference.
+The outbound and event examples were audited against the Communications Service [`main` API reference](https://github.com/JorianCunliffe/communications-service/blob/main/docs/API_REFERENCE.md) dated 26 August 2026. HyperFlow's compatibility behavior is documented separately where it intentionally accepts legacy or defensive shapes not emitted by that reference.
 
 ## Conventions
 
@@ -156,12 +156,15 @@ An `ask.response.received` event carrying an explicit `ask_id` is routed to the 
   "payload": {
     "ask_id": "ask_123",
     "channel": "voice",
-    "transcript": "Approved"
+    "transcript": { "segments": [{ "role": "user", "text": "Approved" }] },
+    "disposition": "human_completed",
+    "successful": true,
+    "memory_eligible": true
   }
 }
 ```
 
-SMS response text is read from `payload.content`; voice response text is read from `payload.transcript`. Structured transcript objects are retained in the event evidence and do not bypass the existing `needsInterpretation` safeguard. HyperFlow applies an accepted answer, advances the flow, attempts any newly raised Ask deliveries, and persists the resulting project state before calling `POST /v1/asks/{ask_id}/resolve` with its `communication_id`. If that acknowledgement fails, the inbox event becomes `processing_failed` and a retry can reclaim it. On replay, `respondToAsk` returns the already-recorded local response only when its `communicationId` matches the event.
+SMS response text is read from `payload.content`; voice response text is read from `payload.transcript`. Structured transcript objects are retained in the event evidence and do not bypass the existing `needsInterpretation` safeguard. A voice event explicitly marked unsuccessful, memory-ineligible, or with a disposition other than `human_completed` is acknowledged and ignored; it cannot enter the canonical Ask response path. HyperFlow applies an accepted answer, advances the flow, attempts any newly raised Ask deliveries, and persists the resulting project state before calling `POST /v1/asks/{ask_id}/resolve` with its `communication_id`. If that acknowledgement fails, the inbox event becomes `processing_failed` and a retry can reclaim it. On replay, `respondToAsk` returns the already-recorded local response only when its `communicationId` matches the event.
 
 Communications currently returns a generic `409` for an already-resolved Ask without returning the existing resolver identity. The client treats that as idempotent only on the locally matched replay path described above; this is not independent proof that Communications used the same communication ID.
 
@@ -180,7 +183,7 @@ HyperFlow also retains compatibility with adapters that supply `response.structu
 
 ### Terminal communication event
 
-Only `call.completed` and `sms.delivered` are successful terminal events. `call.failed` and `sms.failed` map to failure; `sms.failed` is accepted defensively even though the current Communications Service event table documents `sms.sent` and `sms.delivered`, not a separately emitted `sms.failed`. Every other current or future event defaults to non-terminal. Terminal events require `tenant_id`, `project_id`, `run_id`, and `task_id`; `communication_id` adds an additional exact-run match when present.
+Only `call.completed` and `sms.delivered` are successful terminal events. `call.failed` and `sms.failed` map to failure. A contradictory `call.completed` payload that explicitly has `successful: false`, `memory_eligible: false`, or a non-`human_completed` disposition also fails closed. Every other current or future event defaults to non-terminal. Terminal events require `tenant_id`, `project_id`, `run_id`, and `task_id`; `communication_id` adds an additional exact-run match when present.
 
 ```json
 {
@@ -196,11 +199,44 @@ Only `call.completed` and `sms.delivered` are successful terminal events. `call.
     "run_id": "run_1"
   },
   "payload": {
-    "summary": "The customer confirmed Thursday at 10:30.",
-    "transcript": "..."
+    "provider_status": "completed",
+    "disposition": "human_completed",
+    "successful": true,
+    "memory_eligible": true,
+    "failure_code": null,
+    "failure_reason": null,
+    "outcome_source": "transcript_model",
+    "outcome_confidence": 0.98
   }
 }
 ```
+
+A failed call uses the same correlation and a `call.failed` type, for example:
+
+```json
+{
+  "event_id": "evt_call_124",
+  "source": "communications",
+  "type": "call.failed",
+  "communication_id": "comm_124",
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "project_1",
+    "task_id": "CALL_1",
+    "run_id": "run_1"
+  },
+  "payload": {
+    "provider_status": "completed",
+    "disposition": "voicemail",
+    "successful": false,
+    "memory_eligible": false,
+    "failure_code": "voicemail",
+    "failure_reason": "Twilio detected an answering machine"
+  }
+}
+```
+
+The complete payload is retained on `lastRun.output`, while normalized fields are also stored on `lastRun.communicationOutcome`. Failed output is never merged into Project Data and therefore cannot unlock a downstream decision.
 
 Successful application:
 
