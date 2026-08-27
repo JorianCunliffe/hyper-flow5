@@ -25,6 +25,7 @@ export interface RespondToAskInput {
   communicationId?: string;
   transcriptId?: string;
   occurredAt?: number;
+  actorVerified?: boolean;
 }
 
 export interface RespondToAskOutcome {
@@ -61,11 +62,18 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
     return { ok: false, reason: 'already_answered', askStatus: 'answered', response: sameResponse };
   }
 
+  const matchedDelivery = (found.ask.deliveries || []).find(delivery =>
+    delivery.deliveryAskId === input.askId || delivery.deliveryToken === input.askToken
+  );
+  if ((found.ask.responsePolicy === 'all' || found.ask.responsePolicy === 'quorum') &&
+      !matchedDelivery && !input.actorVerified) {
+    return { ok: false, reason: 'verified_reviewer_identity_required' };
+  }
   const response: HumanResponse = isHumanResponse(input.response)
     ? { ...input.response }
     : buildResponse(found.ask, {
         via: input.channel || 'web',
-        actor: input.response.actor || `via ${input.channel || 'web'}`,
+        actor: matchedDelivery?.personId || input.response.actor || `via ${input.channel || 'web'}`,
         decision: input.response.decision || structuredDecision(input.response.structured?.decision),
         text: input.response.text,
         values: input.response.structured

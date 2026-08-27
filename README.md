@@ -1,26 +1,22 @@
 # HyperFlow
 
-HyperFlow is a visual project workflow engine for combining human milestones with automated actions, decisions, loops, and human review gates.
+HyperFlow is a visual workflow engine for projects that combine human milestones, automated actions, decisions, loops, and review gates. Server-side execution lets flows continue without an open browser, while durable event handling reconnects asynchronous SMS and voice results to the exact action run that started them.
 
-Flows can keep moving without an open browser. Long-running communications enter a durable waiting state, inbound events resolve the exact waiting run, and human responses from web forms, email, SMS, or voice all pass through one canonical ask-response service.
+## Capabilities
 
-## What it supports
-
-| Capability | Description |
+| Capability | Current behavior |
 |---|---|
 | Milestones | Human-managed work with subtasks and dependencies. |
-| Decisions | Select the first branch whose conditions match Project Data. |
-| Loops | Repeat a section until exit conditions pass or the iteration limit is reached. |
-| Email | Send email through Resend. |
-| SMS | Send messages through the provider-neutral Communications API. |
-| Phone calls | Start voice calls through the Communications API. |
-| Webhooks | Call an external HTTP endpoint. |
-| Reports | Generate, evaluate, and revise a report with Gemini. |
-| Human asks | Pause work for approval, revision, rejection, missing information, or an upload. |
+| Decisions and loops | Branch from Project Data and repeat sections until an exit condition or iteration limit is reached. |
+| Email | Send through Resend. |
+| SMS and voice | Start work through the provider-neutral Communications Service and wait for signed terminal events. |
+| Webhooks | Call public HTTPS/443 endpoints with DNS, redirect, timeout, and response-size protections. |
+| Reports | Generate, evaluate, and revise reports with Gemini. |
+| Human Asks | Pause a run for approval, rejection, revision, information, or an upload; collect responses by web form, SMS, or voice. |
 
-Action templates support `{{variable}}` substitution from Project Data. Successful action output is merged back into Project Data for downstream decisions and loops.
+Action templates can use `{{variable}}` placeholders from Project Data. Successful synchronous output is merged back into Project Data for later decisions and loops.
 
-## Quick start
+## Local development
 
 Requirements: Node.js and npm.
 
@@ -33,108 +29,78 @@ npm.cmd run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Backend credentials must be available as process environment variables; copying `.env.example` does not load it into the local Express process. Configure only the services the workflow uses:
+The Express development server reads process environment variables; it does not automatically load a copied `.env.example` file. Configure only the integrations you use, and see [`.env.example`](./.env.example) for the complete variable list.
 
-- `GEMINI_API_KEY` for AI project generation and report actions.
-- `RESEND_API_KEY` for email actions.
-- `COMMUNICATIONS_API_URL` and backend-only `COMMUNICATIONS_API_KEY` for outbound SMS and voice.
-- `COMMUNICATIONS_WEBHOOK_SECRET` for signed inbound events.
-- `FIREBASE_SERVICE_ACCOUNT` for server-side flow advancement, asks, and event processing.
+## Backend configuration
 
-See [`.env.example`](./.env.example) for the complete configuration reference.
+| Integration | Required backend variables |
+|---|---|
+| Firebase server access | `FIREBASE_SERVICE_ACCOUNT`; `FIREBASE_DATABASE_URL` when overriding the default database. |
+| Gemini | `GEMINI_API_KEY`. |
+| Resend | `RESEND_API_KEY`; optional `RESEND_FROM_EMAIL`. |
+| Communications Service | `COMMUNICATIONS_API_URL`, `COMMUNICATIONS_API_KEY`, `COMMUNICATIONS_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`; optional `COMMUNICATIONS_FROM_NUMBER`. |
+| Server-triggered flow advancement | `WEBHOOK_SECRET`. |
+| Webhook action allowlist | Optional comma-separated `WEBHOOK_ALLOWED_HOSTS`. |
 
-Settings → Communications contains only the non-secret tenant sending number. Communications credentials, webhook secrets, Firebase service-account data, and provider keys remain backend environment variables because Settings is synchronized to Firebase and included in normal backups.
+Settings > Communications stores only the tenant's non-secret E.164 sending number. API keys, webhook secrets, Firebase service-account data, and provider credentials must remain backend environment variables. Never place them in app settings, Project Data, or `VITE_*` variables.
 
-## Running a flow
+For ordinary SMS and call actions, the sending number is selected from the action template, Project Data `communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`. SMS and voice Asks use Project Data, tenant Settings, then the environment fallback.
 
-- Use **Run Now** on an action node to execute that action directly.
-- Use **Advance Flow** to evaluate decisions and loops, run ready auto-execute actions, and raise required review asks.
-- A node is ready when its dependencies are resolved and at least one dependency completed. Skipped branches do not block a join.
+## Flow execution
 
-The current Communications Service create endpoints return `201` canonical communication objects without a workflow status. HyperFlow normalizes those responses to `accepted`, returns `202` from `/api/tasks/execute`, and records the action as waiting. It does not merge communication output or unlock downstream nodes until a mapped terminal event arrives at `POST /api/events`.
+- **Run Now** executes one action directly.
+- **Advance Flow** evaluates ready work, decisions, and loops; runs auto-execute actions; and raises required Asks.
+- Email, webhook, and report actions finish synchronously.
+- SMS and voice actions normally return `202`, remain waiting, and release downstream work only after a signed terminal event reaches `POST /api/events`.
 
-## Human asks
+Every outbound SMS or call carries:
 
-An ask is a durable, channel-independent request for a person to respond. It carries one `ask_id` and one capability-scoped `ask_token` across web, email, SMS, and voice.
+- `X-API-Key` authentication;
+- a deterministic `Idempotency-Key` derived from the tenant, project, run, task, channel, and Ask identity;
+- `tenant_id`, `external_project_id`, `run_id`, and `task_id` correlation;
+- an HTTPS callback URL derived from `PUBLIC_BASE_URL`.
 
-The lifecycle is:
+## Human Asks
 
-1. Work completes and the flow raises an ask.
-2. Email asks are delivered through Resend; SMS and voice asks use Communications `/v1/messages` or `/v1/calls` with a `human_ask` purpose.
-3. The response arrives through the tokenized form or a Communications API event.
-4. [`respondToAsk`](./lib/asks/respondToAsk.ts) normalizes, validates, records, and applies the response.
-5. HyperFlow applies an accepted response in memory, advances the flow, attempts newly raised Ask deliveries, and persists the resulting project state.
-6. If the accepted response came from Communications, HyperFlow then calls `/v1/asks/{ask_id}/resolve` with that response's `communication_id`.
+HyperFlow maintains one canonical Ask and creates recipient/channel-specific delivery IDs and tokens. All accepted responses pass through the same `respondToAsk` service, which validates the response, records it, applies the result, advances the flow, delivers any newly raised Asks, and saves the project.
 
-Important review behavior:
-
-- Approval belongs to one specific action run and cannot satisfy a later rerun.
-- Requesting revision requires a comment; that comment becomes the next run's instruction.
-- Ambiguous prose is retained for interpretation but does not release an approval gate.
-- An overdue ask continues blocking by default. Automatic approval must be configured explicitly.
-- Replaying an answered ask does not record or apply a second response. For a Communications replay carrying the same locally recorded `communication_id`, HyperFlow can retry the remote Ask-resolution acknowledgement.
-
-The public tokenized ask endpoint is:
+The public form URL is:
 
 ```text
-GET|POST /forms/ask/{ask_token}?org={org_id}&project={project_id}
+GET|POST /forms/ask/{token}?org={orgId}&project={projectId}
 ```
 
-Vercel rewrites this to the JSON `/api/asks/{ask_token}` handler. A client or the Communications service can use that contract to render a response form. The token authorizes only that ask; it is not a user session credential.
+Vercel rewrites this path to `/api/asks/{token}`. Browser navigation receives a rendered form; JSON clients receive a sanitized Ask representation. The token authorizes only that Ask and is not a user session credential.
 
-## Architecture
+Review policies support the first valid response (`any`), approval from every assigned reviewer (`all`), or a configured approval count (`quorum`). For `all` and `quorum`, only verified assigned identities count, and an assigned rejection or revision request vetoes approval.
 
-| Layer | Main files | Responsibility |
-|---|---|---|
-| Flow engine | [`lib/flowEngine.ts`](./lib/flowEngine.ts) | Pure dependency, branch, loop, and readiness decisions. |
-| Orchestrator | [`lib/flowOrchestrator.ts`](./lib/flowOrchestrator.ts) | Executes scheduled effects and folds results into project state. |
-| Server execution | [`lib/serverExecutor.ts`](./lib/serverExecutor.ts), [`lib/serverFlow.ts`](./lib/serverFlow.ts) | Runs actions and advances persisted projects without a browser. |
-| Ask services | [`lib/asks`](./lib/asks) | Creates, delivers, expires, and responds to asks. |
-| Communications client | [`lib/communications`](./lib/communications) | Current Communications Service SMS, voice, Ask-resolution, and signed-event contracts. |
-| Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, idempotent inbound event processing. |
+SMS and voice response events are evidence, not automatic resolution. HyperFlow first records the canonical response, then durably acknowledges it through `POST /v1/asks/{deliveryAskId}/resolve`. Identical acknowledgements are safe to replay; a Communications `409` is treated as a real conflict.
 
-`external_events/{event_id}` is the durable inbox. Events move through `received`, `processing`, `processed`, or `processing_failed`. The event ID is claimed transactionally, so a processed replay is inert and a failed event can be claimed again when Communications retries the same event ID.
+## Firebase authorization and migration
 
-## API documentation
+Browser access to tenant projects is authorized by `organizations/{orgId}/members/{uid}`. Browser clients cannot write user profiles, organizations, memberships, or invites; the backend creates those records after verifying Firebase ID tokens.
 
-See [docs/API.md](./docs/API.md) for:
+Before deploying the membership-based [`database.rules.json`](./database.rules.json) over a legacy database, audit and migrate existing assignments:
 
-- endpoint authentication and status codes;
-- complete request and response examples;
-- task execution templates;
-- the `ask.response.received` event contract;
-- terminal communications event correlation;
-- the outbound Communications API contract.
+```powershell
+npm.cmd run migrate:memberships
+npm.cmd run migrate:memberships -- --apply
+```
 
-## Firebase setup
+The first command is a dry run. Review it before using `--apply`, and apply the migration before deploying the new rules.
 
-The browser defaults to the `hyper-flow-a459b` Realtime Database in `asia-southeast1`. Firebase web configuration is public application configuration; authorization is enforced by [`database.rules.json`](./database.rules.json).
+When changing Firebase projects, configure the browser variables as one set and point server-side `FIREBASE_DATABASE_URL` at the same Realtime Database. Changing configuration does not migrate existing data.
 
-Deploy the database rules before using a new environment. The server-side service account is privileged and must remain secret.
+## Deployment checklist
 
-To point HyperFlow at another Firebase project, configure the browser variables together:
+1. Configure the backend variables required by the enabled integrations.
+2. Set `PUBLIC_BASE_URL` to the public HTTPS origin.
+3. Configure Communications to send durable events to `POST {PUBLIC_BASE_URL}/api/events` and use the same `COMMUNICATIONS_WEBHOOK_SECRET` in both services.
+4. Set the tenant sending number in Settings > Communications or provide `COMMUNICATIONS_FROM_NUMBER` as a fallback.
+5. Run and review the membership migration before deploying updated Firebase rules to a legacy database.
+6. Deploy [`database.rules.json`](./database.rules.json).
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_DATABASE_URL`
-- `VITE_FIREBASE_APP_ID`
-
-Also set server-side `FIREBASE_DATABASE_URL` to the same database. Browser and server URLs must match or responses can be written to a different project database without an obvious error.
-
-Changing Firebase projects does not migrate existing data.
-
-## Deployment notes
-
-- Set `PUBLIC_BASE_URL` to the deployment's public origin.
-- In Settings → Communications, set the tenant's E.164 sending number. This value is not a secret; API keys are never stored in app settings.
-- Set `COMMUNICATIONS_API_KEY` to the Communications Service `API_KEY`; HyperFlow sends it as `X-API-Key`.
-- Set the same HMAC secret as `COMMUNICATIONS_WEBHOOK_SECRET` in both deployments, and configure Communications to send events to `POST {PUBLIC_BASE_URL}/api/events`. HyperFlow verifies `X-Communications-Signature` over the raw body.
-- Set `ASK_REPLY_DOMAIN` if email asks should use `ask+{ask_token}@domain` Reply-To addresses.
-- Deploy [`database.rules.json`](./database.rules.json).
-- If Vercel Deployment Protection is enabled, webhook requests may be redirected to interactive login. Use an unprotected custom domain or an appropriate protection bypass.
-- External providers cannot reach localhost; use a secure tunnel for local webhook testing.
-
-For ordinary SMS and call action nodes, sender selection is: template `from`, Project Data `communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`. For SMS/voice asks it is: Project Data, tenant Settings, then the environment fallback. Recipient identities may be supplied directly as an E.164 number/email address or resolved by an exact team-member setting; missing, invalid, or ambiguous identities fail closed.
+External services cannot call localhost. Use a secure public tunnel for local callback testing. If deployment protection redirects webhook requests to login, expose an unprotected webhook origin or configure the host's supported protection bypass.
 
 ## Verification
 
@@ -142,12 +108,15 @@ For ordinary SMS and call action nodes, sender selection is: template `from`, Pr
 npm.cmd run lint
 npm.cmd test
 npm.cmd run build
+npm.cmd audit --omit=dev --audit-level=moderate
 ```
 
-The test suite covers flow decisions and loops, waiting action resolution, ask normalization and review gates, current Communications Service fixtures and HMAC behavior, event envelopes, Firebase shape handling, and serverless module specifiers.
+Firebase rules tests additionally require Java:
 
-## Known limitation
+```powershell
+npm.cmd run test:rules
+```
 
-The browser still rewrites the complete `projects/{orgId}` collection while server writes are path-scoped. A server update can be overwritten if it lands during an overlapping browser save. Moving the browser persistence path away from whole-document writes is the durable fix.
+## API reference
 
-Communications currently returns a generic `409` when an Ask is already resolved and does not return the existing resolving `communication_id`. HyperFlow therefore treats a `409` as an idempotent acknowledgement only after its own canonical Ask response is already recorded against the event's communication ID; it cannot independently prove that Communications resolved the Ask with the same communication. Operators should investigate cross-system disagreement rather than assuming every `409` proves an exact match.
+See [docs/API.md](./docs/API.md) for endpoint authentication, request and response contracts, event handling, and the outbound Communications Service integration.

@@ -208,6 +208,8 @@ export interface ReviewPolicy {
   onExpiry?: 'block' | 'escalate' | 'auto_approve';
   /** Max times a node may be sent back for revision before the gate gives up. */
   maxRevisions?: number;
+  responsePolicy?: 'any' | 'all' | 'quorum';
+  quorum?: number;
 }
 
 export interface HumanAsk {
@@ -233,9 +235,13 @@ export interface HumanAsk {
 
   assignees: string[];
   channels: AskChannel[];
+  responsePolicy?: 'any' | 'all' | 'quorum';
+  quorum?: number;
   deliveries?: {
     channel: Exclude<AskChannel, 'web'>;
     personId: string;
+    deliveryAskId?: string;
+    deliveryToken?: string;
     communicationId?: string;
     status: 'accepted' | 'failed';
     at: number;

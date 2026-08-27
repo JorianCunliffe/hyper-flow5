@@ -2,6 +2,7 @@ import type { HumanAsk, Project } from '../../types.js';
 import { upsertAsk } from '../humanAsk.js';
 import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
 import { deliverAsk } from './deliverAsk.js';
+import { newAskId, newAskToken } from './createAsk.js';
 
 export interface RaisedAsk {
   nodeId: string;
@@ -30,10 +31,12 @@ export const deliverRaisedAsks = async (
     const channels = ask.channels.filter(channel => channel !== 'web');
     for (const personId of people) {
       for (const channel of channels) {
+        const deliveryAskId = newAskId();
+        const deliveryToken = newAskToken();
         try {
           const recipient = await resolveTeamMemberIdentity(orgId, personId, channel);
           const result = await deliverAsk({
-            ask, orgId, projectId: current.id, personId, recipient, channel,
+            ask, orgId, projectId: current.id, personId, recipient, channel, deliveryAskId, deliveryToken,
             fromNumber: typeof current.projectData?.communications_from_number === 'string'
               ? current.projectData.communications_from_number
               : configuredFromNumber
@@ -41,7 +44,7 @@ export const deliverRaisedAsks = async (
           ask = {
             ...ask,
             deliveries: [...(ask.deliveries || []), {
-              channel, personId, communicationId: result.id, status: 'accepted', at: Date.now()
+              channel, personId, deliveryAskId, deliveryToken, communicationId: result.id, status: 'accepted', at: Date.now()
             }]
           };
           log.push(`Ask ${ask.id} delivered by ${channel} as ${result.id}`);
@@ -49,7 +52,7 @@ export const deliverRaisedAsks = async (
           ask = {
             ...ask,
             deliveries: [...(ask.deliveries || []), {
-              channel, personId, status: 'failed', at: Date.now(), error: error?.message || String(error)
+              channel, personId, deliveryAskId, deliveryToken, status: 'failed', at: Date.now(), error: error?.message || String(error)
             }]
           };
           log.push(`Ask ${ask.id} ${channel} delivery failed: ${error?.message || String(error)}`);

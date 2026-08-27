@@ -1,11 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Type } from '@google/genai';
+import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
+    await requireAppMember(req);
     const { milestoneName, projectContext } = req.body || {};
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
@@ -28,8 +30,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     });
     res.status(200).json(response.text ? JSON.parse(response.text) : []);
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
-    res.status(500).json({ error: String(error) });
+    res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
   }
 }

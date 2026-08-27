@@ -5,32 +5,27 @@
 
     "invites": {
       ".read": false,
-      ".write": false,
-      "$token": {
-        ".read": "auth != null && data.child('createdAt').val() > (now - 604800000)",
-        ".write": "auth != null && ((!data.exists() && newData.child('orgId').val() === root.child('users').child(auth.uid).child('orgId').val()) || (data.exists() && !newData.exists() && data.child('orgId').val() === root.child('users').child(auth.uid).child('orgId').val()))",
-        ".validate": "newData.hasChildren(['orgId', 'invitedBy', 'createdAt']) && newData.child('invitedBy').val() === auth.uid"
-      }
+      ".write": false
     },
 
     "projects": {
       "$orgId": {
-        ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
-        ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
+        ".read": "auth != null && root.child('organizations').child($orgId).child('members').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('organizations').child($orgId).child('members').child(auth.uid).exists()"
       }
     },
 
     "users": {
       "$uid": {
         ".read": "$uid === auth.uid",
-        ".write": "$uid === auth.uid"
+        ".write": false
       }
     },
 
     "organizations": {
       "$orgId": {
-        ".read": "root.child('users').child(auth.uid).child('orgId').val() === $orgId",
-        ".write": "root.child('users').child(auth.uid).child('orgId').val() === $orgId"
+        ".read": "auth != null && root.child('organizations').child($orgId).child('members').child(auth.uid).exists()",
+        ".write": false
       }
     },
 

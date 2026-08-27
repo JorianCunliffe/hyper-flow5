@@ -1,5 +1,7 @@
-import { cert, getApp, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
+import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
+import { getAuth } from 'firebase-admin/auth';
+import { randomUUID } from 'node:crypto';
 import { ActivityLog, AppSettings, CommunicationsSettings, Project, TeamMemberDetails } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
@@ -7,16 +9,8 @@ import type { ExternalEventProcessingStatus, ExternalEventRecord } from './exter
 /**
  * Server-side persistence via the Firebase Admin SDK.
  *
- * The browser client owns the whole `projects/{orgId}` document and rewrites it
- * wholesale on every save. To coexist with that, every write here is
- * *path-scoped*: we update exactly the sub-path we changed and bump
- * `lastUpdated`, so a concurrent client save clobbers as little as possible.
- *
- * Known limitation: the client's echo-suppression window (App.tsx) ignores any
- * remote update landing within 2s of its own save, and its next save will
- * overwrite a server write it never observed. Webhook-driven writes are rare
- * enough that this is acceptable for now; the durable fix is moving the client
- * off whole-document set().
+ * Browser and server writes use RTDB transactions with optimistic revisions.
+ * A stale writer fails rather than overwriting a concurrent flow or Ask update.
  */
 
 const APP_NAME = 'hyperflow-server';
@@ -154,7 +148,7 @@ export const serverStoreStatus = (): { ok: boolean; reason?: string } => {
 
 export const isServerStoreConfigured = (): boolean => serverStoreStatus().ok;
 
-const getDb = () => {
+const getServerApp = () => {
   if (!isServerStoreConfigured()) {
     throw new ServerStoreUnavailable(
       'Server-side persistence is not configured. Set FIREBASE_SERVICE_ACCOUNT.'
@@ -170,7 +164,146 @@ const getDb = () => {
       },
       APP_NAME
     );
-  return getDatabase(app);
+  return app;
+};
+
+const getDb = () => getDatabase(getServerApp());
+
+export interface AuthenticatedMember {
+  uid: string;
+  email?: string;
+  orgId: string;
+  role: 'owner' | 'admin' | 'member';
+}
+
+export const verifyFirebaseIdToken = async (token: string): Promise<{ uid: string; email?: string }> => {
+  if (!token) throw new Error('Missing Firebase ID token');
+  const decoded = await getAuth(getServerApp()).verifyIdToken(token, true);
+  return { uid: decoded.uid, email: decoded.email };
+};
+
+export const readUserOrganization = async (uid: string): Promise<AuthenticatedMember | null> => {
+  const userSnap = await getDb().ref(`users/${uid}`).get();
+  if (!userSnap.exists()) return null;
+  const user = userSnap.val() || {};
+  const orgId = typeof user.orgId === 'string' ? user.orgId : '';
+  if (!orgId) return null;
+  const memberSnap = await getDb().ref(`organizations/${orgId}/members/${uid}`).get();
+  if (!memberSnap.exists()) return null;
+  const member = memberSnap.val() || {};
+  const role = ['owner', 'admin', 'member'].includes(member.role) ? member.role : 'member';
+  return { uid, email: typeof user.email === 'string' ? user.email : undefined, orgId, role };
+};
+
+export const requireOrganizationMember = async (uid: string, orgId?: string): Promise<AuthenticatedMember> => {
+  const member = await readUserOrganization(uid);
+  if (!member || (orgId && member.orgId !== orgId)) throw new Error('Organization membership required');
+  return member;
+};
+
+export const createOrganizationForUser = async (
+  uid: string,
+  email: string | undefined,
+  name: string
+): Promise<string> => {
+  const existingMembership = await readUserOrganization(uid);
+  if (existingMembership) throw new Error('This account already belongs to an organization');
+  const orgId = `org_${randomUUID().replace(/-/g, '')}`;
+  const now = Date.now();
+  await getDb().ref().update({
+    [`organizations/${orgId}/name`]: name,
+    [`organizations/${orgId}/createdAt`]: now,
+    [`organizations/${orgId}/members/${uid}`]: { role: 'owner', joinedAt: now, email: email || null },
+    [`users/${uid}`]: { email: email || null, orgId, role: 'owner' }
+  });
+  return orgId;
+};
+
+export const createOrganizationInvite = async (
+  member: AuthenticatedMember,
+  email: string
+): Promise<string> => {
+  if (!['owner', 'admin'].includes(member.role)) throw new Error('Administrator membership required');
+  const token = `invite_${randomUUID().replace(/-/g, '')}`;
+  await getDb().ref(`invites/${token}`).set({
+    orgId: member.orgId,
+    invitedBy: member.uid,
+    email,
+    createdAt: Date.now()
+  });
+  return token;
+};
+
+export const consumeOrganizationInvite = async (
+  uid: string,
+  authenticatedEmail: string | undefined,
+  token: string
+): Promise<string> => {
+  const inviteRef = getDb().ref(`invites/${token}`);
+  const preview = await inviteRef.get();
+  const previewOrgId = preview.exists() ? String(preview.val()?.orgId || '') : '';
+  const existingMembership = await readUserOrganization(uid);
+  if (existingMembership && existingMembership.orgId !== previewOrgId) {
+    throw new Error('This account already belongs to another organization');
+  }
+  let orgId = '';
+  const result = await inviteRef.transaction(current => {
+    if (!current) return undefined;
+    if (current.consumedAt) {
+      if (current.consumedBy !== uid) return undefined;
+      orgId = String(current.orgId || '');
+      return current; // idempotent retry after a partial network failure
+    }
+    if (Date.now() - Number(current.createdAt || 0) > 7 * 24 * 60 * 60 * 1000) return undefined;
+    const intended = String(current.email || '').trim().toLowerCase();
+    if (intended && intended !== String(authenticatedEmail || '').trim().toLowerCase()) return undefined;
+    orgId = String(current.orgId || '');
+    if (!orgId) return undefined;
+    return { ...current, consumedAt: Date.now(), consumedBy: uid };
+  });
+  if (!result.committed || !orgId) throw new Error('Invite is invalid, expired, already used, or belongs to another email');
+  const now = Date.now();
+  await getDb().ref().update({
+    [`organizations/${orgId}/members/${uid}`]: { role: 'member', joinedAt: now, email: authenticatedEmail || null },
+    [`users/${uid}`]: { email: authenticatedEmail || null, orgId, role: 'member' }
+  });
+  return orgId;
+};
+
+export interface LegacyMembershipCandidate {
+  uid: string;
+  orgId: string;
+  role: 'owner' | 'admin' | 'member';
+  alreadyMigrated: boolean;
+}
+
+/** Audits, and optionally migrates, legacy users/{uid}.orgId records. */
+export const migrateLegacyMemberships = async (apply = false): Promise<LegacyMembershipCandidate[]> => {
+  const [usersSnap, organizationsSnap] = await Promise.all([
+    getDb().ref('users').get(),
+    getDb().ref('organizations').get()
+  ]);
+  const users = usersSnap.exists() ? usersSnap.val() || {} : {};
+  const organizations = organizationsSnap.exists() ? organizationsSnap.val() || {} : {};
+  const candidates: LegacyMembershipCandidate[] = [];
+  const updates: Record<string, unknown> = {};
+  for (const [uid, raw] of Object.entries<any>(users)) {
+    const orgId = typeof raw?.orgId === 'string' ? raw.orgId : '';
+    if (!orgId || !organizations[orgId]) continue;
+    const existing = Boolean(organizations[orgId]?.members?.[uid]);
+    const role = ['owner', 'admin', 'member'].includes(raw?.role) ? raw.role : 'member';
+    candidates.push({ uid, orgId, role, alreadyMigrated: existing });
+    if (apply && !existing) {
+      updates[`organizations/${orgId}/members/${uid}`] = {
+        role,
+        email: typeof raw?.email === 'string' ? raw.email : null,
+        joinedAt: Date.now(),
+        migratedFromLegacyUser: true
+      };
+    }
+  }
+  if (apply && Object.keys(updates).length) await getDb().ref().update(updates);
+  return candidates;
 };
 
 /** Mirrors the sanitizing the client does on load: RTDB turns sparse arrays into objects. */
@@ -276,6 +409,17 @@ export const resolveTeamMemberIdentity = async (
   return resolveIdentityFromSettings(details, personId, channel);
 };
 
+export const resolveReviewerActor = async (orgId: string, email: string | undefined, uid: string): Promise<string> => {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) return uid;
+  const snap = await getDb().ref(`projects/${orgId}/settings/teamMemberDetails`).get();
+  const details = snap.exists() && snap.val() && typeof snap.val() === 'object' ? snap.val() : {};
+  const matches = Object.entries<any>(details)
+    .filter(([, value]) => String(value?.email || '').trim().toLowerCase() === normalizedEmail)
+    .map(([name]) => name);
+  return matches.length === 1 ? matches[0] : normalizedEmail;
+};
+
 /**
  * Writes a single project back, leaving settings / scratchTasks / activityLogs
  * untouched. `undefined` is not a legal RTDB value, so strip it the same way the
@@ -283,12 +427,12 @@ export const resolveTeamMemberIdentity = async (
  */
 export const writeProject = async (orgId: string, index: number, project: Project): Promise<void> => {
   const expectedRevision = Number(project.revision || 0);
-  let conflictReason = 'transaction_not_committed';
   const clean = JSON.parse(JSON.stringify({
     ...project,
     revision: expectedRevision + 1,
     updatedAt: Date.now()
   }));
+  let conflictReason = 'transaction_not_committed';
   const tenantRef = getDb().ref(`projects/${orgId}`);
   const projectRef = tenantRef.child(`projects/${index}`);
   const result = await projectRef.transaction(stored => {
@@ -333,9 +477,21 @@ export const persistExternalEvent = async (event: ExternalEventRecord): Promise<
 
 /** Claims a received or previously-failed event for one processing attempt. */
 export const claimExternalEventProcessing = async (eventId: string): Promise<boolean> => {
+  const now = Date.now();
+  const leaseExpiresAt = new Date(now + 2 * 60 * 1000).toISOString();
   const result = await externalEventRef(eventId).transaction(current => {
-    if (!current || !['received', 'processing_failed'].includes(current.processing_status)) return undefined;
-    return { ...current, processing_status: 'processing', processing_error: null };
+    if (!current) return undefined;
+    const leaseExpired = current.processing_status === 'processing' &&
+      (!current.lease_expires_at || new Date(current.lease_expires_at).getTime() <= now);
+    if (!['received', 'processing_failed'].includes(current.processing_status) && !leaseExpired) return undefined;
+    return {
+      ...current,
+      processing_status: 'processing',
+      processing_error: null,
+      attempt_count: Number(current.attempt_count || 0) + 1,
+      claimed_at: new Date(now).toISOString(),
+      lease_expires_at: leaseExpiresAt
+    };
   });
   return result.committed;
 };
@@ -348,6 +504,60 @@ export const finishExternalEventProcessing = async (
   await externalEventRef(eventId).update({
     processing_status: status,
     processed_at: new Date().toISOString(),
-    processing_error: error || null
+    processing_error: error || null,
+    lease_expires_at: null
+  });
+};
+
+export const readExternalEventProcessingStatus = async (eventId: string): Promise<ExternalEventProcessingStatus | null> => {
+  const snap = await externalEventRef(eventId).child('processing_status').get();
+  return snap.exists() ? snap.val() as ExternalEventProcessingStatus : null;
+};
+
+const askResolutionRef = (askId: string, communicationId: string) => {
+  const key = encodeURIComponent(`${askId}:${communicationId}`).replace(/\./g, '%2E');
+  return getDb().ref(`ask_resolution_outbox/${key}`);
+};
+
+export const enqueueAskResolution = async (askId: string, communicationId: string): Promise<void> => {
+  await askResolutionRef(askId, communicationId).transaction(current => current || {
+    ask_id: askId,
+    communication_id: communicationId,
+    status: 'pending',
+    attempt_count: 0,
+    created_at: new Date().toISOString()
+  });
+};
+
+export const claimAskResolution = async (askId: string, communicationId: string): Promise<boolean> => {
+  const now = Date.now();
+  const result = await askResolutionRef(askId, communicationId).transaction(current => {
+    if (!current || current.status === 'resolved') return undefined;
+    const stale = current.status === 'processing' &&
+      (!current.lease_expires_at || new Date(current.lease_expires_at).getTime() <= now);
+    if (!['pending', 'failed'].includes(current.status) && !stale) return undefined;
+    return {
+      ...current,
+      status: 'processing',
+      attempt_count: Number(current.attempt_count || 0) + 1,
+      claimed_at: new Date(now).toISOString(),
+      lease_expires_at: new Date(now + 2 * 60 * 1000).toISOString(),
+      error: null
+    };
+  });
+  return result.committed;
+};
+
+export const finishAskResolution = async (
+  askId: string,
+  communicationId: string,
+  status: 'resolved' | 'failed',
+  error?: string
+): Promise<void> => {
+  await askResolutionRef(askId, communicationId).update({
+    status,
+    resolved_at: status === 'resolved' ? new Date().toISOString() : null,
+    lease_expires_at: null,
+    error: error || null
   });
 };

@@ -59,6 +59,13 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventStatus('future.completed'), null);
   });
 
+  test('classifies current Communications sms.sent payload statuses', () => {
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'failed' }), 'error');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'undelivered' }), 'error');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'delivered' }), 'success');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'queued' }), null);
+  });
+
   test('creates a persist-first inbox record with audit fields', () => {
     const event = normalizeExternalEvent({ event_id: 'evt_1', source: 'communications', type: 'sms.received' });
     const record = createExternalEventRecord(event, new Date('2026-08-11T00:00:00.000Z'));

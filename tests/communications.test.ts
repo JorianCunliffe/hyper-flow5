@@ -54,17 +54,17 @@ describe('HttpCommunicationsClient current Communications Service contract', () 
     assert.equal(body.provider, undefined);
   });
 
-  test('resolves an Ask and treats a replayed 409 as idempotent', async () => {
+  test('resolves an Ask idempotently from the service response', async () => {
     const calls: any[] = [];
     const fetchImpl: typeof fetch = async (url: any, init?: any) => {
       calls.push({ url: String(url), body: JSON.parse(init.body) });
-      return new Response(JSON.stringify({ error: 'Ask is already resolved' }), { status: 409 });
+      return new Response(JSON.stringify({ ask_id: 'ask_1', status: 'resolved', communication_id: 'comm_answer', duplicate: true }), { status: 200 });
     };
     const client = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl });
     const result = await client.resolveAsk('ask_1', 'comm_answer');
     assert.equal(calls[0].url, 'https://communications.example/v1/asks/ask_1/resolve');
     assert.deepEqual(calls[0].body, { communication_id: 'comm_answer' });
-    assert.equal(result.status, 'already_resolved');
+    assert.equal(result.status, 'resolved');
   });
 
   test('requires URL and key configuration', () => {
@@ -103,7 +103,8 @@ describe('executeTask communications routing', () => {
       assert.equal(request.body, 'Can you attend tomorrow?');
       assert.equal(request.from, '+61411111111');
       assert.equal(request.callback_url, 'https://hyperflow.example/api/events');
-      assert.deepEqual(request.correlation, { tenant_id: 'tenant_1', project_id: 'project_1', run_id: 'run_8', task_id: 'task_19' });
+      assert.deepEqual(request.correlation, { tenant_id: 'tenant_1', external_project_id: 'project_1', run_id: 'run_8', task_id: 'task_19' });
+      assert.equal(result.body.logs.some((line: string) => line.includes(request.body) || line.includes(request.to)), false);
     } finally {
       globalThis.fetch = original.fetch;
       for (const [key, value] of [['COMMUNICATIONS_API_URL', original.url], ['COMMUNICATIONS_API_KEY', original.key], ['COMMUNICATIONS_FROM_NUMBER', original.from], ['PUBLIC_BASE_URL', original.publicUrl]] as const) {

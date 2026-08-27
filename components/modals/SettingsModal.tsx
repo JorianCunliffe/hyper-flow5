@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 import { AppSettings, TeamMemberDetails } from '../../types';
 
@@ -208,13 +208,19 @@ const SettingsSection: React.FC<{
   );
 };
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ 
+export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup
 }) => {
+  const [communicationsDraft, setCommunicationsDraft] = useState(settings.communications?.fromNumber || '');
+  const communicationsNumberValid = !communicationsDraft || /^\+[1-9]\d{7,14}$/.test(communicationsDraft.trim());
   const [replaceOldName, setReplaceOldName] = useState('');
   const [replaceNewName, setReplaceNewName] = useState('');
   const [isReplacing, setIsReplacing] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setCommunicationsDraft(settings.communications?.fromNumber || '');
+  }, [settings.communications?.fromNumber]);
 
   if (!isOpen) return null;
 
@@ -301,17 +307,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <input
                 id="communications-from-number"
                 type="tel"
-                value={settings.communications?.fromNumber || ''}
-                onChange={(e) => onUpdateSettings({
-                  ...settings,
-                  communications: { ...settings.communications, fromNumber: e.target.value.trim() || undefined }
-                })}
+                pattern="\+[1-9][0-9]{7,14}"
+                aria-describedby="communications-from-number-help"
+                value={communicationsDraft}
+                onChange={(e) => setCommunicationsDraft(e.target.value)}
+                onBlur={() => {
+                  if (!communicationsNumberValid) return;
+                  onUpdateSettings({
+                    ...settings,
+                    communications: { ...settings.communications, fromNumber: communicationsDraft.trim() || undefined }
+                  });
+                }}
                 placeholder="+61411111111"
-                className="w-full max-w-md bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+                className={`w-full max-w-md bg-white border rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 shadow-sm ${communicationsNumberValid ? 'border-slate-300 focus:ring-indigo-500' : 'border-red-400 focus:ring-red-500'}`}
               />
-              <p className="text-xs text-slate-500 mt-3 max-w-2xl">
+              <p id="communications-from-number-help" className="text-xs text-slate-500 mt-3 max-w-2xl">
                 Use E.164 format. This non-secret tenant setting supplies the SMS and voice sender. Communications API keys and webhook secrets remain backend environment variables and are never stored here.
               </p>
+              {!communicationsNumberValid && <p className="text-xs text-red-600 mt-2">Enter an E.164 number such as +61411111111 before using SMS or voice.</p>}
             </div>
           </div>
 

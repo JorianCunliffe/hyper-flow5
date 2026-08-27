@@ -57,24 +57,14 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async resolveAsk(askId: string, communicationId: string): Promise<ResolveAskResult> {
     if (!askId) throw new CommunicationsApiError('Ask id is required');
     if (!communicationId) throw new CommunicationsApiError('Communication id is required');
-    try {
-      const body = await this.rawRequest(`/v1/asks/${encodeURIComponent(askId)}/resolve`, {
-        method: 'POST', body: { communication_id: communicationId }
-      });
-      return {
-        ask_id: typeof body?.ask_id === 'string' ? body.ask_id : askId,
-        status: 'resolved',
-        communication_id: typeof body?.communication_id === 'string' ? body.communication_id : communicationId
-      };
-    } catch (error: any) {
-      // Communications currently returns 409 without the existing resolution
-      // identity. HyperFlow calls this only after confirming its canonical
-      // response already points at this communication, making replay safe.
-      if (error instanceof CommunicationsApiError && error.status === 409) {
-        return { ask_id: askId, status: 'already_resolved', communication_id: communicationId };
-      }
-      throw error;
-    }
+    const body = await this.rawRequest(`/v1/asks/${encodeURIComponent(askId)}/resolve`, {
+      method: 'POST', body: { communication_id: communicationId }
+    });
+    return {
+      ask_id: typeof body?.ask_id === 'string' ? body.ask_id : askId,
+      status: 'resolved',
+      communication_id: typeof body?.communication_id === 'string' ? body.communication_id : communicationId
+    };
   }
 
   private async communicationRequest(

@@ -10,7 +10,18 @@ import { executeTask } from "./lib/executeTask";
 import { advanceServerFlow, readAskByToken, respondToAsk } from "./lib/serverFlow";
 import { receiveExternalEvent } from "./lib/externalEvents";
 import { parseSignedJsonBody, verifyCommunicationsSignature } from "./lib/communications/webhook";
-import { isServerStoreConfigured, readTenantCommunicationsSettings } from "./lib/serverStore";
+import {
+  consumeOrganizationInvite,
+  createOrganizationForUser,
+  createOrganizationInvite,
+  isServerStoreConfigured,
+  readTenantCommunicationsSettings,
+  resolveReviewerActor,
+  requireOrganizationMember,
+  verifyFirebaseIdToken
+} from "./lib/serverStore";
+import { ApiAuthError, bearerToken, hasSharedSecret, requireAppMember, requireFirebaseIdentity } from './lib/apiAuth';
+import { renderAskForm } from './lib/askForm';
 
 async function startServer() {
   const app = express();
@@ -55,8 +66,47 @@ async function startServer() {
 
   const callSessions = new Map<string, { history: any[], context: string }>();
 
+  app.post('/api/organizations/create', async (req, res) => {
+    try {
+      const identity = await requireFirebaseIdentity(req as any);
+      const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+      if (!name || name.length > 120) return res.status(400).json({ error: 'A valid organization name is required' });
+      const orgId = await createOrganizationForUser(identity.uid, identity.email, name);
+      return res.status(201).json({ ok: true, orgId });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || 'Request failed' });
+    }
+  });
+
+  app.post('/api/invites/create', async (req, res) => {
+    try {
+      const member = await requireAppMember(req as any);
+      const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'A valid invite email is required' });
+      const token = await createOrganizationInvite(member, email);
+      return res.status(201).json({ ok: true, token });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : /Administrator/.test(error?.message || '') ? 403 : 500)
+        .json({ error: error?.message || 'Request failed' });
+    }
+  });
+
+  app.post('/api/invites/consume', async (req, res) => {
+    try {
+      const identity = await requireFirebaseIdentity(req as any);
+      const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+      if (!token) return res.status(400).json({ error: 'Invite token is required' });
+      const orgId = await consumeOrganizationInvite(identity.uid, identity.email, token);
+      return res.status(200).json({ ok: true, orgId });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : /Invite/.test(error?.message || '') ? 400 : 500)
+        .json({ error: error?.message || 'Request failed' });
+    }
+  });
+
   app.post("/api/gemini/generateProjectStructure", async (req, res) => {
     try {
+      await requireAppMember(req as any);
       const { name, type } = req.body;
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
@@ -100,14 +150,15 @@ async function startServer() {
       });
       const text = response.text;
       res.status(200).json(text ? JSON.parse(text) : null);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: String(error) });
+      res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
     }
   });
 
   app.post("/api/gemini/brainstormSubtasks", async (req, res) => {
     try {
+      await requireAppMember(req as any);
       const { milestoneName, projectContext } = req.body;
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
@@ -130,19 +181,20 @@ async function startServer() {
         }
       });
       res.status(200).json(response.text ? JSON.parse(response.text) : []);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: String(error) });
+      res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
     }
   });
 
   app.post("/api/send-email", async (req, res) => {
     try {
+      await requireAppMember(req as any);
       const { to, subject, html } = req.body;
       
       const resendClient = getResend();
       const { data, error } = await resendClient.emails.send({
-        from: "automation@projectflow.online",
+        from: process.env.RESEND_FROM_EMAIL || "HyperFlow <automation@projectflow.online>",
         to,
         subject,
         html,
@@ -153,29 +205,30 @@ async function startServer() {
       }
 
       res.status(200).json({ data });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: String(error) });
+      res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
     }
   });
 
   app.post("/api/tasks/execute", async (req, res) => {
     try {
       const { taskType, templateFile, projectData, correlation, revision } = req.body;
+      const member = await requireAppMember(req as any, typeof correlation?.orgId === 'string' ? correlation.orgId : undefined);
+      const trustedCorrelation = { ...correlation, orgId: member.orgId };
       let communicationsFromNumber: string | undefined;
-      if (correlation?.orgId && isServerStoreConfigured()) {
-        try { communicationsFromNumber = (await readTenantCommunicationsSettings(correlation.orgId)).fromNumber; } catch { /* project/env fallback */ }
+      if (trustedCorrelation.orgId && isServerStoreConfigured()) {
+        try { communicationsFromNumber = (await readTenantCommunicationsSettings(trustedCorrelation.orgId)).fromNumber; } catch { /* project/env fallback */ }
       }
       const result = await executeTask(taskType, templateFile, projectData, {
         webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-        callbackSecret: process.env.WEBHOOK_SECRET,
         communicationsFromNumber,
-        correlation,
+        correlation: trustedCorrelation,
         revision
       });
       res.status(result.httpStatus).json(result.body);
-    } catch(e) {
-      res.status(500).json({ error: String(e) });
+    } catch(e: any) {
+      res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e?.message || String(e) });
     }
   });
 
@@ -200,6 +253,11 @@ async function startServer() {
 
       if (req.method === 'GET') {
         const { ask, nodeName, projectName } = found;
+        if (req.path.startsWith('/forms/') || String(req.headers.accept || '').includes('text/html')) {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          return res.status(200).send(renderAskForm({ ask, nodeName, projectName }));
+        }
         return res.status(200).json({
           projectName,
           nodeName,
@@ -220,12 +278,17 @@ async function startServer() {
           return res.status(413).json({ error: 'Comment is too long' });
         }
 
+        const authenticated = bearerToken(req as any) ? await requireAppMember(req as any, orgId) : null;
+        const verifiedActor = authenticated
+          ? await resolveReviewerActor(orgId, authenticated.email, authenticated.uid)
+          : null;
         const outcome = await respondToAsk({
           orgId, projectId, askToken: token, channel: 'web',
           response: {
-            actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+            actor: verifiedActor || (typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link'),
             decision, text, structured: values, attachments
-          }
+          },
+          actorVerified: Boolean(authenticated)
         });
         if (!outcome.ok) {
           const status = outcome.reason === 'already_answered' ? 409
@@ -244,14 +307,11 @@ async function startServer() {
       return res.status(405).json({ error: 'Method not allowed' });
     } catch (e: any) {
       console.error('Ask endpoint failed', e);
-      return res.status(500).json({ error: 'Request failed' });
+      return res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e instanceof ApiAuthError ? e.message : 'Request failed' });
     }
   });
 
   app.post("/api/flow/advance", async (req, res) => {
-    const expected = process.env.WEBHOOK_SECRET;
-    if (!expected) return res.status(503).json({ error: 'WEBHOOK_SECRET is not configured' });
-    if (req.headers['x-webhook-secret'] !== expected) return res.status(403).json({ error: 'Forbidden' });
     if (!isServerStoreConfigured()) {
       return res.status(503).json({ error: 'Server-side persistence is not configured' });
     }
@@ -259,6 +319,9 @@ async function startServer() {
     const { orgId, projectId } = req.body || {};
     if (!orgId || !projectId) return res.status(400).json({ error: 'orgId and projectId are required' });
     try {
+      if (!hasSharedSecret(req.headers['x-webhook-secret'], process.env.WEBHOOK_SECRET)) {
+        await requireAppMember(req as any, String(orgId));
+      }
       const outcome = await advanceServerFlow(String(orgId), String(projectId));
       if (!outcome.ok) return res.status(404).json({ error: outcome.reason });
       return res.status(200).json(outcome);
@@ -289,10 +352,19 @@ async function startServer() {
 
   const wssBrowser = new WebSocketServer({ noServer: true });
 
-  server.on('upgrade', (request, socket, head) => {
+  server.on('upgrade', async (request, socket, head) => {
     const pathname = new URL(request.url || '', `http://${request.headers.host}`).pathname;
     
     if (pathname === '/api/live-voice') {
+      try {
+        const token = new URL(request.url || '', `http://${request.headers.host}`).searchParams.get('token') || '';
+        const identity = await verifyFirebaseIdToken(token);
+        await requireOrganizationMember(identity.uid);
+      } catch {
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       wssBrowser.handleUpgrade(request, socket, head, (ws) => {
         wssBrowser.emit('connection', ws, request);
       });
@@ -301,7 +373,7 @@ async function startServer() {
 
   wssBrowser.on('connection', async (clientWs, req) => {
     console.log("WebSocket connected to /api/live-voice");
-    const urlContext = new URL(req.url || '', `http://${req.headers.host}`).searchParams.get('context') || "You are a helpful assistant.";
+    const urlContext = (new URL(req.url || '', `http://${req.headers.host}`).searchParams.get('context') || "You are a helpful assistant.").slice(0, 4000);
     
     let session: any = null;
 

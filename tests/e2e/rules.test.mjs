@@ -1,19 +1,16 @@
-// Verifies database.rules.json against the RTDB emulator, exercising the real
-// invite flow from services/firebaseService.ts plus the enumeration attacks the
-// old rules allowed.
-
+// Verifies the production rules against the RTDB emulator. Organization
+// membership and invites are server-owned; clients may only access tenant data
+// when a corresponding organizations/{orgId}/members/{uid} record exists.
 const DB = 'http://127.0.0.1:9010';
 const NS = 'hyper-flow-a459b-default-rtdb';
 
 let pass = 0, fail = 0;
-const ok = (cond, label, detail) => {
-  if (cond) { pass++; console.log(`  \x1b[32m✓\x1b[0m ${label}`); }
-  else { fail++; console.log(`  \x1b[31m✗\x1b[0m ${label}${detail ? `\n      ${detail}` : ''}`); }
+const ok = (condition, label, detail) => {
+  if (condition) { pass++; console.log(`  PASS ${label}`); }
+  else { fail++; console.log(`  FAIL ${label}${detail ? `\n      ${detail}` : ''}`); }
 };
-const section = t => console.log(`\n\x1b[1m${t}\x1b[0m`);
-
-const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
-/** The emulator accepts unsigned JWTs and does not verify the signature. */
+const section = label => console.log(`\n${label}`);
+const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
 const tokenFor = uid => `${b64({ alg: 'none', typ: 'JWT' })}.${b64({
   sub: uid, user_id: uid, iss: `https://securetoken.google.com/${NS}`,
   aud: NS, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600,
@@ -21,156 +18,75 @@ const tokenFor = uid => `${b64({ alg: 'none', typ: 'JWT' })}.${b64({
 })}.`;
 
 const url = (path, auth) => {
-  const u = new URL(`${DB}/${path}.json`);
-  u.searchParams.set('ns', NS);
-  if (auth) u.searchParams.set('auth', auth);
-  return u.toString();
+  const value = new URL(`${DB}/${path}.json`);
+  value.searchParams.set('ns', NS);
+  if (auth) value.searchParams.set('auth', auth);
+  return value.toString();
 };
 
-// Admin writes bypass rules — used only to set up fixtures.
-const admin = async (method, path, body) => {
-  const r = await fetch(url(path), {
+const request = async (method, path, body, auth) => {
+  const response = await fetch(url(path, auth), {
     method,
-    headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(auth === 'owner' ? { Authorization: 'Bearer owner' } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
-  if (!r.ok) throw new Error(`admin ${method} ${path} -> ${r.status} ${await r.text()}`);
+  return { ok: response.ok, status: response.status, text: await response.text() };
 };
-
-const as = async (uid, method, path, body) => {
-  const r = await fetch(url(path, uid ? tokenFor(uid) : undefined), {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  return { status: r.status, ok: r.ok, text: await r.text() };
-};
-
-const DAY = 86400000;
+const admin = (method, path, body) => request(method, path, body, 'owner');
+const as = (uid, method, path, body) => request(method, path, body, uid ? tokenFor(uid) : undefined);
 
 const seed = async () => {
   await admin('PUT', '', null);
-  // Two orgs, two users.
-  await admin('PUT', 'users/alice', { email: 'alice@x.com', orgId: 'org_a', role: 'admin' });
-  await admin('PUT', 'users/mallory', { email: 'mallory@evil.com', orgId: 'org_m', role: 'admin' });
-  await admin('PUT', 'organizations/org_a', { name: 'Acme', createdAt: Date.now() });
-  await admin('PUT', 'projects/org_a', { projects: [{ id: 'p1', name: 'Secret Project' }], lastUpdated: 1 });
-  // A live invite into org_a, and one that has gone stale.
-  await admin('PUT', 'invites/token_fresh', { orgId: 'org_a', invitedBy: 'alice', email: 'bob@x.com', createdAt: Date.now() });
-  await admin('PUT', 'invites/token_stale', { orgId: 'org_a', invitedBy: 'alice', email: 'old@x.com', createdAt: Date.now() - 30 * DAY });
-  await admin('PUT', 'accounts/default_user', { projectflow_v1: { projects: [] } });
-  await admin('PUT', 'external_events/evt_1', { event_id: 'evt_1', processing_status: 'processed' });
+  await admin('PUT', 'users/alice', { email: 'alice@example.com', orgId: 'org_a', role: 'owner' });
+  await admin('PUT', 'users/mallory', { email: 'mallory@example.com', orgId: 'org_m', role: 'owner' });
+  await admin('PUT', 'organizations/org_a', { name: 'Acme', createdAt: Date.now(), members: { alice: { role: 'owner' } } });
+  await admin('PUT', 'organizations/org_m', { name: 'Mallory', createdAt: Date.now(), members: { mallory: { role: 'owner' } } });
+  await admin('PUT', 'projects/org_a', { projects: [{ id: 'p1', name: 'Secret' }] });
+  await admin('PUT', 'invites/token_bob', { orgId: 'org_a', invitedBy: 'alice', email: 'bob@example.com', createdAt: Date.now() });
+  await admin('PUT', 'external_events/event_1', { event_id: 'event_1', processing_status: 'processed' });
 };
 
 const run = async () => {
   await seed();
 
-  section('Invite enumeration (the org-takeover path in the old rules)');
-  {
-    let r = await as(null, 'GET', 'invites');
-    ok(!r.ok, 'anonymous cannot list all invites', `got ${r.status}`);
+  section('Membership cannot be self-assigned');
+  let result = await as('bob', 'PUT', 'users/bob', { email: 'bob@example.com', orgId: 'org_a', role: 'member' });
+  ok(!result.ok, 'a user cannot write their own membership record', `got ${result.status}`);
+  result = await as('mallory', 'PUT', 'organizations/org_a/members/mallory', { role: 'owner' });
+  ok(!result.ok, 'an outsider cannot add themselves to another organization', `got ${result.status}`);
+  result = await as('alice', 'PUT', 'organizations/org_a/members/bob', { role: 'member' });
+  ok(!result.ok, 'membership writes are backend-only, including by owners', `got ${result.status}`);
 
-    r = await as('mallory', 'GET', 'invites');
-    ok(!r.ok, 'an authenticated outsider cannot list all invites', `got ${r.status} ${r.text.slice(0, 80)}`);
+  section('Invite records are backend-only');
+  result = await as('bob', 'GET', 'invites/token_bob');
+  ok(!result.ok, 'a client cannot read an invite record', `got ${result.status}`);
+  result = await as('alice', 'PUT', 'invites/new_token', { orgId: 'org_a', invitedBy: 'alice', createdAt: Date.now() });
+  ok(!result.ok, 'a client cannot create an invite record', `got ${result.status}`);
+  result = await as('bob', 'DELETE', 'invites/token_bob');
+  ok(!result.ok, 'a client cannot consume an invite directly', `got ${result.status}`);
 
-    r = await as('mallory', 'GET', 'invites/token_fresh');
-    ok(r.ok, 'but a token you already hold is readable — the token IS the capability');
-  }
+  section('Tenant isolation follows server-created membership');
+  result = await as(null, 'GET', 'projects/org_a');
+  ok(!result.ok, 'anonymous users cannot read tenant data', `got ${result.status}`);
+  result = await as('mallory', 'GET', 'projects/org_a');
+  ok(!result.ok, 'another tenant cannot read tenant data', `got ${result.status}`);
+  result = await as('alice', 'GET', 'projects/org_a');
+  ok(result.ok, 'a server-created member can read tenant data', `got ${result.status}`);
+  result = await as('alice', 'PUT', 'projects/org_a', { projects: [] });
+  ok(result.ok, 'a server-created member can write tenant data', `got ${result.status}`);
 
-  section('Invite tampering');
-  {
-    // The old rules allowed `data.exists() ? true : ...` — any authed user could
-    // overwrite an existing invite and redirect it at their own org.
-    let r = await as('mallory', 'PUT', 'invites/token_fresh',
-      { orgId: 'org_m', invitedBy: 'mallory', createdAt: Date.now() });
-    ok(!r.ok, 'an outsider cannot redirect an existing invite to their own org', `got ${r.status}`);
+  section('Private and operational trees');
+  result = await as('mallory', 'GET', 'users/alice');
+  ok(!result.ok, 'user profiles are private', `got ${result.status}`);
+  result = await as('mallory', 'GET', 'external_events');
+  ok(!result.ok, 'the event inbox is backend-only', `got ${result.status}`);
+  result = await as('mallory', 'PUT', 'external_events/event_2', { event_id: 'event_2' });
+  ok(!result.ok, 'clients cannot forge event inbox records', `got ${result.status}`);
+  result = await as('mallory', 'GET', 'serverActivity');
+  ok(!result.ok, 'server activity is backend-only', `got ${result.status}`);
 
-    const check = await as('mallory', 'GET', 'invites/token_fresh');
-    ok(JSON.parse(check.text).orgId === 'org_a', 'the invite still points at the original org');
-
-    r = await as('mallory', 'DELETE', 'invites/token_fresh');
-    ok(!r.ok, 'an outsider cannot delete another org\'s invite', `got ${r.status}`);
-
-    r = await as('mallory', 'PUT', 'invites/token_new',
-      { orgId: 'org_a', invitedBy: 'mallory', createdAt: Date.now() });
-    ok(!r.ok, 'nobody can mint an invite into an org they do not belong to', `got ${r.status}`);
-
-    r = await as('alice', 'PUT', 'invites/token_new2',
-      { orgId: 'org_a', invitedBy: 'mallory', createdAt: Date.now() });
-    ok(!r.ok, 'invitedBy cannot be forged', `got ${r.status}`);
-  }
-
-  section('Expiry');
-  {
-    const r = await as('mallory', 'GET', 'invites/token_stale');
-    ok(!r.ok, 'an invite older than 7 days is no longer readable', `got ${r.status}`);
-  }
-
-  section('The real invite flow still works');
-  {
-    // createInviteResultUrl: a member of org_a mints an invite.
-    let r = await as('alice', 'PUT', 'invites/token_bob',
-      { orgId: 'org_a', invitedBy: 'alice', email: 'bob@x.com', createdAt: Date.now() });
-    ok(r.ok, 'a member can create an invite for their own org', `got ${r.status} ${r.text.slice(0, 120)}`);
-
-    // consumeInviteToken, step 1: the invitee reads the token they were sent.
-    r = await as('bob', 'GET', 'invites/token_bob');
-    ok(r.ok && JSON.parse(r.text).orgId === 'org_a', 'the invitee can read the token they were sent');
-
-    // step 2: the invitee joins by writing their own user record.
-    r = await as('bob', 'PUT', 'users/bob', { email: 'bob@x.com', orgId: 'org_a', role: 'member' });
-    ok(r.ok, 'the invitee can set their own membership', `got ${r.status}`);
-
-    // step 3: cleanup — now that bob is in org_a, he may delete the invite.
-    r = await as('bob', 'DELETE', 'invites/token_bob');
-    ok(r.ok, 'the consumed invite can be cleaned up', `got ${r.status}`);
-
-    // and the whole point: bob can now see the org's data.
-    r = await as('bob', 'GET', 'projects/org_a');
-    ok(r.ok, 'the invitee can now read the org project data');
-  }
-
-  section('Project and org isolation');
-  {
-    let r = await as(null, 'GET', 'projects/org_a');
-    ok(!r.ok, 'anonymous cannot read project data', `got ${r.status}`);
-
-    r = await as('mallory', 'GET', 'projects/org_a');
-    ok(!r.ok, 'another org cannot read project data', `got ${r.status}`);
-
-    r = await as('mallory', 'PUT', 'projects/org_a', { projects: [] });
-    ok(!r.ok, 'another org cannot overwrite project data', `got ${r.status}`);
-
-    r = await as('alice', 'GET', 'projects/org_a');
-    ok(r.ok, 'a member can read their own org project data');
-
-    r = await as('mallory', 'GET', 'users/alice');
-    ok(!r.ok, 'user records are private to the user', `got ${r.status}`);
-
-    r = await as('mallory', 'GET', 'organizations/org_a');
-    ok(!r.ok, 'another org cannot read the org record', `got ${r.status}`);
-  }
-
-  section('Legacy and server-only trees');
-  {
-    let r = await as(null, 'GET', 'accounts');
-    ok(!r.ok, 'the legacy accounts tree is no longer world-readable', `got ${r.status}`);
-
-    r = await as('mallory', 'GET', 'accounts/default_user');
-    ok(!r.ok, 'nor readable by an authenticated user', `got ${r.status}`);
-
-    r = await as('mallory', 'GET', 'external_events');
-    ok(!r.ok, 'external event inbox records are server-only', `got ${r.status}`);
-
-    r = await as('mallory', 'PUT', 'external_events/evt_2', { event_id: 'evt_2' });
-    ok(!r.ok, 'and cannot be forged by a client to suppress a real event', `got ${r.status}`);
-
-    r = await as('mallory', 'GET', 'serverActivity');
-    ok(!r.ok, 'server activity log is server-only', `got ${r.status}`);
-  }
-
-  console.log(`\n\x1b[1m${pass} passed, ${fail} failed\x1b[0m\n`);
+  console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 };
 
-run().catch(e => { console.error('\x1b[31mHarness error:\x1b[0m', e); process.exit(2); });
+run().catch(error => { console.error('Harness error:', error); process.exit(2); });

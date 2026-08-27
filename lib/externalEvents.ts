@@ -4,8 +4,12 @@ import type { AskChannel } from '../types.js';
 import { createCommunicationsClient } from './communications/client.js';
 import {
   claimExternalEventProcessing,
+  claimAskResolution,
+  enqueueAskResolution,
   finishExternalEventProcessing,
-  persistExternalEvent
+  finishAskResolution,
+  persistExternalEvent,
+  readExternalEventProcessingStatus
 } from './serverStore.js';
 
 export type ExternalEventProcessingStatus = 'received' | 'processing' | 'processed' | 'processing_failed';
@@ -52,6 +56,9 @@ export interface ExternalEventRecord {
   received_at: string;
   payload: ExternalEventEnvelope;
   processing_status: ExternalEventProcessingStatus;
+  attempt_count?: number;
+  claimed_at?: string;
+  lease_expires_at?: string;
   processed_at?: string;
   processing_error?: string;
 }
@@ -91,7 +98,7 @@ export const normalizeExternalEvent = (raw: any, defaultSource?: 'communications
           },
     correlation: {
       tenant_id: correlation.tenant_id || correlation.org_id || correlation.orgId,
-      project_id: correlation.project_id || correlation.projectId,
+      project_id: correlation.external_project_id || correlation.project_id || correlation.projectId,
       run_id: correlation.run_id || correlation.runId,
       task_id: correlation.task_id || correlation.node_id || correlation.nodeId,
       person_id: correlation.person_id || correlation.personId
@@ -131,8 +138,20 @@ const TERMINAL_EVENTS: Readonly<Record<string, 'success' | 'error'>> = {
   'sms.failed': 'error'
 };
 
-export const terminalExternalEventStatus = (type: string): 'success' | 'error' | null =>
-  TERMINAL_EVENTS[type.toLowerCase()] || null;
+export const terminalExternalEventStatus = (
+  type: string,
+  payload: Record<string, unknown> = {}
+): 'success' | 'error' | null => {
+  const normalizedType = type.toLowerCase();
+  const direct = TERMINAL_EVENTS[normalizedType];
+  if (direct) return direct;
+  if (normalizedType === 'sms.sent') {
+    const status = String(payload.status || '').toLowerCase();
+    if (status === 'failed' || status === 'undelivered') return 'error';
+    if (status === 'delivered') return 'success';
+  }
+  return null;
+};
 
 /** Persist first, then deterministically apply an explicitly-correlated terminal event. */
 export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutcome> => {
@@ -140,7 +159,11 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
   const record = createExternalEventRecord(event);
   const inserted = await persistExternalEvent(record);
   const claimed = await claimExternalEventProcessing(event.event_id);
-  if (!claimed) return { ok: true, duplicate: !inserted };
+  if (!claimed) {
+    const status = await readExternalEventProcessingStatus(event.event_id);
+    if (status === 'processed') return { ok: true, duplicate: !inserted };
+    return { ok: false, duplicate: !inserted, retryable: true, reason: 'processing_in_progress' };
+  }
 
   try {
     if (event.source !== 'communications') {
@@ -183,10 +206,18 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         event.communication_id && outcome.response?.communicationId === event.communication_id
       );
       if (outcome.askStatus === 'answered' && canonicalResponseUsesCommunication) {
+        await enqueueAskResolution(event.ask_id, event.communication_id!);
+        const claimedResolution = await claimAskResolution(event.ask_id, event.communication_id!);
+        if (!claimedResolution) {
+          await finishExternalEventProcessing(event.event_id, 'processed');
+          return { ok: true, ignored: true, reason: 'ask_resolution_already_claimed' };
+        }
         try {
           await createCommunicationsClient().resolveAsk(event.ask_id, event.communication_id!);
+          await finishAskResolution(event.ask_id, event.communication_id!, 'resolved');
         } catch (error: any) {
           const reason = `Communications Ask resolution failed: ${error?.message || String(error)}`;
+          await finishAskResolution(event.ask_id, event.communication_id!, 'failed', reason);
           await finishExternalEventProcessing(event.event_id, 'processing_failed', reason);
           return { ok: false, retryable: true, reason };
         }
@@ -202,7 +233,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       };
     }
 
-    const status = terminalExternalEventStatus(event.type);
+    const status = terminalExternalEventStatus(event.type, event.payload);
     if (!status) {
       await finishExternalEventProcessing(event.event_id, 'processed');
       return { ok: true, ignored: true, reason: 'non_terminal_event' };

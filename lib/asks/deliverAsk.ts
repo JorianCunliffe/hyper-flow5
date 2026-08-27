@@ -8,11 +8,12 @@ export interface DeliverAskInput {
   orgId: string;
   projectId: string;
   personId: string;
+  deliveryAskId?: string;
+  deliveryToken?: string;
   recipient: string;
   fromNumber?: string;
   channel: Exclude<AskChannel, 'web'>;
   publicBaseUrl?: string;
-  replyDomain?: string;
   client?: CommunicationsClient;
 }
 
@@ -39,17 +40,15 @@ const callOverrides = (question: string): HyperFlowCallOverrides => ({
 export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationResult> => {
   const baseUrl = (input.publicBaseUrl || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
   if (!baseUrl) throw new Error('PUBLIC_BASE_URL is required to deliver an ask');
-  const formUrl = `${baseUrl}/forms/ask/${encodeURIComponent(input.ask.token)}?org=${encodeURIComponent(input.orgId)}&project=${encodeURIComponent(input.projectId)}`;
+  const formUrl = `${baseUrl}/forms/ask/${encodeURIComponent(input.deliveryToken || input.ask.token)}?org=${encodeURIComponent(input.orgId)}&project=${encodeURIComponent(input.projectId)}`;
 
   if (input.channel === 'email') {
     if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY environment variable is required');
-    const replyDomain = input.replyDomain || process.env.ASK_REPLY_DOMAIN;
     const result = await new Resend(process.env.RESEND_API_KEY).emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'automation@projectflow.online',
+      from: process.env.RESEND_FROM_EMAIL || 'HyperFlow <automation@projectflow.online>',
       to: input.recipient,
       subject: `HyperFlow response requested: ${input.ask.prompt.slice(0, 80)}`,
-      html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`,
-      ...(replyDomain ? { replyTo: `ask+${input.ask.token}@${replyDomain}` } : {})
+      html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`
     });
     if (result.error) throw new Error(result.error.message || 'Resend rejected the ask email');
     return { id: `email_${result.data?.id || input.ask.id}`, status: 'accepted' };
@@ -63,12 +62,16 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
   const client = input.client || createCommunicationsClient();
   const correlation = {
     tenant_id: input.orgId,
-    project_id: input.projectId,
+    external_project_id: input.projectId,
     task_id: input.ask.nodeId,
     run_id: input.ask.runId,
     person_id: input.personId
   };
-  const purpose = { type: 'human_ask' as const, ask_id: input.ask.id, token: input.ask.token };
+  const purpose = {
+    type: 'human_ask' as const,
+    ask_id: input.deliveryAskId || input.ask.id,
+    token: input.deliveryToken || input.ask.token
+  };
   const callback_url = callbackUrl(baseUrl);
 
   return input.channel === 'sms'
