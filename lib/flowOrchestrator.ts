@@ -1,6 +1,7 @@
 import { ActionRun, HumanAsk, Milestone, Project } from '../types.js';
 import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
+import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 
 /**
  * Environment-agnostic flow orchestration.
@@ -181,7 +182,8 @@ export const resolvePendingRun = (
     logs: [...(prior.logs || []), ...(result.logs || [])],
     error: result.error,
     resolvedAt: Date.now(),
-    resolvedBy: result.resolvedBy
+    resolvedBy: result.resolvedBy,
+    communicationOutcome: communicationOutcomeFromOutput(result.output) || prior.communicationOutcome
   };
 
   return {

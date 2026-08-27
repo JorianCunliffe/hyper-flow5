@@ -204,6 +204,165 @@ Accepted Communications work: `202`
 
 The action remains waiting until a mapped terminal event arrives. A Communications response explicitly marked `failed` returns `502`; validation, configuration, provider HTTP, timeout, and other execution failures currently return `500`. Unknown task types return `400`.
 
+| Status | Meaning |
+|---|---|
+| `200` | Action completed synchronously. |
+| `202` | Communication accepted and the action is waiting for an event. |
+| `400` | Unknown task type or invalid request understood by the task handler. |
+| `500` | Execution or configuration failure. |
+| `502` | A successful Communications HTTP response explicitly contained normalized status `failed`. Communications HTTP errors currently pass through the task catch path as `500`. |
+
+## Receive external events
+
+### `POST /api/events`
+
+Headers:
+
+```http
+Content-Type: application/json
+X-Communications-Event-Id: evt_...
+X-Communications-Signature: sha256=<HMAC-SHA256 of the exact raw JSON body>
+```
+
+The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits the signature when that secret is configured, while HyperFlow requires it; therefore the secret must be enabled in both deployments. HyperFlow verifies the signature before parsing JSON or defaulting a missing `source` to `communications`, then persists the complete event before applying it. `event_id` in the body is the idempotency key. `X-Communications-Event-Id` is emitted for observability but HyperFlow does not currently compare it with the body.
+
+### Ask response event
+
+An `ask.response.received` event carrying an explicit `ask_id` is routed to the canonical ask response service. It does not enter the task-run resolver.
+
+```json
+{
+  "event_id": "evt_ask_123",
+  "type": "ask.response.received",
+  "occurred_at": "2026-08-11T02:30:00.000Z",
+  "communication_id": "comm_123",
+  "purpose": {
+    "type": "human_ask",
+    "ask_id": "ask_123"
+  },
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "project_1",
+    "person_id": "person_1"
+  },
+  "payload": {
+    "ask_id": "ask_123",
+    "channel": "voice",
+    "transcript": { "segments": [{ "role": "user", "text": "Approved" }] },
+    "disposition": "human_completed",
+    "successful": true,
+    "memory_eligible": true
+  }
+}
+```
+
+SMS response text is read from `payload.content`; voice response text is read from `payload.transcript`. Structured transcript objects are retained in the event evidence and do not bypass the existing `needsInterpretation` safeguard. A voice event explicitly marked unsuccessful, memory-ineligible, or with a disposition other than `human_completed` is acknowledged and ignored; it cannot enter the canonical Ask response path. HyperFlow applies an accepted answer, advances the flow, attempts any newly raised Ask deliveries, and persists the resulting project state before calling `POST /v1/asks/{ask_id}/resolve` with its `communication_id`. If that acknowledgement fails, the inbox event becomes `processing_failed` and a retry can reclaim it. On replay, `respondToAsk` returns the already-recorded local response only when its `communicationId` matches the event.
+
+Communications currently returns a generic `409` for an already-resolved Ask without returning the existing resolver identity. The client treats that as idempotent only on the locally matched replay path described above; this is not independent proof that Communications used the same communication ID.
+
+HyperFlow also retains compatibility with adapters that supply `response.structured`; for question asks those values are keyed by the ask field names. The current Communications Service SMS/voice events supply text or transcript rather than this structure:
+
+```json
+{
+  "response": {
+    "text": "The site is 12 Main Street.",
+    "structured": {
+      "site_address": "12 Main Street"
+    }
+  }
+}
+```
+
+### Terminal communication event
+
+Only `call.completed` and `sms.delivered` are successful terminal events. `call.failed` and `sms.failed` map to failure. A contradictory `call.completed` payload that explicitly has `successful: false`, `memory_eligible: false`, or a non-`human_completed` disposition also fails closed. Every other current or future event defaults to non-terminal. Terminal events require `tenant_id`, `project_id`, `run_id`, and `task_id`; `communication_id` adds an additional exact-run match when present.
+
+```json
+{
+  "event_id": "evt_call_123",
+  "source": "communications",
+  "type": "call.completed",
+  "occurred_at": "2026-08-11T02:35:00.000Z",
+  "communication_id": "comm_123",
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "project_1",
+    "task_id": "CALL_1",
+    "run_id": "run_1"
+  },
+  "payload": {
+    "provider_status": "completed",
+    "disposition": "human_completed",
+    "successful": true,
+    "memory_eligible": true,
+    "failure_code": null,
+    "failure_reason": null,
+    "outcome_source": "transcript_model",
+    "outcome_confidence": 0.98
+  }
+}
+```
+
+A failed call uses the same correlation and a `call.failed` type, for example:
+
+```json
+{
+  "event_id": "evt_call_124",
+  "source": "communications",
+  "type": "call.failed",
+  "communication_id": "comm_124",
+  "correlation": {
+    "tenant_id": "org_1",
+    "project_id": "project_1",
+    "task_id": "CALL_1",
+    "run_id": "run_1"
+  },
+  "payload": {
+    "provider_status": "completed",
+    "disposition": "voicemail",
+    "successful": false,
+    "memory_eligible": false,
+    "failure_code": "voicemail",
+    "failure_reason": "Twilio detected an answering machine"
+  }
+}
+```
+
+The complete payload is retained on `lastRun.output`, while normalized fields are also stored on `lastRun.communicationOutcome`. Failed output is never merged into Project Data and therefore cannot unlock a downstream decision.
+
+Successful application:
+
+```json
+{
+  "ok": true,
+  "log": ["..."],
+  "pending": []
+}
+```
+
+Duplicate event:
+
+```json
+{
+  "ok": true,
+  "duplicate": true
+}
+```
+
+Status codes:
+
+| Status | Meaning |
+|---|---|
+| `200` | Event accepted, ignored, duplicated, processed, or recorded with a non-retryable application result. Inspect `ok`, `ignored`, and `reason`. |
+| `400` | Invalid JSON or envelope, such as a missing `event_id` or `type`. |
+| `401` | HMAC signature is missing or incorrect. |
+| `405` | Method is not `POST`. |
+| `409` | Correlation did not match a waiting run, or the outbound Ask-resolution acknowledgement failed; Communications should retry the same `event_id`. |
+| `500` | Unexpected handler failure. |
+| `503` | Webhook HMAC secret or server-side Firebase persistence is not configured. |
+
+Unsupported sources and non-terminal task events return `200` with `ignored: true`. In particular, `sms.sent` is non-terminal: an SMS action remains waiting until `sms.delivered` or `sms.failed`. There is currently no HyperFlow delivery timeout, so a missing terminal carrier event leaves the action waiting.
+
 ## Advance a flow
 
 ### `POST /api/flow/advance`

@@ -87,4 +87,29 @@ describe('external communication handover', () => {
     assert.ok(first);
     assert.equal(resolvePendingRun(first!.project, match, result), null);
   });
+
+  test('voicemail resolves the call as failed, records the disposition, and does not advance or merge output', async () => {
+    const dispatched = await advanceProjectFlow(callThenDecide(), dispatchingExecutor, { orgId: 'org_1' });
+    const pending = dispatched.project.milestones.find(m => m.id === 'CALL')!.actionConfig!.lastRun!;
+    const event = normalizeExternalEvent({
+      event_id: 'evt_voicemail', source: 'communications', type: 'call.failed', communication_id: 'comm_xyz',
+      correlation: { tenant_id: 'org_1', project_id: 'p1', task_id: 'CALL', run_id: pending.id },
+      payload: {
+        proposal_interest: true, business_status: 'failed', disposition: 'voicemail',
+        successful: false, memory_eligible: false, failure_reason: 'Answering machine detected'
+      }
+    });
+    const resolved = resolvePendingRun(dispatched.project, {
+      nodeId: event.correlation.task_id, runId: event.correlation.run_id, externalId: event.communication_id
+    }, {
+      status: 'error', output: event.payload, error: String(event.payload.failure_reason),
+      resolvedBy: 'event:communications'
+    });
+    assert.ok(resolved);
+    assert.deepEqual(resolved!.project.projectData, { contact_phone: '+61400000000' });
+    assert.equal(resolved!.project.milestones.find(m => m.id === 'CALL')!.actionConfig!.lastRun!.communicationOutcome?.disposition, 'voicemail');
+
+    const advanced = await advanceProjectFlow(resolved!.project, forbiddenExecutor, { orgId: 'org_1' });
+    assert.equal(advanced.project.milestones.find(m => m.id === 'D')!.decisionConfig!.selectedTargetId, undefined);
+  });
 });

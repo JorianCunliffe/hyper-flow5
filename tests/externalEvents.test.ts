@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createExternalEventRecord, normalizeExternalEvent, terminalExternalEventStatus } from '../lib/externalEvents';
+import { createExternalEventRecord, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
 
 const fixture = (name: string): any => JSON.parse(readFileSync(
   new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
@@ -64,6 +64,23 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventStatus('sms.sent', { status: 'undelivered' }), 'error');
     assert.equal(terminalExternalEventStatus('sms.sent', { status: 'delivered' }), 'success');
     assert.equal(terminalExternalEventStatus('sms.sent', { status: 'queued' }), null);
+  });
+
+  test('uses failed-call disposition and reason and rejects contradictory completed events', () => {
+    const failed = normalizeExternalEvent({
+      event_id: 'evt_failed', source: 'communications', type: 'call.failed', correlation: {},
+      payload: { disposition: 'voicemail', successful: false, memory_eligible: false, failure_reason: 'Answering machine detected' }
+    });
+    assert.deepEqual(terminalExternalEventResult(failed), {
+      status: 'error', error: 'Answering machine detected',
+      log: 'Communication failed (voicemail): Answering machine detected'
+    });
+
+    const contradictory = normalizeExternalEvent({
+      event_id: 'evt_bad_completed', source: 'communications', type: 'call.completed', correlation: {},
+      payload: { disposition: 'wrong_number', successful: false, memory_eligible: false }
+    });
+    assert.equal(terminalExternalEventResult(contradictory)?.status, 'error');
   });
 
   test('creates a persist-first inbox record with audit fields', () => {

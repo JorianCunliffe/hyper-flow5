@@ -5,6 +5,7 @@ import { Plus, ChevronRight, ChevronLeft, User, Edit2, Wand2, Clock, CalendarChe
 import { getStatusBorderColor, NODE_TYPE_META } from '../constants';
 import { getNodeType, isActionNode, isNodeComplete } from '../lib/flowEngine';
 import { sendTaskEmail } from '../lib/emailUtils';
+import { actionRunStatusLabel } from '../lib/actionRunPresentation';
 
 const TaskEmailButton: React.FC<{
   task: Subtask,
@@ -304,7 +305,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
         )}
         {isAction && lastRun && (
           <span className="text-[9px] font-black uppercase" style={{ color: statusColor }}>
-            {lastRun.status === 'success' ? 'Sent' : 'Failed'}
+            {actionRunStatusLabel(lastRun, nodeType)}
           </span>
         )}
       </div>

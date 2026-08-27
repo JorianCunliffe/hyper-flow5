@@ -77,6 +77,18 @@ export interface LoopConfig {
   exited?: boolean;
 }
 
+export interface CommunicationOutcome {
+  businessStatus?: 'pending' | 'success' | 'failed' | string;
+  disposition?: string;
+  successful?: boolean;
+  memoryEligible?: boolean;
+  failureCode?: string;
+  failureReason?: string;
+  providerStatus?: string;
+  source?: string;
+  confidence?: number;
+}
+
 export interface ActionRun {
   id?: string;       // correlates async provider callbacks back to this exact run
   at: number;
@@ -97,6 +109,8 @@ export interface ActionRun {
   startedAt?: number;
   resolvedAt?: number;   // when an async run reached a terminal status
   resolvedBy?: string;   // e.g. 'event:communications'
+  /** Provider-independent business outcome for asynchronous communications. */
+  communicationOutcome?: CommunicationOutcome;
 }
 
 export interface ActionConfig {

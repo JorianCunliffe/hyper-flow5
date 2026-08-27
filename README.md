@@ -53,6 +53,8 @@ For ordinary SMS and call actions, the sending number is selected from the actio
 - Email, webhook, and report actions finish synchronously.
 - SMS and voice actions normally return `202`, remain waiting, and release downstream work only after a signed terminal event reaches `POST /api/events`.
 
+For voice, Twilio's provider status `completed` is not success. Communications sends `call.completed` only after verifying a meaningful response from the intended human. Voicemail, wrong number, no answer, busy, fax, automated systems, provider failure, and non-meaningful responses arrive as `call.failed`. HyperFlow records the disposition and memory-eligibility flag on the action run, displays a specific failure label, keeps downstream work blocked, and never merges failed-call output into Project Data. Pending actions display as **Waiting**, not failed.
+
 Every outbound SMS or call carries:
 
 - `X-API-Key` authentication;
@@ -63,6 +65,8 @@ Every outbound SMS or call carries:
 ## Human Asks
 
 HyperFlow maintains one canonical Ask and creates recipient/channel-specific delivery IDs and tokens. All accepted responses pass through the same `respondToAsk` service, which validates the response, records it, applies the result, advances the flow, delivers any newly raised Asks, and saves the project.
+
+Email asks are currently delivered through Resend; SMS and voice asks use Communications with a `human_ask` purpose. Failed voice calls never count as responses.
 
 The public form URL is:
 
@@ -75,6 +79,16 @@ Vercel rewrites this path to `/api/asks/{token}`. Browser navigation receives a 
 Review policies support the first valid response (`any`), approval from every assigned reviewer (`all`), or a configured approval count (`quorum`). For `all` and `quorum`, only verified assigned identities count, and an assigned rejection or revision request vetoes approval.
 
 SMS and voice response events are evidence, not automatic resolution. HyperFlow first records the canonical response, then durably acknowledges it through `POST /v1/asks/{deliveryAskId}/resolve`. Identical acknowledgements are safe to replay; a Communications `409` is treated as a real conflict.
+
+| Layer | Main files | Responsibility |
+|---|---|---|
+| Flow engine | [`lib/flowEngine.ts`](./lib/flowEngine.ts) | Pure dependency, branch, loop, and readiness decisions. |
+| Orchestrator | [`lib/flowOrchestrator.ts`](./lib/flowOrchestrator.ts) | Executes scheduled effects and folds results into project state. |
+| Server execution | [`lib/serverExecutor.ts`](./lib/serverExecutor.ts), [`lib/serverFlow.ts`](./lib/serverFlow.ts) | Runs actions and advances persisted projects without a browser. |
+| Ask services | [`lib/asks`](./lib/asks) | Creates, delivers, expires, and responds to asks. |
+| Communications client | [`lib/communications`](./lib/communications) | Current Communications Service SMS, voice, Ask-resolution, and signed-event contracts. |
+| Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, idempotent inbound event processing with fail-closed call outcomes. |
+| Run outcome UI | [`lib/actionRunPresentation.ts`](./lib/actionRunPresentation.ts) | Human-readable waiting/success/failure labels and durable voice outcome fields. |
 
 ## Firebase authorization and migration
 
@@ -110,6 +124,8 @@ npm.cmd test
 npm.cmd run build
 npm.cmd audit --omit=dev --audit-level=moderate
 ```
+
+The test suite covers flow decisions and loops, waiting action resolution, voicemail/wrong-number failure presentation, failed-output isolation, Ask normalization and review gates, current Communications Service fixtures and HMAC behavior, event envelopes, Firebase shape handling, and serverless module specifiers.
 
 Firebase rules tests additionally require Java:
 

@@ -51,6 +51,7 @@ import {
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
+import { prepareProjectNodeForRun } from './lib/nodeRunPreparation';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
 import { getNodeType } from './lib/flowEngine';
 import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrchestrator';
@@ -435,6 +436,10 @@ export const App: React.FC = () => {
     }
 
     localUpdatedAt.current = Date.now();
+    // Capture the cloud revision when this render schedules its save. Reading
+    // it later inside the debounce would let a callback advance the revision
+    // while this closure still holds an older pending project snapshot.
+    const scheduledAtRevision = firebaseService.getDataRevision();
 
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
@@ -442,7 +447,10 @@ export const App: React.FC = () => {
 
         setCloudStatus('syncing');
         try {
-          await firebaseService.save({ projects, settings, scratchTasks, activityLogs });
+          await firebaseService.save(
+            { projects, settings, scratchTasks, activityLogs },
+            scheduledAtRevision
+          );
           setCloudStatus('connected');
           setSyncError(null);
         } catch (err: any) {
@@ -1339,9 +1347,19 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleRunActionNode = async (nodeId: string): Promise<boolean> => {
-    const proj = projectsRef.current.find(p => p.id === selectedProjectId);
-    if (!proj) return false;
+  const handleRunActionNode = async (
+    nodeId: string,
+    nodeUpdates?: Partial<Milestone>
+  ): Promise<boolean> => {
+    const currentProject = projectsRef.current.find(p => p.id === selectedProjectId);
+    if (!currentProject) return false;
+
+    // Run the modal's current configuration directly. Persisting it first and
+    // then executing from the preceding project snapshot creates two competing
+    // revisions; a fast callback can then resolve a run the browser never saves.
+    const proj = nodeUpdates
+      ? prepareProjectNodeForRun(currentProject, nodeId, nodeUpdates)
+      : currentProject;
 
     setRunningActionId(nodeId);
     try {
@@ -2678,7 +2696,7 @@ export const App: React.FC = () => {
             milestones={activeProject.milestones}
             onSave={(updates) => handleUpdateMilestone(configNodeId, updates)}
             people={settings.people}
-            onRun={() => handleRunActionNode(configNodeId)}
+            onRun={(updates) => handleRunActionNode(configNodeId, updates)}
             isRunning={runningActionId === configNodeId}
             onClose={() => setConfigNodeId(null)}
           />

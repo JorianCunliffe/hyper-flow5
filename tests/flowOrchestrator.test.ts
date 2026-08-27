@@ -151,13 +151,23 @@ describe('resolvePendingRun', () => {
   test('a failed callback does not write project data', () => {
     const res = resolvePendingRun(pendingProject(), { externalId: 'call_1' }, {
       status: 'error',
-      output: { proposal_interest: true },
-      error: 'no answer',
+      output: {
+        proposal_interest: true, business_status: 'failed', disposition: 'voicemail',
+        successful: false, memory_eligible: false, failure_code: 'voicemail',
+        failure_reason: 'Answering machine detected', provider_status: 'completed'
+      },
+      error: 'Answering machine detected',
       resolvedBy: 'event:communications'
     });
     assert.ok(res);
     assert.deepEqual(res!.project.projectData, {});
-    assert.equal(res!.project.milestones[0].actionConfig!.lastRun!.status, 'error');
+    const run = res!.project.milestones[0].actionConfig!.lastRun!;
+    assert.equal(run.status, 'error');
+    assert.deepEqual(run.communicationOutcome, {
+      businessStatus: 'failed', disposition: 'voicemail', successful: false,
+      memoryEligible: false, failureCode: 'voicemail', failureReason: 'Answering machine detected',
+      providerStatus: 'completed', source: undefined, confidence: undefined
+    });
   });
 
   test('findNodeByRun does not match a node with no run at all', () => {

@@ -3,6 +3,7 @@ import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy } fro
 import { NODE_TYPE_META } from '../../constants';
 import { isActionNode, getNodeType } from '../../lib/flowEngine';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
+import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
 
 const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.EMAIL]: '{"to": "{{contact_email}}", "subject": "Update on {{project_name}}", "body": "Hi..."}',
@@ -17,7 +18,7 @@ interface NodeConfigModalProps {
   milestones: Milestone[];
   people?: string[];
   onSave: (updates: Partial<Milestone>) => void;
-  onRun: () => void;
+  onRun: (updates: Partial<Milestone>) => void;
   isRunning: boolean;
   onClose: () => void;
 }
@@ -279,13 +280,20 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
               <span className="text-xs font-bold text-slate-600">Auto-execute when ready (runs during "Advance Flow")</span>
             </label>
 
-            {lastRun && (
-              <div className={`mt-3 rounded-lg border p-3 text-[11px] font-mono whitespace-pre-wrap max-h-36 overflow-y-auto ${lastRun.status === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                <div className="font-bold mb-1">Last run: {lastRun.status.toUpperCase()} — {new Date(lastRun.at).toLocaleString()}</div>
-                {(lastRun.logs || []).join('\n')}
-                {lastRun.error ? `\nError: ${lastRun.error}` : ''}
-              </div>
-            )}
+            {lastRun && (() => {
+              const outcome = lastRun.communicationOutcome || communicationOutcomeFromOutput(lastRun.output);
+              return (
+                <div className={`mt-3 rounded-lg border p-3 text-[11px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto ${actionRunStatusClasses(lastRun)}`}>
+                  <div className="font-bold mb-1">Last run: {actionRunStatusLabel(lastRun, nodeType).toUpperCase()} — {new Date(lastRun.at).toLocaleString()}</div>
+                  {outcome?.disposition ? `Outcome: ${formatCommunicationDisposition(outcome.disposition)}\n` : ''}
+                  {outcome?.providerStatus ? `Provider status: ${outcome.providerStatus}\n` : ''}
+                  {outcome?.memoryEligible === false ? 'Memory: excluded\n' : ''}
+                  {outcome?.failureReason ? `Reason: ${outcome.failureReason}\n` : ''}
+                  {(lastRun.logs || []).join('\n')}
+                  {lastRun.error && lastRun.error !== outcome?.failureReason ? `\nError: ${lastRun.error}` : ''}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -387,8 +395,10 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
           {isActionNode(draftNode) && (
             <button
               onClick={() => {
-                onSave({ nodeType, actionConfig: { ...(milestone.actionConfig || {}), template, autoExecute } });
-                onRun();
+                onRun({
+                  nodeType,
+                  actionConfig: { ...(milestone.actionConfig || {}), template, autoExecute }
+                });
               }}
               disabled={isRunning}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors mr-auto"
