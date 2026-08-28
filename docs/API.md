@@ -613,7 +613,7 @@ Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `d
 
 Intervals are clamped to 5-1440 minutes. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
 
-`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. `POST` is also accepted for an external timer using either supported secret header.
+`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
 
 Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The per-tenant/per-connection cursor advances only after all new communications were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged.
 

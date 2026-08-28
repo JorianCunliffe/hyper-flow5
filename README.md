@@ -114,7 +114,7 @@ When changing Firebase projects, configure the browser variables as one set and 
 2. Set `PUBLIC_BASE_URL` to the public HTTPS origin.
 3. Configure Communications to send durable events to `POST {PUBLIC_BASE_URL}/api/events` and use the same `COMMUNICATIONS_WEBHOOK_SECRET` in both services.
 4. In Settings > Communications, select the tenant's email service identity and provider connection; set the phone number when SMS or voice is enabled.
-5. Configure `CRON_SECRET` and ensure the Vercel hourly cron can call `GET /api/schedules/tick` (hourly cron requires a plan that supports hourly schedules).
+5. Configure `CRON_SECRET` for the daily Vercel Hobby-compatible tick. For sub-daily schedules, use a Vercel plan that supports the required frequency or call `POST /api/schedules/tick` from an external timer with `SCHEDULER_SECRET`.
 6. Run and review the membership migration before deploying updated Firebase rules to a legacy database.
 7. Deploy [`database.rules.json`](./database.rules.json); operational event, triage, schedule, cursor, delivery, and resolution trees are backend-only.
 
