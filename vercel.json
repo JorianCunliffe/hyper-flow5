@@ -4,7 +4,11 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/forms/ask/:token", "destination": "/api/asks/:token" }
+    { "source": "/forms/ask/:token", "destination": "/api/asks/:token" },
+    { "source": "/api/schedules/run", "destination": "/api/schedules?action=run" },
+    { "source": "/api/schedules/tick", "destination": "/api/schedules?action=tick" },
+    { "source": "/api/gemini/brainstormSubtasks", "destination": "/api/gemini?action=brainstormSubtasks" },
+    { "source": "/api/gemini/generateProjectStructure", "destination": "/api/gemini?action=generateProjectStructure" }
   ],
   "functions": {
     "api/**/*.ts": {
