@@ -59,6 +59,21 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventStatus('future.completed'), null);
   });
 
+  test('classifies current Communications sms.sent payload statuses', () => {
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'failed' }), 'error');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'undelivered' }), 'error');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'delivered' }), 'success');
+    assert.equal(terminalExternalEventStatus('sms.sent', { status: 'queued' }), null);
+  });
+
+  test('uses the canonical top-level tenant when correlation omits its duplicate', () => {
+    const event = normalizeExternalEvent({
+      tenant_id: 'org_top_level', event_id: 'evt_tenant', source: 'communications',
+      type: 'communication.received', correlation: {}, payload: { channel: 'email' }
+    });
+    assert.equal(event.correlation.tenant_id, 'org_top_level');
+  });
+
   test('uses failed-call disposition and reason and rejects contradictory completed events', () => {
     const failed = normalizeExternalEvent({
       event_id: 'evt_failed', source: 'communications', type: 'call.failed', correlation: {},

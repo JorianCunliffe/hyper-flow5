@@ -1,50 +1,145 @@
-# HyperFlow API
+# HyperFlow API reference
 
-This document describes the HTTP surface currently implemented by the Vercel functions under `api/` and mirrored by the local Express server where applicable.
-
-The outbound and event examples were audited against the Communications Service [`main` API reference](https://github.com/JorianCunliffe/communications-service/blob/main/docs/API_REFERENCE.md) dated 26 August 2026. HyperFlow's compatibility behavior is documented separately where it intentionally accepts legacy or defensive shapes not emitted by that reference.
+This reference describes the HTTP handlers under `api/`, their local Express equivalents, and the Communications Service requests emitted by the current HyperFlow client.
 
 ## Conventions
 
-- Request and response bodies use JSON unless stated otherwise.
-- Timestamps in event envelopes are ISO 8601 strings or Unix millisecond values.
-- Project APIs use camelCase (`orgId`, `projectId`).
-- The Communications API boundary uses snake_case (`tenant_id`, `project_id`, `ask_id`).
-- Errors generally use `{ "error": "message" }`. Task execution errors can also include `status` and `logs`.
+- Request and response bodies are JSON unless stated otherwise.
+- HyperFlow request fields use camelCase; the Communications boundary uses snake_case.
+- Errors use `{ "error": "message" }`. Task execution errors may also include `status` and `logs`.
+- Browser-authenticated endpoints use `Authorization: Bearer <Firebase ID token>`.
+- When a request identifies an organization, HyperFlow verifies membership from `organizations/{orgId}/members/{uid}` rather than trusting the supplied ID.
 
-## Authentication summary
+## Authentication
 
 | Endpoint | Authentication |
 |---|---|
-| `POST /api/events` | `X-Communications-Signature` HMAC using `$COMMUNICATIONS_WEBHOOK_SECRET` |
-| `POST /api/flow/advance` | `x-webhook-secret: $WEBHOOK_SECRET` |
-| `GET|POST /forms/ask/{token}` | Capability token in the path |
-| `GET|POST /api/asks/{token}` | Capability token in the path |
-| Other `/api/*` endpoints | No application-level authentication is currently implemented |
+| `POST /api/organizations/create` | Firebase ID token. |
+| `POST /api/invites/create` | Firebase ID token; current member must be an owner or admin. |
+| `POST /api/invites/consume` | Firebase ID token; authenticated email must match the invite. |
+| `POST /api/tasks/execute` | Firebase ID token and organization membership. |
+| `POST /api/flow/advance` | Either Firebase ID token and organization membership, or `x-webhook-secret: $WEBHOOK_SECRET`. |
+| `GET|POST /forms/ask/{token}` | Ask capability token in the path; optional Firebase token verifies reviewer identity. |
+| `GET|POST /api/asks/{token}` | Same handler and authentication as the public form path. |
+| `POST /api/events` | `X-Communications-Signature` HMAC using `COMMUNICATIONS_WEBHOOK_SECRET`. |
+| `POST /api/send-email` | Firebase ID token and organization membership. |
+| `GET /api/communications/status` | Firebase ID token and organization membership. |
+| `GET|PATCH /api/triage` | Firebase ID token and organization membership. |
+| `GET|POST|PATCH|DELETE /api/schedules` | Firebase ID token and organization membership. |
+| `POST /api/schedules/run` | Firebase ID token and organization membership. |
+| `GET|POST /api/schedules/tick` | `Authorization: Bearer $CRON_SECRET` or `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`. |
+| `POST /api/gemini/*` | Firebase ID token and organization membership. |
 
-The unauthenticated execution, Gemini, and email endpoints should be protected at the deployment or gateway layer before exposing them beyond a trusted environment.
+Common authentication responses are `401` for a missing, invalid, or expired Firebase token; `403` for missing organization membership or insufficient role; and `503` when server-side Firebase authentication is not configured.
 
 ## Endpoint index
 
 | Method | Endpoint | Purpose |
 |---|---|---|
+| `POST` | `/api/organizations/create` | Create an organization and owner membership. |
+| `POST` | `/api/invites/create` | Create a one-use organization invite. |
+| `POST` | `/api/invites/consume` | Join the invited organization. |
 | `POST` | `/api/tasks/execute` | Execute one action. |
-| `POST` | `/api/events` | Receive and persist Communications API events. |
-| `POST` | `/api/flow/advance` | Advance one persisted project server-side. |
-| `GET` | `/forms/ask/{token}` | Read one ask through its public form URL. |
-| `POST` | `/forms/ask/{token}` | Respond to one ask. |
-| `GET|POST` | `/api/asks/{token}` | Direct handler behind the public form rewrite. |
-| `POST` | `/api/send-email` | Send an HTML email through Resend. |
-| `POST` | `/api/gemini/brainstormSubtasks` | Generate milestone subtask suggestions. |
-| `POST` | `/api/gemini/generateProjectStructure` | Generate a project milestone graph. |
+| `POST` | `/api/flow/advance` | Advance one persisted project. |
+| `GET`, `POST` | `/forms/ask/{token}` | Render/read or answer one Ask. |
+| `GET`, `POST` | `/api/asks/{token}` | Direct Ask handler behind the form rewrite. |
+| `POST` | `/api/events` | Receive signed Communications events. |
+| `POST` | `/api/send-email` | Submit a tenant-correlated email to Communications. |
+| `GET` | `/api/communications/status` | Check Communications connectivity and tenant identity selection. |
+| `GET`, `PATCH` | `/api/triage` | List and review tenant communications triage. |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/schedules` | Manage tenant communications-reconciliation schedules. |
+| `POST` | `/api/schedules/run` | Run one tenant schedule immediately. |
+| `GET`, `POST` | `/api/schedules/tick` | Run due schedules from a platform timer. |
+| `POST` | `/api/gemini/brainstormSubtasks` | Generate five subtask suggestions. |
+| `POST` | `/api/gemini/generateProjectStructure` | Generate a milestone graph. |
+
+## Organizations and invites
+
+### Create an organization
+
+```http
+POST /api/organizations/create
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
+
+```json
+{
+  "name": "Acme Projects"
+}
+```
+
+The trimmed name must contain 1-120 characters. The account must not already belong to an organization.
+
+Success: `201`
+
+```json
+{
+  "ok": true,
+  "orgId": "org_..."
+}
+```
+
+HyperFlow creates the organization, an owner membership, and the private user-to-organization record on the server.
+
+### Create an invite
+
+```http
+POST /api/invites/create
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
+
+```json
+{
+  "email": "person@example.com"
+}
+```
+
+The caller must be an owner or admin. Success returns `201` with a one-use token:
+
+```json
+{
+  "ok": true,
+  "token": "invite_..."
+}
+```
+
+### Consume an invite
+
+```http
+POST /api/invites/consume
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
+
+```json
+{
+  "token": "invite_..."
+}
+```
+
+The Firebase account email must match the invited email. Invites expire after seven days and cannot move an existing member to a different organization. An identical retry by the member who consumed the invite is safe.
+
+Success: `200`
+
+```json
+{
+  "ok": true,
+  "orgId": "org_..."
+}
+```
+
+Invalid, expired, already-used, mismatched-email, and missing-token requests return `400`.
 
 ## Execute an action
 
 ### `POST /api/tasks/execute`
 
-Executes a canonical action type or a recognized friendly alias.
-
-Request:
+```http
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
 
 ```json
 {
@@ -67,32 +162,39 @@ Request:
 }
 ```
 
+The server replaces `correlation.orgId` with the authenticated member's organization. SMS and voice actions require all four correlation values so a later event can resolve one exact run.
+
 Canonical task types:
 
-| `taskType` | Template JSON | Notes |
+| `taskType` | Template JSON | Behavior |
 |---|---|---|
-| `send_email` | `{ "to", "subject", "body" }` | Sends through Resend. |
-| `send_sms` | `{ "to", "from?", "body" }` | Requires `orgId`, `projectId`, `nodeId`, and `runId` correlation. |
-| `outgoing_call` | `{ "to", "from?", "instruction" }` | Also accepts `prompt` or `body` for the instruction. Requires full correlation. |
-| `webhook` | `{ "url", "method", "headers", "payload" }` | `method` defaults to `POST`; timeout is 15 seconds. |
-| `write_report` | `{ "prompt", "sop", "template", "eval_criteria" }` | Uses Gemini; revision context is applied when supplied. |
+| `send_email` | `{ "to", "cc?", "bcc?", "subject", "body", "from?", "service_identity_id?", "provider_connection_id?" }` | Submits an idempotent tenant-correlated email to Communications. |
+| `send_sms` | `{ "to", "from?", "body" }` | Starts an SMS through Communications. |
+| `outgoing_call` | `{ "to", "from?", "instruction" }` | Starts a call; `prompt` or `body` may supply the instruction. |
+| `webhook` | `{ "url", "method?", "headers?", "payload?" }` | Calls a public HTTPS/443 endpoint. |
+| `write_report` | `{ "prompt", "sop?", "template?", "eval_criteria?" }` | Generates, evaluates, and when required revises a report with Gemini. |
 
-`send_sms` and `outgoing_call` also fall back to `projectData.contact_phone` or `projectData.phone_number` when the template omits `to`. For these action nodes, `from` resolves in this order: template, `projectData.communications_from_number`, the tenant Communications setting, then `COMMUNICATIONS_FROM_NUMBER`. Both numbers must be E.164. HyperFlow derives `callback_url` only from the server-side HTTPS `PUBLIC_BASE_URL`.
+Friendly aliases such as `email`, `sms`, `call`, `voice`, `http`, and `report` are normalized to the canonical types.
 
-Synchronous success returns `200`:
+SMS and call destination numbers fall back to `projectData.contact_phone` or `projectData.phone_number`. Destination and sender numbers must use E.164 format. Sender precedence is action template, `projectData.communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`.
+
+Webhook methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE`. Destinations must be public HTTPS on port 443. HyperFlow validates DNS and every redirect, blocks local/private/reserved destinations, allows at most three redirects, times out after 15 seconds, and reads at most 64 KiB. `WEBHOOK_ALLOWED_HOSTS` can further restrict hostnames.
+
+Synchronous success: `200`
 
 ```json
 {
   "status": "success",
   "output": {
     "report_written": true,
-    "report_content": "..."
+    "report_content": "...",
+    "evaluation": {}
   },
   "logs": ["..."]
 }
 ```
 
-The current Communications Service returns `201` canonical communication objects without a workflow status. HyperFlow normalizes the missing status to `accepted`, keeps the action waiting, and returns `202`:
+Accepted Communications work: `202`
 
 ```json
 {
@@ -110,7 +212,7 @@ The current Communications Service returns `201` canonical communication objects
 }
 ```
 
-Status codes:
+The action remains waiting until a mapped terminal event arrives. A Communications response explicitly marked `failed` returns `502`; validation, configuration, provider HTTP, timeout, and other execution failures currently return `500`. Unknown task types return `400`.
 
 | Status | Meaning |
 |---|---|
@@ -271,18 +373,25 @@ Status codes:
 
 Unsupported sources and non-terminal task events return `200` with `ignored: true`. In particular, `sms.sent` is non-terminal: an SMS action remains waiting until `sms.delivered` or `sms.failed`. There is currently no HyperFlow delivery timeout, so a missing terminal carrier event leaves the action waiting.
 
-## Advance a project
+## Advance a flow
 
 ### `POST /api/flow/advance`
 
-Headers:
+Browser call:
+
+```http
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
+
+Machine call:
 
 ```http
 x-webhook-secret: <WEBHOOK_SECRET>
 Content-Type: application/json
 ```
 
-Request:
+Body:
 
 ```json
 {
@@ -291,37 +400,17 @@ Request:
 }
 ```
 
-Response:
+Success returns `200` with the server advancement outcome. Missing IDs return `400`; a missing project returns `404`; advancement failure returns `500`; and unavailable server persistence returns `503`.
 
-```json
-{
-  "ok": true,
-  "log": ["Flow is up to date — nothing to advance."],
-  "pending": []
-}
-```
+If `WEBHOOK_SECRET` is unset or the supplied shared secret does not match, the request must pass Firebase membership authentication instead.
 
-Advancement evaluates decisions and loops, executes ready auto-run actions, raises review asks, attempts configured non-web Ask deliveries, and persists the resulting project. Individual delivery failures are recorded on the Ask and in the returned log; they do not make the entire advance request fail.
-
-Status codes:
-
-| Status | Meaning |
-|---|---|
-| `200` | Project advanced successfully. |
-| `400` | `orgId` or `projectId` is missing. |
-| `403` | Webhook secret is incorrect. |
-| `404` | Project was not found. |
-| `405` | Method is not `POST`. |
-| `500` | Advancement failed. |
-| `503` | Secret or server-side persistence is not configured. |
-
-## Read or answer an ask
+## Read or answer an Ask
 
 ### `GET /forms/ask/{token}?org={orgId}&project={projectId}`
 
-`/forms/ask/{token}` is rewritten to `/api/asks/{token}`. The token is a capability that authorizes access to only one ask.
+Vercel rewrites `/forms/ask/{token}` to `/api/asks/{token}`. The token is a capability scoped to one Ask; `org` and `project` are routing values and are not authorization by themselves.
 
-Response:
+Requests whose `Accept` header contains `text/html` receive a rendered, CSP-restricted form with `Cache-Control: no-store`. Other clients receive `200` JSON:
 
 ```json
 {
@@ -331,7 +420,7 @@ Response:
     "id": "ask_123",
     "kind": "approval",
     "status": "open",
-    "prompt": "Review the report and approve, or send it back with changes.",
+    "prompt": "Review the report.",
     "fields": [],
     "artifact": {
       "kind": "markdown",
@@ -345,34 +434,25 @@ Response:
 }
 ```
 
-Raw provider payloads and surrounding project data are not returned.
+The JSON response excludes Project Data and raw provider payloads. Missing routing values return `400`; an unknown token/project combination returns `404`; and unavailable server persistence returns `503`.
 
 ### `POST /forms/ask/{token}?org={orgId}&project={projectId}`
 
-Approval response:
-
 ```json
 {
-  "actor": "Jorian",
   "decision": "approved",
-  "text": "Looks good."
+  "text": "Looks good.",
+  "values": {},
+  "attachments": [],
+  "actor": "Jorian"
 }
 ```
 
-Question response:
+`decision` may be `approved`, `rejected`, or `revise`; the accepted fields depend on the Ask kind. A revision requires a comment. `text` is limited to 20,000 characters.
 
-```json
-{
-  "actor": "Jorian",
-  "text": "12 Main Street",
-  "values": {
-    "site_address": "12 Main Street"
-  },
-  "attachments": []
-}
-```
+When a valid Firebase token is supplied, HyperFlow derives a verified reviewer identity from the authenticated member. Without it, a delivery-specific capability token identifies the assigned recipient. A caller-supplied `actor` is only a label and cannot satisfy `all` or `quorum` policies unless the delivery token itself maps to an assigned reviewer.
 
-Successful response:
+Success: `200`
 
 ```json
 {
@@ -383,46 +463,159 @@ Successful response:
 }
 ```
 
-`text` is limited to 20,000 characters. The supplied `actor` is an audit label, not an independently verified identity; possession of the token is the authorization.
+Invalid responses return `400`, an invalid optional Firebase token returns `401`, missing authenticated membership returns `403`, unknown routing returns `404`, an already answered Ask returns `409`, and an overlong comment returns `413`.
 
-Status codes:
+## Receive Communications events
 
-| Status | Meaning |
+### `POST /api/events`
+
+```http
+Content-Type: application/json
+X-Communications-Event-Id: evt_...
+X-Communications-Signature: sha256=<HMAC-SHA256 of the exact raw JSON body>
+```
+
+HyperFlow verifies the signature with `COMMUNICATIONS_WEBHOOK_SECRET` before parsing JSON, then defaults the verified event source to `communications`. `event_id` in the body is the processing idempotency key; delivery is at least once.
+
+Ask response example:
+
+```json
+{
+  "event_id": "evt_ask_123",
+  "communication_id": "comm_123",
+  "type": "ask.response.received",
+  "occurred_at": "2026-08-11T02:30:00.000Z",
+  "purpose": {
+    "type": "human_ask",
+    "ask_id": "ask_delivery_123"
+  },
+  "correlation": {
+    "tenant_id": "org_1",
+    "external_project_id": "project_1",
+    "person_id": "person_1"
+  },
+  "payload": {
+    "ask_id": "ask_delivery_123",
+    "channel": "voice",
+    "transcript": "Approved"
+  }
+}
+```
+
+SMS response text is read from `payload.content`; voice response evidence is read from `payload.transcript`. HyperFlow maps the delivery Ask ID to its canonical Ask, validates and persists the response, advances the project, and then uses a durable outbox to call Communications `POST /v1/asks/{deliveryAskId}/resolve` with the accepted `communication_id`.
+
+Task terminal event example:
+
+```json
+{
+  "event_id": "evt_123",
+  "communication_id": "comm_123",
+  "type": "sms.delivered",
+  "occurred_at": "2026-08-11T02:35:00.000Z",
+  "correlation": {
+    "tenant_id": "org_1",
+    "external_project_id": "project_1",
+    "run_id": "run_1",
+    "task_id": "SMS_1"
+  },
+  "payload": {
+    "status": "delivered"
+  }
+}
+```
+
+Terminal mapping:
+
+| Event | Result |
 |---|---|
-| `200` | Ask read or response recorded. |
-| `400` | Missing routing values, invalid response, expired/cancelled ask, or revision without a comment. |
-| `404` | Project, token, or ask was not found. The GET response deliberately does not distinguish them. |
-| `405` | Unsupported method. |
-| `409` | Ask was already answered. |
-| `413` | Comment exceeds 20,000 characters. |
-| `500` | Unexpected request failure. |
-| `503` | Server-side persistence is not configured. |
+| `sms.delivered` | Success. |
+| `sms.failed` | Failure. |
+| `call.completed` | Success. |
+| `call.failed` | Failure. |
+| `sms.sent` | Nonterminal, except defensive handling of `payload.status: delivered`, `failed`, or `undelivered`. |
+| Other event types | Nonterminal and recorded as ignored. |
+
+New events should use `correlation.external_project_id`. HyperFlow also accepts the transitional `correlation.project_id` alias and normalizes either value to its internal project ID.
+
+Events are persisted before processing under `external_events/{tenant_id}/{event_id}`. Processing states are `received`, `processing`, `processed`, and `processing_failed`; expiring leases allow safe retry after interrupted work. A processed duplicate returns `200`. A concurrent or retryable event returns `409`, prompting Communications to retry. Invalid signatures return `401`, invalid envelopes return `400`, handler failures return `500`, and missing webhook secret or server persistence returns `503`.
+
+For email events HyperFlow retrieves the authoritative communication using the signed event's tenant and `communication_id`. Human inbound messages become tenant triage items. Bounce, spam, automatic replies, voicemail, wrong-number, and other ineligible responses are recorded as excluded and never passed into `respondToAsk` or workflow memory. Uncertain Ask interpretations remain open with `needs_review` until an authenticated reviewer accepts them.
 
 ## Send an email
 
 ### `POST /api/send-email`
 
-Request:
+```http
+Authorization: Bearer <Firebase ID token>
+Content-Type: application/json
+```
 
 ```json
 {
   "to": "person@example.com",
   "subject": "Project update",
-  "html": "<p>The report is ready.</p>"
+  "html": "<p>The report is ready.</p>",
+  "projectId": "project_1",
+  "taskId": "EMAIL_1",
+  "runId": "run_1"
 }
 ```
 
-Successful response:
+The tenant must have `settings.communications.defaultEmailIdentity`; `connectionId` is passed when configured. Success returns `202` with `{ "communication": { ... } }`. The request is idempotent for the same tenant/project/task/run correlation. Configuration, validation, and Communications errors return an error response.
+
+This endpoint, the `send_email` action, organization invitations, and email Human Asks all use Communications. Email Ask messages include the secure form as a fallback, while a later correlated email reply can be interpreted and progress the same Ask.
+
+## Communications triage
+
+### `GET /api/communications/status`
+
+Returns `connected`, `emailReady`, the selected non-secret connection and email identity IDs, or a sanitized connectivity error. `emailReady` means a tenant outbound identity is selected; it does not expose or validate provider credentials. The endpoint never returns API keys or provider credentials.
+
+### `GET /api/triage?limit=100`
+
+Returns `{ "data": TriageItem[] }`, newest first, for the authenticated organization only. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, and audit entries.
+
+### `PATCH /api/triage`
+
+Disposition update:
+
+```json
+{ "id": "comm_123", "action": "resolve", "disposition": "resolved" }
+```
+
+Accept an uncertain linked Ask interpretation:
+
+```json
+{ "id": "comm_123", "action": "accept_interpretation", "decision": "approved", "text": "Approved" }
+```
+
+For question and choice Asks, send `values` matching the Ask's declared fields instead of a decision. Revision decisions require a non-empty explanatory `text` value.
+
+Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `draft_prepared`, `needs_review`, `ignored`, `resolved`, `spam_automatic`, and `delivery_failure`. Accepting an interpretation uses canonical `respondToAsk`; it replaces the provisional response for that communication.
+
+## Durable schedules
+
+### `/api/schedules`
+
+`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a communications-triage schedule:
 
 ```json
 {
-  "data": {
-    "id": "resend_message_id"
-  }
+  "id": "optional_existing_id",
+  "name": "Inbox triage",
+  "enabled": true,
+  "intervalMinutes": 60,
+  "timezone": "Australia/Brisbane",
+  "connectionId": "connection_123",
+  "policy": "draft_only"
 }
 ```
 
-This helper sends from `automation@projectflow.online`. The separate `send_email` task action currently sends from the fixed Resend onboarding sender `Acme Corp <onboarding@resend.dev>`. `RESEND_FROM_EMAIL` affects Human Ask email delivery only.
+Intervals are clamped to 5-1440 minutes. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
+
+`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
+
+Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The per-tenant/per-connection cursor advances only after all new communications were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged.
 
 ## Gemini helpers
 
@@ -435,7 +628,7 @@ This helper sends from `automation@projectflow.online`. The separate `send_email
 }
 ```
 
-Returns an array of five objects containing `name` and `description`.
+Success returns `200` with an array of five `{ "name", "description" }` objects.
 
 ### `POST /api/gemini/generateProjectStructure`
 
@@ -446,22 +639,33 @@ Returns an array of five objects containing `name` and `description`.
 }
 ```
 
-Returns an object containing a `milestones` array. Each generated milestone contains `id`, `name`, `dependsOn`, and `subtasks`.
+Success returns `200` with an object containing a `milestones` array. Each milestone contains `id`, `name`, `dependsOn`, and `subtasks`.
 
-Both endpoints require `GEMINI_API_KEY` and return `500` when model generation or JSON parsing fails.
+Both endpoints use `GEMINI_API_KEY`. Model, configuration, and response-parsing failures return `500`.
 
-## Outbound Communications API contract
+## Outbound Communications Service contract
 
-HyperFlow acts as a client of the service configured by `COMMUNICATIONS_API_URL`. Every request includes:
+HyperFlow calls the service configured by `COMMUNICATIONS_API_URL`. Every request includes:
 
 ```http
 X-API-Key: <COMMUNICATIONS_API_KEY>
+X-Tenant-Id: <tenant_id>
 Accept: application/json
 ```
 
-POST requests also include `Content-Type: application/json`; GET requests do not. The client timeout is 15 seconds.
+POST requests include `Content-Type: application/json`. Email, SMS, and call creation also include:
 
-### Send SMS: `POST {COMMUNICATIONS_API_URL}/v1/messages`
+```http
+Idempotency-Key: hyperflow:{tenant_id}:{external_project_id}:{run_id}:{task_id}:{channel}:{ask_id-or-action}
+```
+
+The client times out after 15 seconds. It reads the canonical `communication_id` and accepts a legacy `id` alias or `communication` response wrapper for adapter compatibility. A successful create response without `status` is normalized to `accepted`.
+
+### Send SMS
+
+```http
+POST {COMMUNICATIONS_API_URL}/v1/messages
+```
 
 ```json
 {
@@ -470,7 +674,7 @@ POST requests also include `Content-Type: application/json`; GET requests do not
   "body": "Can you attend tomorrow?",
   "correlation": {
     "tenant_id": "org_1",
-    "project_id": "project_1",
+    "external_project_id": "project_1",
     "run_id": "run_1",
     "task_id": "SMS_1"
   },
@@ -478,9 +682,13 @@ POST requests also include `Content-Type: application/json`; GET requests do not
 }
 ```
 
-The Communications Service validates both numbers as E.164 and the body as 1–1600 characters. HyperFlow validates E.164 numbers before dispatch but currently relies on Communications for the body-length limit.
+Communications requires `to` and `from` in E.164 format, a body of 1-1600 characters, and a stable idempotency key. HyperFlow validates the numbers and relies on Communications for the body-length limit.
 
-### Start call: `POST {COMMUNICATIONS_API_URL}/v1/calls`
+### Start a voice call
+
+```http
+POST {COMMUNICATIONS_API_URL}/v1/calls
+```
 
 ```json
 {
@@ -488,13 +696,13 @@ The Communications Service validates both numbers as E.164 and the body as 1–1
   "from": "+61411111111",
   "overrides": {
     "systemMessage": "You are making an outbound call for HyperFlow...",
-    "greetingText": "Begin the call briefly and then: Confirm whether Thursday at 10:30 works.",
+    "greetingText": "Begin the call briefly and then: Confirm Thursday at 10:30.",
     "aiSpeaksFirst": true,
     "liveTranscript": true
   },
   "correlation": {
     "tenant_id": "org_1",
-    "project_id": "project_1",
+    "external_project_id": "project_1",
     "run_id": "run_1",
     "task_id": "CALL_1"
   },
@@ -502,73 +710,94 @@ The Communications Service validates both numbers as E.164 and the body as 1–1
 }
 ```
 
-Communications shallow-merges arbitrary `overrides`, but HyperFlow exposes only `systemMessage`, `greetingText`, `aiSpeaksFirst`, and `liveTranscript` in this integration.
+HyperFlow sends only the allow-listed voice overrides shown above.
 
-### Deliver Human Asks
+### Send email
 
-SMS and voice asks use the same `/v1/messages` and `/v1/calls` endpoints with a first-class purpose:
+```http
+POST {COMMUNICATIONS_API_URL}/v1/emails
+```
+
+The body contains recipients, subject, text or HTML, `service_identity_id` or an explicit sender, optional `provider_connection_id`, purpose, callback URL, and the same tenant/project/run/task correlation used by other channels. HyperFlow does not store or expose provider credentials.
+
+### Deliver a Human Ask
+
+There is no Communications `POST /v1/asks` delivery route. HyperFlow sends the Ask through `/v1/emails`, `/v1/messages`, or `/v1/calls` and adds:
 
 ```json
 {
-  "to": "+61400000000",
-  "from": "+61411111111",
-  "body": "Approve the draft?",
   "purpose": {
     "type": "human_ask",
-    "ask_id": "ask_123",
-    "token": "token_123"
+    "ask_id": "ask_delivery_123",
+    "token": "delivery_capability_token"
   },
   "correlation": {
     "tenant_id": "org_1",
-    "project_id": "project_1",
-    "task_id": "REPORT_1",
+    "external_project_id": "project_1",
     "run_id": "run_1",
+    "task_id": "REVIEW_1",
     "person_id": "person_1"
   },
   "callback_url": "https://hyperflow.example.com/api/events"
 }
 ```
 
-An assignee may itself be a valid E.164 number/email address. Otherwise HyperFlow resolves it by exact setting key, then by a unique case-insensitive team-member name match. Missing, invalid, or ambiguous identities fail closed. For SMS/voice asks, sender precedence is Project Data `communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`. Email asks do not use Communications Service; HyperFlow sends them through Resend with the tokenized form URL and optional `ask+{token}@{ASK_REPLY_DOMAIN}` Reply-To.
+HyperFlow resolves each assignee to one unambiguous email address or E.164 number before delivery. The tokenized web form remains available as an email fallback.
 
-### Read communication: `GET {COMMUNICATIONS_API_URL}/v1/communications/{id}`
+### Resolve a Communications Ask
 
-The current Communications Service returns the canonical object directly. HyperFlow temporarily also accepts a legacy `communication` wrapper and `id` field:
+```http
+POST {COMMUNICATIONS_API_URL}/v1/asks/{deliveryAskId}/resolve
+Content-Type: application/json
+```
 
 ```json
 {
-  "communication": {
-    "communication_id": "comm_123",
-    "status": "queued",
-    "channel": "sms",
-    "output": {}
-  }
+  "communication_id": "comm_final_answer"
 }
 ```
 
-Supported status values are `accepted`, `queued`, `ready`, `running`, `in_progress`, `waiting`, `completed`, and `failed`. When the service omits a status from a canonical `201` response, HyperFlow normalizes it to `accepted`. Every successful response must include a non-empty `communication_id` (or temporary legacy `id`).
+An identical replay returns success with `duplicate: true`. `400` means the communication is missing or not in the Ask thread, `404` means there is no Ask binding, and `409` means the Ask is cancelled or was resolved by another communication. HyperFlow keeps failed acknowledgements in its retryable Ask-resolution outbox.
+
+### Read a communication
+
+```http
+GET {COMMUNICATIONS_API_URL}/v1/communications/{communicationId}
+```
+
+The current client supports `accepted`, `queued`, `ready`, `running`, `in_progress`, `waiting`, `completed`, and `failed` statuses.
+
+HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /v1/inbox` for provider-side triage, and `GET /v1/threads/{threadId}`. Provider-side disposition changes use `POST /v1/communications/{communicationId}/disposition`.
 
 ## Environment variables
 
-### Settings versus backend secrets
-
-Settings → Communications stores only `settings.communications.fromNumber` under the selected Firebase organization. That value is included in normal HyperFlow cloud data and backups and must not contain credentials. Team-member phone numbers and email addresses used for Ask routing are likewise ordinary tenant data under `settings.teamMemberDetails`.
-
-`COMMUNICATIONS_API_KEY`, `COMMUNICATIONS_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, and provider API keys are backend secrets. HyperFlow reads them only from `process.env`; they must not be entered into Settings, stored in Project Data, or exposed through `VITE_*` variables.
-
-| Variable | Used for |
+| Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Gemini helper routes and report tasks. |
-| `RESEND_API_KEY` | Email helper and email tasks. |
-| `RESEND_FROM_EMAIL` | Optional Human Ask email sender; defaults to `automation@projectflow.online`. It does not change the separate `send_email` action sender. |
-| `COMMUNICATIONS_API_URL` | Base URL for the Communications Service `/v1` API. |
+| `GEMINI_API_KEY` | Gemini helpers, report actions, and optional ambiguous-response interpretation. |
+| `COMMUNICATIONS_API_URL` | Communications Service base URL. |
 | `COMMUNICATIONS_API_KEY` | Backend-only outbound `X-API-Key` credential. |
-| `COMMUNICATIONS_WEBHOOK_SECRET` | Backend-only HMAC secret for inbound `/api/events`; must match Communications Service. |
-| `COMMUNICATIONS_FROM_NUMBER` | Optional global E.164 sender fallback; tenant Settings is preferred. |
-| `ASK_REPLY_DOMAIN` | Email ask Reply-To addresses. |
-| `PUBLIC_BASE_URL` | Public form URLs and Communications callbacks. SMS/voice delivery requires an absolute HTTPS value. |
-| `WEBHOOK_SECRET` | Authentication for `/api/flow/advance`. |
-| `FIREBASE_SERVICE_ACCOUNT` | Privileged server-side Realtime Database access; JSON or base64. |
-| `FIREBASE_DATABASE_URL` | Server-side database URL. Must match the browser database. |
+| `COMMUNICATIONS_WEBHOOK_SECRET` | Backend-only HMAC secret for `/api/events`; must match Communications. |
+| `COMMUNICATIONS_FROM_NUMBER` | Optional global E.164 sender fallback. |
+| `COMMUNICATIONS_EMAIL_IDENTITY` | Optional global email service-identity fallback; prefer tenant settings. |
+| `COMMUNICATIONS_CONNECTION_ID` | Optional global provider-connection fallback for Ask email delivery; prefer tenant settings. |
+| `COMMUNICATIONS_INTENT_MODEL` | Optional Gemini model for conservative ambiguous-response extraction. |
+| `CRON_SECRET` | Secret supplied by Vercel Cron to `/api/schedules/tick`. |
+| `SCHEDULER_SECRET` | Optional secret for a non-Vercel timer caller. |
+| `WEBHOOK_ALLOWED_HOSTS` | Optional comma-separated allowlist for webhook action hostnames. |
+| `PUBLIC_BASE_URL` | Public HTTPS origin for form links and Communications callbacks. |
+| `WEBHOOK_SECRET` | Shared secret for machine calls to `/api/flow/advance`. |
+| `FIREBASE_SERVICE_ACCOUNT` | Privileged server-side Firebase credentials, as JSON or base64. |
+| `FIREBASE_DATABASE_URL` | Server-side Realtime Database URL; must match the browser database. |
 
-Browser Firebase overrides are documented in [`.env.example`](../.env.example).
+Browser Firebase overrides are public application configuration, not server credentials:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_DATABASE_URL`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MEASUREMENT_ID`
+
+Set the required browser values as one consistent Firebase project configuration, and keep `FIREBASE_DATABASE_URL` pointed at the same Realtime Database. See [`.env.example`](../.env.example) for format notes. Do not expose any backend secret through a `VITE_*` variable.

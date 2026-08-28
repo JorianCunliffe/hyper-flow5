@@ -9,8 +9,8 @@ export interface CommunicationCorrelation {
 }
 
 export interface CommunicationPurpose {
-  type: 'human_ask';
-  ask_id: string;
+  type: 'human_ask' | 'workflow_notification' | 'workflow_action' | 'triage' | string;
+  ask_id?: string;
   token?: string;
 }
 
@@ -40,6 +40,24 @@ export interface StartCallRequest {
   callback_url?: string;
 }
 
+export interface SendEmailRequest {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  from?: string;
+  service_identity_id?: string;
+  provider_connection_id?: string;
+  reply_to?: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  person_id?: string;
+  thread_id?: string;
+  correlation: CommunicationCorrelation;
+  purpose?: CommunicationPurpose;
+  callback_url?: string;
+}
+
 export type CommunicationStatus =
   | 'accepted'
   | 'queued'
@@ -53,9 +71,56 @@ export type CommunicationStatus =
 export interface CommunicationResult {
   id: string;
   status: CommunicationStatus;
-  channel?: 'sms' | 'voice';
+  channel?: 'email' | 'sms' | 'voice';
+  tenantId?: string;
+  threadId?: string;
+  direction?: 'inbound' | 'outbound';
+  occurredAt?: string;
+  personId?: string;
+  content?: string;
+  summary?: string;
+  subject?: string;
+  sender?: string;
+  recipients?: string[];
+  correlation?: Partial<CommunicationCorrelation>;
+  purpose?: CommunicationPurpose;
+  outcome?: Record<string, unknown>;
   output?: Record<string, unknown>;
   error?: string;
+}
+
+export interface CommunicationListOptions {
+  cursor?: string;
+  limit?: number;
+  channel?: 'email' | 'sms' | 'voice';
+  threadId?: string;
+  askId?: string;
+  personId?: string;
+  direction?: 'inbound' | 'outbound';
+  memoryEligible?: boolean;
+}
+
+export interface CommunicationListResult {
+  data: CommunicationResult[];
+  count?: number;
+  limit: number;
+  nextCursor?: string;
+}
+
+export interface CommunicationThreadResult {
+  threadId: string;
+  communications: CommunicationResult[];
+  [key: string]: unknown;
+}
+
+export interface CommunicationsTriageItem {
+  id: string;
+  communicationId: string;
+  threadId?: string;
+  disposition?: string;
+  classification?: string;
+  communication?: CommunicationResult;
+  [key: string]: unknown;
 }
 
 export interface ResolveAskResult {
@@ -67,6 +132,11 @@ export interface ResolveAskResult {
 export interface CommunicationsClient {
   sendSms(request: SendSmsRequest): Promise<CommunicationResult>;
   startCall(request: StartCallRequest): Promise<CommunicationResult>;
-  getCommunication(id: string): Promise<CommunicationResult>;
-  resolveAsk(askId: string, communicationId: string): Promise<ResolveAskResult>;
+  sendEmail(request: SendEmailRequest): Promise<CommunicationResult>;
+  listCommunications(tenantId: string, options?: CommunicationListOptions): Promise<CommunicationListResult>;
+  getCommunication(tenantId: string, id: string): Promise<CommunicationResult>;
+  getThread(tenantId: string, threadId: string): Promise<CommunicationThreadResult>;
+  listTriageItems(tenantId: string, options?: CommunicationListOptions): Promise<CommunicationsTriageItem[]>;
+  setTriageDisposition(tenantId: string, itemId: string, disposition: string): Promise<CommunicationsTriageItem>;
+  resolveAsk(tenantId: string, askId: string, communicationId: string): Promise<ResolveAskResult>;
 }

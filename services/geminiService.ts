@@ -1,10 +1,11 @@
 
 import { ProjectType } from "../types";
+import { firebaseService } from './firebaseService';
 
 export class GeminiService {
   async generateProjectStructure(name: string, type: ProjectType) {
     try {
-      const response = await fetch("/api/gemini/generateProjectStructure", {
+      const response = await firebaseService.authorizedFetch("/api/gemini/generateProjectStructure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, type })
@@ -19,7 +20,7 @@ export class GeminiService {
 
   async brainstormSubtasks(milestoneName: string, projectContext: string) {
     try {
-      const response = await fetch("/api/gemini/brainstormSubtasks", {
+      const response = await firebaseService.authorizedFetch("/api/gemini/brainstormSubtasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ milestoneName, projectContext })

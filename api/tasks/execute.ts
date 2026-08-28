@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { executeTask } from '../../lib/executeTask.js';
 import { readTenantCommunicationsSettings } from '../../lib/serverStore.js';
+import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -8,21 +9,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   try {
     const { taskType, templateFile, projectData, correlation, revision } = req.body || {};
-    let communicationsFromNumber: string | undefined;
-    if (correlation?.orgId) {
-      try { communicationsFromNumber = (await readTenantCommunicationsSettings(correlation.orgId)).fromNumber; } catch { /* project/env fallback */ }
+    const requestedOrgId = typeof correlation?.orgId === 'string' ? correlation.orgId : undefined;
+    const member = await requireAppMember(req, requestedOrgId);
+    const trustedCorrelation = { ...correlation, orgId: member.orgId };
+    let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
+    if (trustedCorrelation.orgId) {
+      try { tenantCommunications = await readTenantCommunicationsSettings(trustedCorrelation.orgId); } catch { /* project/env fallback */ }
     }
     // The callback secret and public base URL stay server-side; callers only
     // supply the correlation ids that identify the run.
     const result = await executeTask(taskType, templateFile, projectData, {
       webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-      callbackSecret: process.env.WEBHOOK_SECRET,
-      communicationsFromNumber,
-      correlation,
+      communicationsFromNumber: tenantCommunications?.fromNumber,
+      communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
+      communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
+      communicationsConnectionId: tenantCommunications?.connectionId,
+      correlation: trustedCorrelation,
       revision
     });
     res.status(result.httpStatus).json(result.body);
-  } catch (e) {
-    res.status(500).json({ error: String(e) });
+  } catch (e: any) {
+    res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e?.message || String(e) });
   }
 }

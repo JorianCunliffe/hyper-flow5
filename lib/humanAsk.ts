@@ -11,7 +11,7 @@ import {
   ReviewPolicy
 } from '../types.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
-import { createAsk } from './asks/createAsk.js';
+import { createAsk, newAskId as createNewAskId, newAskToken as createNewAskToken } from './asks/createAsk.js';
 
 /**
  * Human-in-the-loop asks: pure logic only.
@@ -22,9 +22,8 @@ import { createAsk } from './asks/createAsk.js';
  * there is one place where an answer becomes project state.
  */
 
-let askCounter = 0;
 export const newAskId = (): string =>
-  `ask_${Date.now().toString(36)}_${(++askCounter).toString(36)}`;
+  createNewAskId();
 
 /**
  * Capability token for answering one ask. Uses crypto randomness where
@@ -32,13 +31,7 @@ export const newAskId = (): string =>
  * be guessable, and it must never grant anything beyond answering this ask.
  */
 export const newAskToken = (): string => {
-  const g: any = globalThis as any;
-  if (g.crypto?.randomUUID) return `t_${g.crypto.randomUUID().replace(/-/g, '')}`;
-  if (g.crypto?.getRandomValues) {
-    const bytes = g.crypto.getRandomValues(new Uint8Array(24));
-    return `t_${Array.from(bytes, (b: number) => b.toString(16).padStart(2, '0')).join('')}`;
-  }
-  return `t_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  return createNewAskToken();
 };
 
 export const DEFAULT_CHANNELS: AskChannel[] = ['web'];
@@ -194,7 +187,9 @@ export const createApprovalAsk = (node: Milestone, opts: CreateAskOptions = {}):
       expiresAt: policy?.slaHours ? now + hoursToMs(policy.slaHours) : undefined,
       now,
       askId: opts.id,
-      askToken: opts.token
+      askToken: opts.token,
+      responsePolicy: policy?.responsePolicy,
+      quorum: policy?.quorum
     }),
     artifact: artifactFromRun(node),
     revision
@@ -259,7 +254,27 @@ export const recordAskResponse = (ask: HumanAsk, response: HumanResponse): Human
   if (response.needsInterpretation) return merged;
 
   if (response.decision) {
-    return { ...merged, status: 'answered', answeredAt: response.at };
+    if (ask.responsePolicy !== 'all' && ask.responsePolicy !== 'quorum') {
+      return { ...merged, status: 'answered', answeredAt: response.at };
+    }
+    const assigned = new Set(ask.assignees.map(item => item.trim().toLowerCase()).filter(Boolean));
+    const actor = response.actor.trim().toLowerCase();
+    if (assigned.size > 0 && !assigned.has(actor)) return merged;
+    // A rejection or revision request is a veto. Approval policies wait for all
+    // assigned reviewers or the configured approval quorum.
+    if (response.decision !== 'approved') return { ...merged, status: 'answered', answeredAt: response.at };
+    const distinctApprovers = new Set(
+      responses
+        .filter(item => item.decision === 'approved')
+        .map(item => item.actor.trim().toLowerCase())
+        .filter(actor => actor && (assigned.size === 0 || assigned.has(actor)))
+    ).size;
+    const required = ask.responsePolicy === 'all'
+      ? Math.max(1, ask.assignees.length)
+      : ask.responsePolicy === 'quorum'
+        ? Math.max(1, ask.quorum || 1)
+        : 1;
+    return distinctApprovers >= required ? { ...merged, status: 'answered', answeredAt: response.at } : merged;
   }
 
   const required = (ask.fields || []).filter(f => f.required).map(f => f.name);
@@ -305,10 +320,14 @@ export const findAskInProject = (
 };
 
 export const findAskByToken = (project: Project, token: string) =>
-  findAskInProject(project, ask => ask.token === token);
+  findAskInProject(project, ask =>
+    ask.token === token || (ask.deliveries || []).some(delivery => delivery.deliveryToken === token)
+  );
 
 export const findAskById = (project: Project, askId: string) =>
-  findAskInProject(project, ask => ask.id === askId);
+  findAskInProject(project, ask =>
+    ask.id === askId || (ask.deliveries || []).some(delivery => delivery.deliveryAskId === askId)
+  );
 
 /**
  * Folds an answered ask into the project.

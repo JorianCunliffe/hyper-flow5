@@ -47,10 +47,11 @@ import {
   Edit2,
   CheckCircle,
   BarChart3,
-  Play
+  Play,
+  Inbox
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
-import { firebaseService, USE_MULTI_TENANT } from './services/firebaseService';
+import { firebaseService } from './services/firebaseService';
 import { prepareProjectNodeForRun } from './lib/nodeRunPreparation';
 import { runProjectReadinessCheck, applyTaskApprovalWriteBack } from './lib/taskReadinessUtils';
 import { getNodeType } from './lib/flowEngine';
@@ -67,6 +68,7 @@ import { Scratchpad } from './components/Scratchpad';
 import { FeedView } from './components/FeedView';
 import { ApprovalsView } from './components/ApprovalsView';
 import { ReportingView } from './components/ReportingView';
+import { TriageInbox } from './components/TriageInbox';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
@@ -74,8 +76,9 @@ import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
 import { NodeConfigModal } from './components/modals/NodeConfigModal';
 
-const STORAGE_KEY = 'projectflow_data_v6';
-const BACKUP_KEY = 'projectflow_safety_backup';
+const STORAGE_KEY = 'hyperflow_data_v1';
+const LEGACY_STORAGE_KEY = 'projectflow_data_v6';
+const BACKUP_KEY = 'hyperflow_safety_backup';
 
 const DEFAULT_SETTINGS: AppSettings = {
   projectTypes: [
@@ -109,7 +112,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Client"
   ],
   teamMemberDetails: {},
-  communications: {},
+  communications: {
+    timezone: 'Australia/Brisbane',
+    triagePolicy: 'human_only',
+    sendPolicy: 'draft_only',
+    allowedAutomaticActions: ['classify', 'create_draft']
+  },
   statuses: [
     "Not started",
     "Needs preparation",
@@ -136,7 +144,7 @@ const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   merged.roles = merged.roles || DEFAULT_SETTINGS.roles || [];
   merged.statuses = merged.statuses || DEFAULT_SETTINGS.statuses;
   merged.teamMemberDetails = merged.teamMemberDetails || {};
-  merged.communications = merged.communications || {};
+  merged.communications = { ...DEFAULT_SETTINGS.communications, ...(merged.communications || {}) };
   
   // Migration: If we detect the old default status order, update to new order
   const oldOrderJSON = JSON.stringify(["Started", "Held", "Complete", "Not started"]);
@@ -185,7 +193,6 @@ export const App: React.FC = () => {
   // Handle Invite Links
   useEffect(() => {
     const handleInvite = async () => {
-      if (!USE_MULTI_TENANT) return;
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token');
       if (token && currentUser) {
@@ -207,14 +214,6 @@ export const App: React.FC = () => {
     handleInvite();
   }, [currentUser]);
 
-  // Readiness cron
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setProjects(prevProjects => prevProjects.map(p => runProjectReadinessCheck(p)));
-    }, 60000); // every minute
-    return () => clearInterval(interval);
-  }, []);
-
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -233,6 +232,7 @@ export const App: React.FC = () => {
   const [isFeedMode, setIsFeedMode] = useState(false);
   const [isApprovalsMode, setIsApprovalsMode] = useState(false);
   const [isReportingMode, setIsReportingMode] = useState(false);
+  const [isTriageMode, setIsTriageMode] = useState(false);
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
@@ -349,9 +349,10 @@ export const App: React.FC = () => {
   // Sync Logic (Firebase & LocalStorage)
   useEffect(() => {
     if (!firebaseService.isConfigured()) {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (saved) {
         try {
+          if (!localStorage.getItem(STORAGE_KEY)) localStorage.setItem(STORAGE_KEY, saved);
           const parsed = JSON.parse(saved);
           const migratedSettings = migrateSettings(parsed.settings);
           const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(parsed.projects, migratedSettings);
@@ -948,7 +949,7 @@ export const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `projectflow-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.download = `hyperflow-backup-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1309,7 +1310,7 @@ export const App: React.FC = () => {
    * /api/tasks/execute — they are deliberately not exposed to the client.
    */
   const httpExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
-    const res = await fetch('/api/tasks/execute', {
+    const res = await firebaseService.authorizedFetch('/api/tasks/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1376,6 +1377,18 @@ export const App: React.FC = () => {
   const handleAdvanceFlow = async () => {
     const proj = projectsRef.current.find(p => p.id === selectedProjectId);
     if (!proj) return;
+    const orgId = firebaseService.getCurrentOrgId();
+    if (firebaseService.isConfigured() && orgId) {
+      const response = await firebaseService.authorizedFetch('/api/flow/advance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, projectId: proj.id })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Flow advance failed');
+      setFlowLog(result.log || []);
+      return;
+    }
     const { project: updated, log } = await advanceProjectFlow(proj, httpExecutor, {
       orgId: firebaseService.getCurrentOrgId() || undefined
     });
@@ -1394,6 +1407,29 @@ export const App: React.FC = () => {
     const node = proj?.milestones.find(m => m.id === reviewingAsk.nodeId);
     const ask = node?.asks?.find(a => a.id === reviewingAsk.askId);
     if (!proj || !node || !ask) return;
+
+    const orgId = firebaseService.getCurrentOrgId();
+    if (firebaseService.isConfigured() && orgId) {
+      const response = await firebaseService.authorizedFetch(
+        `/api/asks/${encodeURIComponent(ask.token)}?org=${encodeURIComponent(orgId)}&project=${encodeURIComponent(proj.id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actor: currentUser?.email || currentUser?.displayName || currentUser?.uid || 'unknown',
+            decision: submission.decision,
+            text: submission.text,
+            values: submission.values,
+            attachments: submission.attachments
+          })
+        }
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Ask response failed');
+      setFlowLog(result.log || []);
+      setReviewingAsk(null);
+      return;
+    }
 
     const response = buildResponse(ask, {
       via: 'web',
@@ -1687,8 +1723,8 @@ export const App: React.FC = () => {
     }));
   };
 
-  // Auth & Multi-tenant UI
-  if (USE_MULTI_TENANT && firebaseService.isConfigured()) {
+  // Authentication and organization selection.
+  if (firebaseService.isConfigured()) {
     if (!currentUser) {
       return (
         <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50 text-slate-900">
@@ -1812,32 +1848,9 @@ export const App: React.FC = () => {
 
              <div className="mb-6">
                 <h3 className="font-semibold mb-2">Join Existing Organization</h3>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  const fd = new FormData(e.currentTarget);
-                  const code = fd.get('orgCode') as string;
-                  if (code) await firebaseService.joinOrganization(code);
-                }}>
-                  <input type="text" name="orgCode" placeholder="Organization Code (e.g. org_12345)" className="w-full border border-slate-300 rounded p-2 mb-2" required />
-                  <button type="submit" className="w-full bg-slate-100 text-slate-800 font-medium py-2 px-4 rounded border border-slate-300 hover:bg-slate-200 transition">Join Organization</button>
-                </form>
+                <p className="text-sm text-slate-600">Open the invitation link sent by an organization administrator. Direct organization codes are not accepted.</p>
              </div>
 
-             <div className="mt-8 pt-6 border-t border-slate-200 text-center">
-                <p className="text-sm text-slate-600 mb-3">Were you using ProjectFlow before organizations?</p>
-                <button 
-                  onClick={async () => {
-                    setAuthError(null);
-                    const orgName = prompt("Enter a name for your new organization:", "Landmarx") || "Landmarx";
-                    const success = await firebaseService.migrateOldDataToOrganization(orgName);
-                    if (!success) {
-                      setAuthError("Failed to create org and migrate data.");
-                    }
-                  }}
-                  className="w-full bg-emerald-100 text-emerald-800 font-medium py-2 px-4 rounded border border-emerald-300 hover:bg-emerald-200 transition text-sm">
-                  Create new Organization & Migrate Data
-                </button>
-             </div>
           </div>
         </div>
       );
@@ -1872,9 +1885,18 @@ export const App: React.FC = () => {
               <div className="p-1.5 bg-indigo-600 rounded-lg text-white">
                 <Layers size={18} />
               </div>
-              ProjectFlow
+              HyperFlow
             </h1>
             <div className="flex bg-slate-100 rounded-lg p-0.5">
+               <button
+                 type="button"
+                 onClick={() => setIsTriageMode(current => !current)}
+                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                 aria-pressed={isTriageMode}
+               >
+                 <Inbox size={12} /> {isTriageMode ? 'Projects' : 'Triage'}
+               </button>
+               {!isTriageMode && <>
                <button 
                  onClick={() => setKanbanGrouping('project')}
                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
@@ -1887,9 +1909,10 @@ export const App: React.FC = () => {
                >
                  <Users size={12} /> Member
                </button>
+               </>}
             </div>
          </div>
-         <div className="p-2 flex gap-2 overflow-x-auto">
+         {!isTriageMode && <div className="p-2 flex gap-2 overflow-x-auto">
              <select 
                className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                value={kanbanFilterProject}
@@ -1943,7 +1966,7 @@ export const App: React.FC = () => {
                <Clock size={14} />
                Late
              </button>
-         </div>
+         </div>}
       </div>
 
       {/* DESKTOP HEADER - Hidden on small screens */}
@@ -1952,8 +1975,8 @@ export const App: React.FC = () => {
           <div className="p-2 bg-indigo-600 rounded-lg text-white">
             <Layers size={24} />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight block">ProjectFlow</h1>
-          {USE_MULTI_TENANT && currentUser ? (
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight block">HyperFlow</h1>
+          {currentUser ? (
             <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-slate-100 rounded-full border border-slate-200">
               <button 
                 onClick={async () => {
@@ -1962,13 +1985,16 @@ export const App: React.FC = () => {
                     const url = await firebaseService.createInviteResultUrl(email);
                     if (url) {
                       try {
-                        const response = await fetch('/api/send-email', {
+                        const response = await firebaseService.authorizedFetch('/api/send-email', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
                             to: email,
-                            subject: "You've been invited to ProjectFlow!",
-                            html: `<p>You have been invited to join an organization on ProjectFlow.</p><p><a href="${url}">Click here to accept the invitation</a></p><p>Alternatively, copy and paste this link: ${url}</p>`
+                            subject: "You've been invited to HyperFlow!",
+                            html: `<p>You have been invited to join an organization on HyperFlow.</p><p><a href="${url}">Click here to accept the invitation</a></p><p>Alternatively, copy and paste this link: ${url}</p>`,
+                            projectId: 'organization-invite',
+                            taskId: 'invite',
+                            runId: `invite:${currentOrgId}:${url}`
                           })
                         });
                         if (response.ok) {
@@ -1999,16 +2025,16 @@ export const App: React.FC = () => {
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode && !isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {selectedProjectId ? <MapIcon size={16} /> : <Layout size={16} />}
             <span className="hidden xl:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2017,7 +2043,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Kanban</span>
           </button>
           <button 
-            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2026,7 +2052,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Scratch</span>
           </button>
           <button 
-            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isFeedMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2035,7 +2061,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Feed</span>
           </button>
           <button 
-            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2044,13 +2070,20 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Approvals</span>
           </button>
           <button 
-            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <BarChart3 size={16} />
             <span className="hidden xl:inline">Reports</span>
+          </button>
+          <button
+            onClick={() => { setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Inbox size={16} />
+            <span className="hidden xl:inline">Triage</span>
           </button>
         </div>
 
@@ -2071,117 +2104,6 @@ export const App: React.FC = () => {
           
           {(!selectedProjectId && !isKanbanMode) && (
             <div className="flex gap-2">
-              <button onClick={() => {
-                const testProject: Project = {
-                  id: `p-${Date.now()}`,
-                  name: "Proposal Launch Campaign",
-                  company: "Acme Corp",
-                  type: "Sales",
-                  startDate: Date.now(),
-                  timeUnit: 'days',
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                  isArchived: false,
-                  projectData: {
-                    contact_name: "John Smith",
-                    contact_email: "john.smith@example.com",
-                    contact_phone: "+61415828522",
-                    proposal_interest: false
-                  },
-                  milestones: [
-                    {
-                      id: "M-001",
-                      name: "Launch Phase",
-                      dependsOn: [],
-                      estimatedDuration: 5,
-                      subtasks: [
-                        {
-                          id: "T-001",
-                          displayId: "T-001",
-                          name: "Send initial proposal interest email",
-                          description: "Draft and send an email to John Smith.",
-                          status: "Not started",
-                          taskType: "send_email",
-                          templateFile: "{\n  \"to\": \"{{contact_email}}\",\n  \"subject\": \"Acme Corp Proposal\",\n  \"body\": \"Hi {{contact_name}},\\n\\nI'm reaching out to share a proposal regarding our services. Let me know if you are interested.\"\n}",
-                          assignedTo: "AI",
-                          accountable: "Sales",
-                          requiresApproval: false,
-                          dependsOn: [],
-                          outputVariables: [
-                            {
-                              name: "email_sent",
-                              type: "boolean",
-                              write_on: "completion",
-                              value_source: "static",
-                              value: true
-                            }
-                          ],
-                          taskOutput: {}
-                        },
-                        {
-                          id: "T-002",
-                          displayId: "T-002",
-                          name: "Follow up call with John Smith",
-                          description: "Call to check if they received the email and if they would like to proceed with the proposal.",
-                          status: "Not started",
-                          taskType: "outgoing_call",
-                          templateFile: "{\n  \"to\": \"{{contact_phone}}\",\n  \"prompt\": \"Your name is AI Assistant calling on behalf of Acme Corp. You are calling {{contact_name}}. Ask if they received the recent email about the proposal, and if they would like to proceed with it. If they say yes, we will prepare the proposal for them. Say goodbye.\"\n}",
-                          assignedTo: "AI",
-                          accountable: "Sales",
-                          requiresApproval: false,
-                          dependsOn: ["T-001"],
-                          readyConditions: [
-                            {
-                              variable: "email_sent",
-                              equals: true
-                            }
-                          ],
-                          outputVariables: [
-                            {
-                              name: "proposal_interest",
-                              type: "boolean",
-                              write_on: "completion",
-                              value_source: "task_output"
-                            }
-                          ],
-                          taskOutput: {}
-                        },
-                        {
-                          id: "T-003",
-                          displayId: "T-003",
-                          name: "Prepare the proposal",
-                          description: "Prepare the complete proposal document for John Smith.",
-                          status: "Not started",
-                          taskType: "write_report",
-                          templateFile: "{\n  \"sop\": \"SOP 123 - Proposal Writing Guidelines: Ensure professional tone, proper formatting, and accurate service descriptions.\",\n  \"template\": \"Acme Corp Proposal Template - Include Title, Executive Summary, Scope of Work, and Cost Breakdown.\",\n  \"eval_criteria\": \"Does the proposal include the client name, executive summary, scope of work, and maintain a professional tone?\",\n  \"prompt\": \"Proposal Document: Prepared for {{contact_name}}. Detailed services etc.\"\n}",
-                          assignedTo: "AI",
-                          accountable: "Sales",
-                          requiresApproval: false,
-                          dependsOn: ["T-002"],
-                          readyConditions: [
-                            {
-                              variable: "proposal_interest",
-                              equals: true
-                            }
-                          ],
-                          outputVariables: [
-                            {
-                              name: "report_link",
-                              type: "string",
-                              write_on: "completion",
-                              value_source: "task_output"
-                            }
-                          ],
-                          taskOutput: {}
-                        }
-                      ]
-                    }
-                  ]
-                };
-                setProjects(prev => [...prev, testProject as any]);
-              }} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-2 md:px-4 md:py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95 text-sm md:text-base">
-                <span className="hidden sm:inline">Seed Hybrid Workflow Test</span>
-              </button>
               <button onClick={() => setIsCreatingProject(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-2 md:px-4 md:py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95 text-sm md:text-base">
                 <Plus size={18} /> <span className="hidden sm:inline">New Project</span>
               </button>
@@ -2286,7 +2208,9 @@ export const App: React.FC = () => {
         )}
 
         {/* MAIN VIEW CONTENT */}
-        {isScratchMode ? (
+        {isTriageMode ? (
+          <TriageInbox />
+        ) : isScratchMode ? (
           <Scratchpad 
             scratchTasks={scratchTasks.filter(t => t.createdBy === currentUser?.uid || t.createdBy === currentUser?.email || !t.createdBy)}
             onUpdateScratchTasks={(newFiltered) => {

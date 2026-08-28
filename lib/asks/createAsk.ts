@@ -6,9 +6,15 @@ import type {
   OutputVariable
 } from '../../types.js';
 
-let askCounter = 0;
-export const newAskId = (): string =>
-  `ask_${Date.now().toString(36)}_${(++askCounter).toString(36)}`;
+export const newAskId = (): string => {
+  const g: any = globalThis as any;
+  if (g.crypto?.randomUUID) return `ask_${g.crypto.randomUUID().replace(/-/g, '')}`;
+  if (g.crypto?.getRandomValues) {
+    const bytes = g.crypto.getRandomValues(new Uint8Array(16));
+    return `ask_${Array.from(bytes, (b: number) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
+  return `ask_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+};
 
 export const newAskToken = (): string => {
   const g: any = globalThis as any;
@@ -35,6 +41,9 @@ export interface CreateAskInput {
   now?: number;
   askId?: string;
   askToken?: string;
+  responsePolicy?: HumanAsk['responsePolicy'];
+  quorum?: number;
+  responseContract?: HumanAsk['responseContract'];
 }
 
 /** Creates the durable, channel-independent identity shared by every ask. */
@@ -52,6 +61,9 @@ export const createAsk = (input: CreateAskInput): HumanAsk => ({
   fields: input.fields,
   assignees: input.assignees || (input.personId ? [input.personId] : []),
   channels: input.channels?.length ? input.channels : ['web'],
+  responsePolicy: input.responsePolicy || 'any',
+  quorum: input.quorum,
+  responseContract: input.responseContract,
   createdAt: input.now ?? Date.now(),
   dueAt: input.expiresAt,
   responses: [],

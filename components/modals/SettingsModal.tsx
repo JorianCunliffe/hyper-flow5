@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 import { AppSettings, TeamMemberDetails } from '../../types';
+import { firebaseService } from '../../services/firebaseService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -208,13 +209,36 @@ const SettingsSection: React.FC<{
   );
 };
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ 
+export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup
 }) => {
+  const [communicationsDraft, setCommunicationsDraft] = useState(settings.communications?.fromNumber || '');
+  const [communicationsStatus, setCommunicationsStatus] = useState<{ loading: boolean; connected?: boolean; emailReady?: boolean; error?: string }>({ loading: false });
+  const communicationsNumberValid = !communicationsDraft || /^\+[1-9]\d{7,14}$/.test(communicationsDraft.trim());
   const [replaceOldName, setReplaceOldName] = useState('');
   const [replaceNewName, setReplaceNewName] = useState('');
   const [isReplacing, setIsReplacing] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setCommunicationsDraft(settings.communications?.fromNumber || '');
+  }, [settings.communications?.fromNumber]);
+
+  useEffect(() => {
+    if (!isOpen || !currentOrgId || !firebaseService.isConfigured()) return;
+    let active = true;
+    setCommunicationsStatus({ loading: true });
+    void firebaseService.authorizedFetch('/api/communications/status')
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Status check failed (${response.status})`);
+        if (active) setCommunicationsStatus({ loading: false, connected: body.connected, emailReady: body.emailReady, error: body.error });
+      })
+      .catch((error: any) => {
+        if (active) setCommunicationsStatus({ loading: false, connected: false, error: error?.message || String(error) });
+      });
+    return () => { active = false; };
+  }, [currentOrgId, isOpen]);
 
   if (!isOpen) return null;
 
@@ -227,6 +251,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (index > -1) newList.splice(index, 1);
     }
     onUpdateSettings({ ...settings, [key]: newList });
+  };
+
+  const updateCommunications = (patch: NonNullable<AppSettings['communications']>) => {
+    onUpdateSettings({ ...settings, communications: { ...settings.communications, ...patch } });
   };
 
   return (
@@ -295,23 +323,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <div className="border-t border-slate-100 pt-10 mb-16">
-            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Phone size={24} className="text-indigo-600" /> Communications</h4>
-            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200">
-              <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-from-number">Sending phone number</label>
-              <input
-                id="communications-from-number"
-                type="tel"
-                value={settings.communications?.fromNumber || ''}
-                onChange={(e) => onUpdateSettings({
-                  ...settings,
-                  communications: { ...settings.communications, fromNumber: e.target.value.trim() || undefined }
-                })}
-                placeholder="+61411111111"
-                className="w-full max-w-md bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
-              />
-              <p className="text-xs text-slate-500 mt-3 max-w-2xl">
-                Use E.164 format. This non-secret tenant setting supplies the SMS and voice sender. Communications API keys and webhook secrets remain backend environment variables and are never stored here.
-              </p>
+            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Mail size={24} className="text-indigo-600" /> Communications</h4>
+            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200 space-y-6">
+              <div className={`rounded-xl border p-4 text-sm font-semibold ${communicationsStatus.connected ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`} role="status">
+                {communicationsStatus.loading
+                  ? 'Checking Communications Service…'
+                  : communicationsStatus.connected
+                    ? communicationsStatus.emailReady ? 'Communications Service connected; email identity selected' : 'Communications Service connected; select an outbound email identity below'
+                    : `Communications Service not connected${communicationsStatus.error ? `: ${communicationsStatus.error}` : ''}`}
+              </div>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-from-number">Sending phone number</label>
+                  <input id="communications-from-number" type="tel" pattern="\+[1-9][0-9]{7,14}" aria-describedby="communications-from-number-help" value={communicationsDraft} onChange={(e) => setCommunicationsDraft(e.target.value)} onBlur={() => { if (communicationsNumberValid) updateCommunications({ fromNumber: communicationsDraft.trim() || undefined }); }} placeholder="+61411111111" className={`w-full bg-white border rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 shadow-sm ${communicationsNumberValid ? 'border-slate-300 focus:ring-indigo-500' : 'border-red-400 focus:ring-red-500'}`} />
+                  <p id="communications-from-number-help" className="text-xs text-slate-500 mt-2">E.164 sender for SMS and voice.</p>
+                  {!communicationsNumberValid && <p className="text-xs text-red-600 mt-2">Enter an E.164 number such as +61411111111.</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-connection-id">Provider connection ID</label>
+                  <input id="communications-connection-id" type="text" defaultValue={settings.communications?.connectionId || ''} onBlur={e => updateCommunications({ connectionId: e.target.value.trim() || undefined })} placeholder="Provider connection UUID" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-email-identity">Outbound email service identity</label>
+                  <input id="communications-email-identity" type="text" defaultValue={settings.communications?.defaultEmailIdentity || ''} onBlur={e => updateCommunications({ defaultEmailIdentity: e.target.value.trim() || undefined })} placeholder="Service identity UUID" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-reply-identity">Reply-to address override</label>
+                  <input id="communications-reply-identity" type="text" defaultValue={settings.communications?.replyServiceIdentity || ''} onBlur={e => updateCommunications({ replyServiceIdentity: e.target.value.trim() || undefined })} placeholder="inbox@example.com" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-timezone">Timezone</label>
+                  <input id="communications-timezone" type="text" value={settings.communications?.timezone || 'Australia/Brisbane'} onChange={e => updateCommunications({ timezone: e.target.value })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-triage-policy">Inbound triage policy</label>
+                  <select id="communications-triage-policy" value={settings.communications?.triagePolicy || 'human_only'} onChange={e => updateCommunications({ triagePolicy: e.target.value as NonNullable<AppSettings['communications']>['triagePolicy'] })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="human_only">Human messages only</option><option value="all_inbound">All inbound</option><option value="correlated_only">Correlated replies only</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="communications-send-policy">Outbound send policy</label>
+                  <select id="communications-send-policy" value={settings.communications?.sendPolicy || 'draft_only'} onChange={e => updateCommunications({ sendPolicy: e.target.value as NonNullable<AppSettings['communications']>['sendPolicy'] })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="draft_only">Draft only</option><option value="allow_approved_send">Allow approved sends</option><option value="automatic">Automatic sends</option>
+                  </select>
+                </div>
+              </div>
+              <fieldset>
+                <legend className="text-sm font-bold text-slate-700 mb-2">Allowed automatic actions</legend>
+                <div className="flex flex-wrap gap-3">
+                  {(['classify', 'link_workflow', 'progress_ask', 'create_draft', 'send_reply'] as const).map(action => {
+                    const selected = (settings.communications?.allowedAutomaticActions || ['classify', 'create_draft']).includes(action);
+                    return <label key={action} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={selected} onChange={() => updateCommunications({ allowedAutomaticActions: selected ? (settings.communications?.allowedAutomaticActions || ['classify', 'create_draft']).filter(item => item !== action) : [...(settings.communications?.allowedAutomaticActions || ['classify', 'create_draft']), action] })} />{action.replaceAll('_', ' ')}</label>;
+                  })}
+                </div>
+              </fieldset>
+              <p className="text-xs text-slate-500 max-w-3xl">These are non-secret tenant settings. API keys, webhook secrets, and scheduler secrets remain backend environment variables and are never stored here.</p>
             </div>
           </div>
 

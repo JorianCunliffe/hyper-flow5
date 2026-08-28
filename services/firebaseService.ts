@@ -1,16 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref as dbRef, set, onValue, get, runTransaction } from 'firebase/database';
+import { getDatabase, ref as dbRef, onValue, get, runTransaction } from 'firebase/database';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { Project, AppSettings, ScratchTask, ActivityLog } from '../types';
 import { projectCollectionsShareRevisions } from '../lib/projectRevisionGuard';
 
-export const USE_MULTI_TENANT = true;
-
-const CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
-const DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
-const ACCOUNT_ID = 'default_user';
-
+const CONFIG_STORAGE_KEY = 'hyperflow_firebase_config';
+const LEGACY_CONFIG_STORAGE_KEY = 'projectflow_firebase_config';
+const DISCONNECT_FLAG_KEY = 'hyperflow_manual_disconnect';
+const LEGACY_DISCONNECT_FLAG_KEY = 'projectflow_manual_disconnect';
 /**
  * The Firebase project this app talks to.
  *
@@ -122,11 +120,12 @@ const parseConfig = (raw: string | null) => {
 
 try {
   // Check if manually disconnected to prevent auto-reconnect loop
-  const isManuallyDisconnected = localStorage.getItem(DISCONNECT_FLAG_KEY) === 'true';
+  const isManuallyDisconnected = (localStorage.getItem(DISCONNECT_FLAG_KEY) || localStorage.getItem(LEGACY_DISCONNECT_FLAG_KEY)) === 'true';
 
   if (!isManuallyDisconnected) {
     // A config pasted into the Cloud Setup modal overrides the build's env config.
-    const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
+    const saved = localStorage.getItem(CONFIG_STORAGE_KEY) || localStorage.getItem(LEGACY_CONFIG_STORAGE_KEY);
+    if (saved && !localStorage.getItem(CONFIG_STORAGE_KEY)) localStorage.setItem(CONFIG_STORAGE_KEY, saved);
     const config = saved ? parseConfig(saved) : DEFAULT_CONFIG;
 
     if (!config?.databaseURL) {
@@ -143,24 +142,21 @@ try {
       auth = getAuth(app);
       isConfigured = true;
 
-      if (USE_MULTI_TENANT) {
-        onAuthStateChanged(auth, async (user) => {
-          currentUser = user;
-          if (user) {
-            const userRef = dbRef(db, `users/${user.uid}`);
-            const userSnap = await get(userRef);
-            if (userSnap.exists()) {
-               currentOrgId = userSnap.val().orgId;
-            } else {
-               currentOrgId = null; // Needs to create/join org
-            }
-            window.dispatchEvent(new Event('firebase-auth-changed'));
+      onAuthStateChanged(auth, async (user) => {
+        currentUser = user;
+        if (user) {
+          const userRef = dbRef(db, `users/${user.uid}`);
+          const userSnap = await get(userRef);
+          if (userSnap.exists()) {
+             currentOrgId = userSnap.val().orgId;
           } else {
-            currentOrgId = null;
-            window.dispatchEvent(new Event('firebase-auth-changed'));
+             currentOrgId = null; // Needs to create or accept an organization invite.
           }
-        });
-      }
+        } else {
+          currentOrgId = null;
+        }
+        window.dispatchEvent(new Event('firebase-auth-changed'));
+      });
     }
   }
 } catch (e) {
@@ -295,21 +291,25 @@ export const firebaseService = {
   getCurrentOrgId: () => currentOrgId,
   getDataRevision: () => currentDataRevision,
 
+  authorizedFetch: async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    if (!currentUser) throw new Error('Sign in is required');
+    const token = await currentUser.getIdToken();
+    const headers = new Headers(init.headers || {});
+    headers.set('Authorization', `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  },
+
   createOrganization: async (orgName: string) => {
     if (!currentUser || !db) return false;
     try {
-      const newOrgId = `org_${Date.now()}`;
-      const userRef = dbRef(db, `users/${currentUser.uid}`);
-      await set(userRef, {
-        email: currentUser.email,
-        orgId: newOrgId,
-        role: "admin"
+      const response = await firebaseService.authorizedFetch('/api/organizations/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: orgName })
       });
-      await set(dbRef(db, `organizations/${newOrgId}`), {
-        name: orgName,
-        createdAt: Date.now()
-      });
-      currentOrgId = newOrgId;
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Organization creation failed');
+      currentOrgId = result.orgId;
       window.dispatchEvent(new Event('firebase-auth-changed'));
       return true;
     } catch (e) {
@@ -318,87 +318,17 @@ export const firebaseService = {
     }
   },
 
-  migrateOldDataToOrganization: async (orgName: string) => {
-    if (!currentUser || !db) return false;
-    try {
-      const newOrgId = `org_${Date.now()}`;
-      const userRef = dbRef(db, `users/${currentUser.uid}`);
-      await set(userRef, {
-        email: currentUser.email,
-        orgId: newOrgId,
-        role: "admin"
-      });
-      await set(dbRef(db, `organizations/${newOrgId}`), {
-        name: orgName,
-        createdAt: Date.now()
-      });
-      currentOrgId = newOrgId;
-      
-      // Fetch data from legacy
-      const legacyDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-      const snapshot = await get(legacyDataRef);
-      if (snapshot.exists()) {
-         const data = snapshot.val();
-         // Save to new org
-         const dataRef = dbRef(db, `projects/${newOrgId}`);
-         await set(dataRef, data);
-      }
-      
-      window.dispatchEvent(new Event('firebase-auth-changed'));
-      return true;
-    } catch(e) {
-      console.error("Failed to migrate data", e);
-      return false;
-    }
-  },
-
-  recoverLegacyData: async (targetOrg?: string) => {
-    const org = targetOrg || currentOrgId;
-    if (!currentUser || !db || !org) return false;
-    try {
-      const legacyDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-      const snapshot = await get(legacyDataRef);
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const dataRef = dbRef(db, `projects/${org}`);
-        await set(dataRef, data);
-        return true;
-      }
-      return false;
-    } catch(e) {
-      console.error("Failed to recover legacy data", e);
-      return false;
-    }
-  },
-
-  joinOrganization: async (orgId: string) => {
-    if (!currentUser || !db) return false;
-    try {
-      const userRef = dbRef(db, `users/${currentUser.uid}`);
-      await set(userRef, {
-        email: currentUser.email,
-        orgId: orgId,
-        role: "member"
-      });
-      currentOrgId = orgId;
-      window.dispatchEvent(new Event('firebase-auth-changed'));
-      return true;
-    } catch (e) {
-      console.error("Failed to join org", e);
-      return false;
-    }
-  },
-
   createInviteResultUrl: async (emailToInvite: string) => {
     if (!currentUser || !currentOrgId || !db) return null;
     try {
-      const token = `token_${crypto.randomUUID()}`;
-      await set(dbRef(db, `invites/${token}`), {
-        orgId: currentOrgId,
-        invitedBy: currentUser.uid,
-        email: emailToInvite,
-        createdAt: Date.now()
+      const response = await firebaseService.authorizedFetch('/api/invites/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailToInvite })
       });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Invite creation failed');
+      const token = result.token;
       // Return a full URL that points to our domain with ?token=
       const url = new URL(window.location.href);
       url.searchParams.set('token', token);
@@ -412,30 +342,16 @@ export const firebaseService = {
   consumeInviteToken: async (token: string) => {
     if (!currentUser || !db) return false;
     try {
-      const inviteRef = dbRef(db, `invites/${token}`);
-      const snap = await get(inviteRef);
-      if (snap.exists()) {
-         const { orgId } = snap.val();
-         // Update user to be part of the org
-         const userRef = dbRef(db, `users/${currentUser.uid}`);
-         await set(userRef, {
-           email: currentUser.email,
-           orgId: orgId,
-           role: "member"
-         });
-         currentOrgId = orgId;
-         
-         // Try to delete the invite token (clean up)
-         try {
-           await set(inviteRef, null);
-         } catch(e) {
-           console.warn("Could not delete invite token, permission denied?");
-         }
-
-         window.dispatchEvent(new Event('firebase-auth-changed'));
-         return true;
-      }
-      return false;
+      const response = await firebaseService.authorizedFetch('/api/invites/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Invite could not be accepted');
+      currentOrgId = result.orgId;
+      window.dispatchEvent(new Event('firebase-auth-changed'));
+      return true;
     } catch (e) {
        console.error("Failed to consume invite token", e);
        return false;
@@ -448,55 +364,21 @@ export const firebaseService = {
   ) => {
     if (!db) return () => {};
 
-    if (USE_MULTI_TENANT) {
-      if (!currentUser || !currentOrgId) {
-        callback(null);
-        return () => {};
-      }
-      const dataRef = dbRef(db, `projects/${currentOrgId}`);
-      return onValue(dataRef, 
-        (snapshot) => {
-          const data = snapshot.val();
-          currentDataRevision = Number(data?.dataRevision || 0);
-          // Map backend multi-tenant format if necessary, or just return them
-          // Here we assume mapping is needed or they're stored directly as the legacy structure inside `projects/${orgId}`
-          // To make it easy, assume `projects/${orgId}` contains the same structure as legacy `projectflow_v1`
-          callback(data);
-        },
-        (error) => {
-          if (onError) onError(error);
-        }
-      );
-
-    } else {
-      const legacyDataRef = dbRef(db, 'projectflow_v1');
-      const accountDataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-
-      // Run migration check without blocking the return of the unsubscribe function
-      (async () => {
-        try {
-          const snap = await get(accountDataRef);
-          if (!snap.exists()) {
-            const legacySnap = await get(legacyDataRef);
-            if (legacySnap.exists()) {
-              await set(accountDataRef, legacySnap.val());
-            }
-          }
-        } catch (e) {
-          console.warn("Migration check failed", e);
-        }
-      })();
-
-      return onValue(accountDataRef, 
-        (snapshot) => {
-          const data = snapshot.val();
-          callback(data);
-        },
-        (error) => {
-          if (onError) onError(error);
-        }
-      );
+    if (!currentUser || !currentOrgId) {
+      callback(null);
+      return () => {};
     }
+    const dataRef = dbRef(db, `projects/${currentOrgId}`);
+    return onValue(dataRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        currentDataRevision = Number(data?.dataRevision || 0);
+        callback(data);
+      },
+      (error) => {
+        if (onError) onError(error);
+      }
+    );
   },
 
   save: async (
@@ -512,32 +394,27 @@ export const firebaseService = {
       lastUpdated: Date.now()
     }));
 
-    if (USE_MULTI_TENANT) {
-       if (!currentUser || !currentOrgId) return;
-       const dataRef = dbRef(db, `projects/${currentOrgId}`);
-       const expectedRevision = scheduledAtRevision;
-       const result = await runTransaction(dataRef, current => {
-         const remoteRevision = Number(current?.dataRevision || 0);
-         if (
-           remoteRevision !== expectedRevision
-           || !projectCollectionsShareRevisions(current?.projects, cleanData.projects)
-         ) return;
-         return {
-           ...(current || {}),
-           ...cleanData,
-           projects: cleanData.projects.map((project: Project) => ({
-             ...project,
-             revision: Number(project.revision || 0) + 1
-           })),
-           dataRevision: remoteRevision + 1
-         };
-       }, { applyLocally: false });
-       if (!result.committed) throw new Error('Cloud data changed while saving. The latest version has been loaded; review and retry your edit.');
-       currentDataRevision = Number(result.snapshot.val()?.dataRevision || expectedRevision + 1);
-    } else {
-       const dataRef = dbRef(db, `accounts/${ACCOUNT_ID}/projectflow_v1`);
-       await set(dataRef, cleanData);
-    }
+    if (!currentUser || !currentOrgId) return;
+    const dataRef = dbRef(db, `projects/${currentOrgId}`);
+    const expectedRevision = scheduledAtRevision;
+    const result = await runTransaction(dataRef, current => {
+      const remoteRevision = Number(current?.dataRevision || 0);
+      if (
+        remoteRevision !== expectedRevision
+        || !projectCollectionsShareRevisions(current?.projects, cleanData.projects)
+      ) return;
+      return {
+        ...(current || {}),
+        ...cleanData,
+        projects: cleanData.projects.map((project: Project) => ({
+          ...project,
+          revision: Number(project.revision || 0) + 1
+        })),
+        dataRevision: remoteRevision + 1
+      };
+    }, { applyLocally: false });
+    if (!result.committed) throw new Error('Cloud data changed while saving. The latest version has been loaded; review and retry your edit.');
+    currentDataRevision = Number(result.snapshot.val()?.dataRevision || expectedRevision + 1);
   },
 
   uploadFile: async (file: Blob, name: string): Promise<string | null> => {
@@ -545,13 +422,8 @@ export const firebaseService = {
       console.warn("Storage not initialized.");
       return null;
     }
-    let fileRef;
-    if (USE_MULTI_TENANT) {
-      if (!currentUser || !currentOrgId) return null;
-      fileRef = storageRef(storage, `organizations/${currentOrgId}/files/${name}`);
-    } else {
-      fileRef = storageRef(storage, `accounts/${ACCOUNT_ID}/files/${name}`);
-    }
+    if (!currentUser || !currentOrgId) return null;
+    const fileRef = storageRef(storage, `organizations/${currentOrgId}/files/${name}`);
     await uploadBytes(fileRef, file);
     return await getDownloadURL(fileRef);
   },
@@ -563,13 +435,8 @@ export const firebaseService = {
     }
     const ext = file.type.includes('video') ? 'webm' : (file.type.includes('audio') ? 'webm' : 'bin');
     const timestamp = Date.now();
-    let fileRef;
-    if (USE_MULTI_TENANT) {
-      if (!currentUser || !currentOrgId) return null;
-      fileRef = storageRef(storage, `organizations/${currentOrgId}/recordings/${subtaskId}_${timestamp}.${ext}`);
-    } else {
-      fileRef = storageRef(storage, `accounts/${ACCOUNT_ID}/recordings/${subtaskId}_${timestamp}.${ext}`);
-    }
+    if (!currentUser || !currentOrgId) return null;
+    const fileRef = storageRef(storage, `organizations/${currentOrgId}/recordings/${subtaskId}_${timestamp}.${ext}`);
     await uploadBytes(fileRef, file);
     return await getDownloadURL(fileRef);
   }

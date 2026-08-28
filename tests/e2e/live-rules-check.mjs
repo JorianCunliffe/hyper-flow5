@@ -87,6 +87,12 @@ const run = async () => {
   expectRefused(await request('organizations'), 'organisations are not world-readable');
   expectRefused(await request('accounts'), 'the legacy accounts tree is closed');
   expectRefused(await request('external_events'), 'external event inbox is server-only');
+  expectRefused(await request('triage_items'), 'triage inbox is server-only');
+  expectRefused(await request('schedules'), 'tenant schedules are server-only');
+  expectRefused(await request('schedule_runs'), 'schedule runs are server-only');
+  expectRefused(await request('communication_cursors'), 'communication cursors are server-only');
+  expectRefused(await request('ask_resolutions'), 'Ask resolution claims are server-only');
+  expectRefused(await request('communication_delivery'), 'communication delivery state is server-only');
   expectRefused(await request('serverActivity'), 'server activity log is server-only');
 
   section('Anonymous writes must be refused');
@@ -120,7 +126,7 @@ const run = async () => {
       }, `live-check-${Date.now()}`);
       const db = getDatabase(app);
 
-      const ref = db.ref(`external_events/_livecheck_probe`);
+      const ref = db.ref(`external_events/_livecheck/_livecheck_probe`);
       await ref.set({ at: Date.now() });
       ok('admin write succeeded (rules are bypassed, as they should be)');
 
@@ -128,7 +134,7 @@ const run = async () => {
       snap.exists() ? ok('admin read succeeded') : bad('admin read succeeded', 'value missing after write');
 
       // The same transaction the webhook idempotency claim relies on.
-      const claim = db.ref(`external_events/_livecheck_claim`);
+      const claim = db.ref(`external_events/_livecheck/_livecheck_claim`);
       await claim.remove();
       const first = await claim.transaction(cur => (cur === null ? { at: Date.now() } : undefined));
       const second = await claim.transaction(cur => (cur === null ? { at: Date.now() } : undefined));
@@ -137,8 +143,8 @@ const run = async () => {
         : bad('the webhook idempotency transaction behaves correctly',
               `first committed=${first.committed}, second committed=${second.committed}`);
 
-      await db.ref('external_events/_livecheck_probe').remove();
-      await db.ref('external_events/_livecheck_claim').remove();
+      await db.ref('external_events/_livecheck/_livecheck_probe').remove();
+      await db.ref('external_events/_livecheck/_livecheck_claim').remove();
       ok('probe data cleaned up');
     } catch (e) {
       bad('admin checks', e.message);

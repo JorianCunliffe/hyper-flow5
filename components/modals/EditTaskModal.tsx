@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Mail, Phone, X, Trash2, ExternalLink, Calendar, Clock, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { Subtask, AppSettings } from '../../types';
 import { sendTaskEmail } from '../../lib/emailUtils';
-import { normalizeTaskType } from '../../lib/executeTask';
+import { normalizeTaskType } from '../../lib/taskTypes';
+import { firebaseService } from '../../services/firebaseService';
 import { ScreenRecorder } from '../ScreenRecorder';
 
 const TaskEmailButton: React.FC<{
@@ -26,6 +27,7 @@ const TaskEmailButton: React.FC<{
       await sendTaskEmail(
         settings.teamMemberDetails![task.assignedTo].email!,
         {
+          id: task.id,
           name: task.name,
           displayId: task.displayId,
           description: task.description,
@@ -561,7 +563,6 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                            let finalOutput = data.output;
                            if (finalOutput?.report_written && finalOutput?.report_content) {
                               try {
-                                const { firebaseService } = await import('../../services/firebaseService');
                                 if (firebaseService.isConfigured()) {
                                     setExecutionOutput(prev => (prev || '') + "\\n\\nUploading report to Firebase...");
                                     const blob = new Blob([finalOutput.report_content], { type: 'text/markdown' });

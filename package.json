@@ -1,5 +1,5 @@
 {
-  "name": "projectflow-linear-mindmap",
+  "name": "hyperflow",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,8 +11,9 @@
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "start": "node dist/server.cjs",
     "test:e2e": "node tests/e2e/inbound.e2e.mjs",
-    "test:rules": "node tests/e2e/rules.test.mjs",
-    "check:live": "node tests/e2e/live-rules-check.mjs"
+    "test:rules": "npx --yes firebase-tools emulators:exec --project hyper-flow-a459b --only database --config firebase.test.json \"node tests/e2e/rules.test.mjs\"",
+    "check:live": "node tests/e2e/live-rules-check.mjs",
+    "migrate:memberships": "tsx scripts/migrateMemberships.ts"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
@@ -25,10 +26,10 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
-    "resend": "^6.12.4",
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
@@ -39,5 +40,11 @@
     "tsx": "^4.22.3",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "4.15.9"
+    },
+    "uuid": "^11.1.1"
   }
 }

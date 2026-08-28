@@ -163,7 +163,7 @@ const run = async () => {
     const r = await req('POST', '/api/events', event, signedHeaders(event));
     ok(r.status === 200 && r.json?.duplicate === true, 'replayed event → duplicate, no work done', JSON.stringify(r.json));
 
-    const claim = await dbGet('external_events/evt_call_xyz');
+    const claim = await dbGet(`external_events/${ORG}/evt_call_xyz`);
     ok(claim?.processing_status === 'processed', 'event persisted and marked processed');
   }
 

@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readAskByToken, respondToAsk } from '../../lib/serverFlow.js';
-import { isServerStoreConfigured } from '../../lib/serverStore.js';
+import { isServerStoreConfigured, resolveReviewerActor } from '../../lib/serverStore.js';
+import { renderAskForm } from '../../lib/askForm.js';
+import { ApiAuthError, bearerToken, requireAppMember } from '../../lib/apiAuth.js';
 
 /**
  * Read or answer a single ask, authorised by its token.
@@ -33,6 +35,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!found) return res.status(404).json({ error: 'Not found' });
 
       const { ask, nodeName, projectName } = found;
+      if (String(req.headers.accept || '').includes('text/html')) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).send(renderAskForm({ ask, nodeName, projectName }));
+      }
       return res.status(200).json({
         projectName,
         nodeName,
@@ -65,18 +72,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(413).json({ error: 'Comment is too long' });
       }
 
+      const authenticated = bearerToken(req) ? await requireAppMember(req, orgId) : null;
+      const verifiedActor = authenticated
+        ? await resolveReviewerActor(orgId, authenticated.email, authenticated.uid)
+        : null;
       const outcome = await respondToAsk({
         orgId,
         projectId,
         askToken: token,
         channel: 'web',
         response: {
-          actor: typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link',
+          actor: verifiedActor || (typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link'),
           decision,
           text,
           structured: values,
           attachments
-        }
+        },
+        actorVerified: Boolean(authenticated)
       });
       if (!outcome.ok) {
         const status = outcome.reason === 'already_answered' ? 409
@@ -96,6 +108,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (e: any) {
     console.error('Ask endpoint failed', e);
-    return res.status(500).json({ error: 'Request failed' });
+    return res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e instanceof ApiAuthError ? e.message : 'Request failed' });
   }
 }

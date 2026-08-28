@@ -157,6 +157,9 @@ export const buildResponse = (ask: HumanAsk, input: BuildResponseInput): HumanRe
 
 /** A reviewer sending work back must say why — the comment is the agent's next instruction. */
 export const validateResponse = (ask: HumanAsk, response: HumanResponse): string | null => {
+  if (ask.kind !== 'approval' && response.decision) {
+    return 'A decision is only valid for an approval Ask.';
+  }
   if (response.decision === 'revise' && !response.text?.trim()) {
     return 'Sending work back requires a comment explaining what needs to change.';
   }

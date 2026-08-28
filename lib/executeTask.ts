@@ -1,7 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { Resend } from 'resend';
 import { createCommunicationsClient } from './communications/client.js';
 import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides } from './communications/types.js';
+import { safeWebhookFetch } from './safeWebhook.js';
+import { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
+export { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 
 // Shared task execution logic used by the local Express server (server.ts)
 // and the Vercel serverless function (api/tasks/execute.ts).
@@ -18,8 +20,10 @@ export interface TaskExecutionResult {
  */
 export interface ExecuteContext {
   webhookBaseUrl?: string;
-  callbackSecret?: string;
   communicationsFromNumber?: string;
+  communicationsEmailIdentity?: string;
+  communicationsReplyIdentity?: string;
+  communicationsConnectionId?: string;
   correlation?: {
     orgId?: string;
     projectId?: string;
@@ -52,7 +56,7 @@ const substituteTemplate = (templateFile: string | undefined, projectData: Recor
     if (json && typeof json === 'object') {
       templateData = json;
     }
-  } catch (e) {
+  } catch {
     // Fallback to text
   }
   return { parsedContent, templateData };
@@ -65,7 +69,7 @@ const communicationCorrelation = (ctx: ExecuteContext | undefined): Communicatio
   }
   return {
     tenant_id: correlation.orgId,
-    project_id: correlation.projectId,
+    external_project_id: correlation.projectId,
     run_id: correlation.runId,
     task_id: correlation.nodeId
   };
@@ -134,29 +138,6 @@ const communicationResponse = (
   };
 };
 
-export const TASK_TYPES = ['send_email', 'send_sms', 'outgoing_call', 'webhook', 'write_report'] as const;
-
-/**
- * Accepts the friendly labels people actually type. The task type used to be a
- * free-text field matched against five exact strings, so "Phone Call" silently
- * became "unknown task type" with nothing to indicate what was wrong.
- */
-const TASK_TYPE_ALIASES: Record<string, string> = {
-  email: 'send_email', sendemail: 'send_email', mail: 'send_email',
-  sms: 'send_sms', sendsms: 'send_sms', text: 'send_sms', textmessage: 'send_sms',
-  phonecall: 'outgoing_call', call: 'outgoing_call', phone: 'outgoing_call',
-  outgoingcall: 'outgoing_call', voice: 'outgoing_call', voicecall: 'outgoing_call',
-  webhook: 'webhook', http: 'webhook', post: 'webhook',
-  report: 'write_report', writereport: 'write_report', writeup: 'write_report'
-};
-
-export const normalizeTaskType = (raw: string | undefined): string | undefined => {
-  if (!raw) return undefined;
-  const trimmed = String(raw).trim();
-  if ((TASK_TYPES as readonly string[]).includes(trimmed)) return trimmed;
-  return TASK_TYPE_ALIASES[trimmed.toLowerCase().replace(/[\s_-]+/g, '')];
-};
-
 export async function executeTask(
   rawTaskType: string,
   templateFile: string | undefined,
@@ -178,40 +159,60 @@ export async function executeTask(
   const logs: string[] = [];
 
   if (taskType === 'send_email') {
-    logs.push('--- REAL EMAIL VIA RESEND ---');
-    logs.push(`Email To: ${templateData.to || 'Unknown'}`);
-    logs.push(`Email Subject: ${templateData.subject || 'No Subject'}`);
+    logs.push('--- DISPATCHING EMAIL VIA COMMUNICATIONS API ---');
     const emailBody = templateData.body || parsedContent;
-    logs.push(`Email Body: ${emailBody}`);
 
     try {
-      if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY environment variable is required');
-      const resendClient = new Resend(process.env.RESEND_API_KEY);
-      const data = await resendClient.emails.send({
-        from: 'Acme Corp <onboarding@resend.dev>',
-        to: templateData.to,
-        subject: templateData.subject || 'New Communication',
-        text: emailBody
+      const to = Array.isArray(templateData.to) ? templateData.to : [templateData.to].filter(Boolean);
+      if (!to.length) throw new Error('Email destination "to" is required');
+      const serviceIdentityId = String(
+        templateData.service_identity_id || ctx?.communicationsEmailIdentity || process.env.COMMUNICATIONS_EMAIL_IDENTITY || ''
+      ).trim();
+      const from = typeof templateData.from === 'string' ? templateData.from.trim() : '';
+      if (!from && !serviceIdentityId) {
+        throw new Error('A Communications email from address or service identity is required');
+      }
+      const result = await createCommunicationsClient().sendEmail({
+        to: to.map(String),
+        cc: Array.isArray(templateData.cc) ? templateData.cc.map(String) : undefined,
+        bcc: Array.isArray(templateData.bcc) ? templateData.bcc.map(String) : undefined,
+        ...(from ? { from } : { service_identity_id: serviceIdentityId }),
+        provider_connection_id: templateData.provider_connection_id || ctx?.communicationsConnectionId || undefined,
+        reply_to: Array.isArray(templateData.reply_to)
+          ? templateData.reply_to.map(String)
+          : (templateData.reply_to || ctx?.communicationsReplyIdentity)
+            ? [String(templateData.reply_to || ctx?.communicationsReplyIdentity)]
+            : undefined,
+        subject: String(templateData.subject || 'New Communication'),
+        text: String(emailBody || ''),
+        correlation: communicationCorrelation(ctx),
+        purpose: { type: 'workflow_action' },
+        callback_url: communicationCallbackUrl(ctx)
       });
-      logs.push(`Resend response: ${JSON.stringify(data)}`);
+      if (result.status === 'failed') throw new Error(result.error || 'Communications rejected the email');
+      logs.push(`Email ${result.id} accepted by Communications`);
 
       return {
         httpStatus: 200,
         body: {
           status: 'success',
-          output: { email_sent: true, email_data: templateData, resend_id: data.data?.id },
+          output: {
+            email_sent: true,
+            email_data: templateData,
+            communication_id: result.id,
+            thread_id: result.threadId,
+            communication_status: result.status
+          },
           logs
         }
       };
     } catch (error: any) {
-      logs.push(`Resend Error: ${error.message}`);
-      return { httpStatus: 500, body: { error: error.message, logs } };
+      logs.push(`Communications Error: ${error.message}`);
+      return { httpStatus: 500, body: { status: 'error', error: error.message, logs } };
     }
   } else if (taskType === 'send_sms') {
     const smsTo = templateData.to || projectData?.contact_phone || projectData?.phone_number;
     const smsBody = templateData.body || parsedContent;
-    logs.push(`SMS To: ${smsTo || 'Unknown'}`);
-    logs.push(`SMS Content: ${smsBody}`);
 
     try {
       if (!smsTo) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
@@ -232,30 +233,27 @@ export async function executeTask(
   } else if (taskType === 'webhook') {
     try {
       const url = templateData.url;
-      if (!url || !/^https?:\/\//.test(url)) {
-        throw new Error('Webhook template must include a valid "url" (http/https)');
+      if (!url || typeof url !== 'string') {
+        throw new Error('Webhook template must include a valid HTTPS "url"');
       }
       const method = (templateData.method || 'POST').toUpperCase();
+      if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        throw new Error('Webhook method must be GET, HEAD, POST, PUT, PATCH, or DELETE');
+      }
       const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(templateData.headers || {}) };
       const payload = templateData.payload !== undefined ? templateData.payload : { projectData };
 
-      logs.push(`--- WEBHOOK ${method} ${url} ---`);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
-      const hookRes = await fetch(url, {
+      logs.push(`--- DISPATCHING ${method} WEBHOOK ---`);
+      const hookRes = await safeWebhookFetch(url, {
         method,
         headers,
-        body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(payload),
-        signal: controller.signal
+        body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(payload)
       });
-      clearTimeout(timer);
-
-      const responseText = (await hookRes.text()).substring(0, 2000);
-      logs.push(`Response status: ${hookRes.status}`);
-      logs.push(`Response body: ${responseText}`);
+      const responseText = hookRes.text.substring(0, 2000);
+      logs.push(`Webhook completed with status ${hookRes.status}`);
 
       let responseJson: any = null;
-      try { responseJson = JSON.parse(responseText); } catch (e) { /* not JSON */ }
+      try { responseJson = JSON.parse(responseText); } catch { /* not JSON */ }
 
       if (!hookRes.ok) throw new Error(`Webhook returned ${hookRes.status}`);
 
@@ -276,7 +274,6 @@ export async function executeTask(
 
     try {
       logs.push('--- DISPATCHING VOICE CALL VIA COMMUNICATIONS API ---');
-      logs.push(`Dialing ${toPhone}...`);
 
       if (!toPhone) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
       if (!E164.test(String(toPhone))) throw new Error('Call destination number must use E.164 format');
@@ -367,15 +364,12 @@ export async function executeTask(
       }
 
       logs.push('Step 4: Report generation complete.');
-      const reportLink = "https://example.com/docs/report_" + Date.now() + ".pdf";
-
       return {
         httpStatus: 200,
         body: {
           status: 'success',
           output: {
             report_written: true,
-            report_link: reportLink,
             report_content: finalReport,
             evaluation: evaluationObject
           },
