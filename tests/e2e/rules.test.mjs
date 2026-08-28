@@ -43,7 +43,13 @@ const seed = async () => {
   await admin('PUT', 'organizations/org_m', { name: 'Mallory', createdAt: Date.now(), members: { mallory: { role: 'owner' } } });
   await admin('PUT', 'projects/org_a', { projects: [{ id: 'p1', name: 'Secret' }] });
   await admin('PUT', 'invites/token_bob', { orgId: 'org_a', invitedBy: 'alice', email: 'bob@example.com', createdAt: Date.now() });
-  await admin('PUT', 'external_events/event_1', { event_id: 'event_1', processing_status: 'processed' });
+  await admin('PUT', 'external_events/org_a/event_1', { event_id: 'event_1', processing_status: 'processed' });
+  await admin('PUT', 'triage_items/org_a/comm_1', { communicationId: 'comm_1', disposition: 'new' });
+  await admin('PUT', 'schedules/org_a/schedule_1', { id: 'schedule_1', enabled: true });
+  await admin('PUT', 'schedule_runs/org_a/schedule_1/1', { status: 'completed' });
+  await admin('PUT', 'communication_cursors/org_a/default', { cursor: 'cursor_1' });
+  await admin('PUT', 'ask_resolutions/org_a/ask_1/comm_1', { status: 'processed' });
+  await admin('PUT', 'communication_delivery/org_a/comm_1', { status: 'delivered' });
 };
 
 const run = async () => {
@@ -80,8 +86,14 @@ const run = async () => {
   ok(!result.ok, 'user profiles are private', `got ${result.status}`);
   result = await as('mallory', 'GET', 'external_events');
   ok(!result.ok, 'the event inbox is backend-only', `got ${result.status}`);
-  result = await as('mallory', 'PUT', 'external_events/event_2', { event_id: 'event_2' });
+  result = await as('mallory', 'PUT', 'external_events/org_a/event_2', { event_id: 'event_2' });
   ok(!result.ok, 'clients cannot forge event inbox records', `got ${result.status}`);
+  for (const root of ['triage_items', 'schedules', 'schedule_runs', 'communication_cursors', 'ask_resolutions', 'communication_delivery']) {
+    result = await as('alice', 'GET', `${root}/org_a`);
+    ok(!result.ok, `${root} reads are API-only, even for tenant members`, `got ${result.status}`);
+    result = await as('mallory', 'PUT', `${root}/org_a/forged`, { forged: true });
+    ok(!result.ok, `${root} cannot be forged across tenants`, `got ${result.status}`);
+  }
   result = await as('mallory', 'GET', 'serverActivity');
   ok(!result.ok, 'server activity is backend-only', `got ${result.status}`);
 

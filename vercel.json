@@ -10,5 +10,8 @@
     "api/**/*.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/schedules/tick", "schedule": "0 * * * *" }
+  ]
 }

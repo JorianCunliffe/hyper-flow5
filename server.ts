@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
-import { Resend } from "resend";
 import { createServer as createViteServer } from "vite";
 import { WebSocketServer } from "ws";
 
@@ -10,18 +9,28 @@ import { executeTask } from "./lib/executeTask";
 import { advanceServerFlow, readAskByToken, respondToAsk } from "./lib/serverFlow";
 import { receiveExternalEvent } from "./lib/externalEvents";
 import { parseSignedJsonBody, verifyCommunicationsSignature } from "./lib/communications/webhook";
+import { createCommunicationsClient } from "./lib/communications/client";
 import {
   consumeOrganizationInvite,
   createOrganizationForUser,
   createOrganizationInvite,
+  deleteTenantSchedule,
   isServerStoreConfigured,
+  listTenantSchedules,
+  listTenantTriageItems,
+  patchTenantTriageItem,
+  readTenantTriageItem,
   readTenantCommunicationsSettings,
   resolveReviewerActor,
   requireOrganizationMember,
+  saveTenantSchedule,
+  setTenantTriageDisposition,
   verifyFirebaseIdToken
 } from "./lib/serverStore";
 import { ApiAuthError, bearerToken, hasSharedSecret, requireAppMember, requireFirebaseIdentity } from './lib/apiAuth';
 import { renderAskForm } from './lib/askForm';
+import { runTenantSchedule, tickSchedules } from './lib/scheduler';
+import type { TriageDisposition } from './types';
 
 async function startServer() {
   const app = express();
@@ -52,17 +61,6 @@ async function startServer() {
   });
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-
-  let resend: Resend | null = null;
-  const getResend = () => {
-    if (!resend) {
-      if (!process.env.RESEND_API_KEY) {
-        throw new Error('RESEND_API_KEY environment variable is required');
-      }
-      resend = new Resend(process.env.RESEND_API_KEY);
-    }
-    return resend;
-  };
 
   const callSessions = new Map<string, { history: any[], context: string }>();
 
@@ -101,6 +99,153 @@ async function startServer() {
     } catch (error: any) {
       return res.status(error instanceof ApiAuthError ? error.status : /Invite/.test(error?.message || '') ? 400 : 500)
         .json({ error: error?.message || 'Request failed' });
+    }
+  });
+
+  app.get('/api/communications/status', async (req, res) => {
+    try {
+      const member = await requireAppMember(req as any);
+      const communications = await readTenantCommunicationsSettings(member.orgId);
+      try {
+        await createCommunicationsClient().listCommunications(member.orgId, { limit: 1 });
+        return res.status(200).json({
+          connected: true,
+          emailReady: Boolean(communications.defaultEmailIdentity),
+          connectionId: communications.connectionId || null,
+          emailIdentity: communications.defaultEmailIdentity || null,
+          replyIdentity: communications.replyServiceIdentity || null
+        });
+      } catch (error: any) {
+        return res.status(200).json({ connected: false, error: error?.message || 'Communications Service unavailable' });
+      }
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.get('/api/triage', async (req, res) => {
+    try {
+      const member = await requireAppMember(req as any);
+      const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+      return res.status(200).json({ data: await listTenantTriageItems(member.orgId, limit) });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.patch('/api/triage', async (req, res) => {
+    try {
+      const member = await requireAppMember(req as any);
+      const { id, action, disposition, projectId, askId, proposedAction, decision, values, text } = req.body || {};
+      if (typeof id !== 'string' || !id) return res.status(400).json({ error: 'id is required' });
+      const actor = `${member.role}:${member.uid}`;
+      if (action === 'accept_interpretation') {
+        const item = await readTenantTriageItem(member.orgId, id);
+        if (!item?.projectId || !item.askId) return res.status(409).json({ error: 'Triage item is not linked to an Ask' });
+        const outcome = await respondToAsk({
+          orgId: member.orgId,
+          projectId: item.projectId,
+          askId: item.askId,
+          channel: 'web',
+          communicationId: item.communicationId,
+          actorVerified: true,
+          response: {
+            actor,
+            decision: decision || item.interpretation?.decision,
+            text: text || item.interpretation?.evidence,
+            structured: values || item.interpretation?.values,
+            raw: { triageReview: true, triageItemId: item.id }
+          }
+        });
+        if (!outcome.ok && outcome.reason !== 'already_answered') return res.status(409).json({ error: outcome.reason });
+        if (outcome.response?.needsInterpretation) {
+          return res.status(409).json({ error: 'A reviewer must supply a valid decision or structured values before accepting this interpretation' });
+        }
+        const updated = await setTenantTriageDisposition(member.orgId, id, 'resolved', actor, 'Interpretation accepted');
+        return res.status(200).json({ item: updated, outcome });
+      }
+      let item = await patchTenantTriageItem(member.orgId, id, {
+        ...(typeof projectId === 'string' ? { projectId } : {}),
+        ...(typeof askId === 'string' ? { askId } : {}),
+        ...(typeof proposedAction === 'string' ? { proposedAction } : {})
+      }, actor, String(action || 'triage_update'));
+      if (disposition !== undefined) {
+        const valid: TriageDisposition[] = ['new', 'linked_workflow', 'awaiting_interpretation', 'draft_prepared', 'needs_review', 'ignored', 'resolved', 'spam_automatic', 'delivery_failure'];
+        if (!valid.includes(disposition)) return res.status(400).json({ error: 'Invalid triage disposition' });
+        item = await setTenantTriageDisposition(member.orgId, id, disposition, actor);
+      }
+      return item ? res.status(200).json({ item }) : res.status(404).json({ error: 'Triage item not found' });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.route('/api/schedules')
+    .get(async (req, res) => {
+      try {
+        const member = await requireAppMember(req as any);
+        return res.status(200).json({ data: await listTenantSchedules(member.orgId) });
+      } catch (error: any) {
+        return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+      }
+    })
+    .post(async (req, res) => {
+      try {
+        const member = await requireAppMember(req as any);
+        const settings = await readTenantCommunicationsSettings(member.orgId);
+        return res.status(201).json({ schedule: await saveTenantSchedule(member.orgId, {
+          ...(req.body || {}),
+          policy: req.body?.policy || settings.sendPolicy || 'draft_only',
+          timezone: req.body?.timezone || settings.timezone || 'Australia/Brisbane',
+          connectionId: req.body?.connectionId || settings.connectionId
+        }) });
+      } catch (error: any) {
+        return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+      }
+    })
+    .patch(async (req, res) => {
+      try {
+        const member = await requireAppMember(req as any);
+        return res.status(200).json({ schedule: await saveTenantSchedule(member.orgId, {
+          ...(req.body || {})
+        }) });
+      } catch (error: any) {
+        return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+      }
+    })
+    .delete(async (req, res) => {
+      try {
+        const member = await requireAppMember(req as any);
+        const id = String(req.query.id || req.body?.id || '');
+        if (!id) return res.status(400).json({ error: 'id is required' });
+        await deleteTenantSchedule(member.orgId, id);
+        return res.status(204).end();
+      } catch (error: any) {
+        return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+      }
+    });
+
+  app.post('/api/schedules/run', async (req, res) => {
+    try {
+      const member = await requireAppMember(req as any);
+      const schedule = (await listTenantSchedules(member.orgId)).find(item => item.id === String(req.body?.id || ''));
+      if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+      return res.status(200).json({ result: await runTenantSchedule(schedule, Date.now()) });
+    } catch (error: any) {
+      return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    }
+  });
+
+  app.all('/api/schedules/tick', async (req, res) => {
+    if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const configured = Boolean(process.env.SCHEDULER_SECRET || process.env.CRON_SECRET);
+    const authorized = hasSharedSecret(req.headers['x-hyperflow-scheduler-secret'], process.env.SCHEDULER_SECRET)
+      || hasSharedSecret(bearerToken(req as any), process.env.CRON_SECRET);
+    if (!authorized) return res.status(configured ? 401 : 503).json({ error: configured ? 'Invalid scheduler authentication' : 'Scheduler secret is not configured' });
+    try {
+      return res.status(200).json({ ok: true, results: await tickSchedules() });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || String(error) });
     }
   });
 
@@ -189,22 +334,31 @@ async function startServer() {
 
   app.post("/api/send-email", async (req, res) => {
     try {
-      await requireAppMember(req as any);
-      const { to, subject, html } = req.body;
-      
-      const resendClient = getResend();
-      const { data, error } = await resendClient.emails.send({
-        from: process.env.RESEND_FROM_EMAIL || "HyperFlow <automation@projectflow.online>",
-        to,
-        subject,
-        html,
+      const member = await requireAppMember(req as any);
+      const { to, subject, html, text, projectId, taskId, runId } = req.body || {};
+      if (!projectId || !taskId || !runId) throw new Error('projectId, taskId and runId are required');
+      const communications = await readTenantCommunicationsSettings(member.orgId);
+      if (!communications.defaultEmailIdentity) throw new Error('A tenant Communications email identity is required');
+      const result = await createCommunicationsClient().sendEmail({
+        to: Array.isArray(to) ? to.map(String) : [String(to || '')].filter(Boolean),
+        service_identity_id: communications.defaultEmailIdentity,
+        provider_connection_id: communications.connectionId,
+        reply_to: communications.replyServiceIdentity ? [communications.replyServiceIdentity] : undefined,
+        subject: String(subject || 'HyperFlow notification'),
+        text: typeof text === 'string' ? text : undefined,
+        html: typeof html === 'string' ? html : undefined,
+        purpose: { type: 'workflow_notification' },
+        correlation: {
+          tenant_id: member.orgId,
+          external_project_id: String(projectId),
+          task_id: String(taskId),
+          run_id: String(runId)
+        },
+        callback_url: process.env.PUBLIC_BASE_URL
+          ? `${process.env.PUBLIC_BASE_URL.replace(/\/$/, '')}/api/events`
+          : undefined
       });
-
-      if (error) {
-        return res.status(400).json({ error });
-      }
-
-      res.status(200).json({ data });
+      res.status(202).json({ communication: result });
     } catch (error: any) {
       console.error(error);
       res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
@@ -216,13 +370,16 @@ async function startServer() {
       const { taskType, templateFile, projectData, correlation, revision } = req.body;
       const member = await requireAppMember(req as any, typeof correlation?.orgId === 'string' ? correlation.orgId : undefined);
       const trustedCorrelation = { ...correlation, orgId: member.orgId };
-      let communicationsFromNumber: string | undefined;
+      let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
       if (trustedCorrelation.orgId && isServerStoreConfigured()) {
-        try { communicationsFromNumber = (await readTenantCommunicationsSettings(trustedCorrelation.orgId)).fromNumber; } catch { /* project/env fallback */ }
+        try { tenantCommunications = await readTenantCommunicationsSettings(trustedCorrelation.orgId); } catch { /* project/env fallback */ }
       }
       const result = await executeTask(taskType, templateFile, projectData, {
         webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-        communicationsFromNumber,
+        communicationsFromNumber: tenantCommunications?.fromNumber,
+        communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
+        communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
+        communicationsConnectionId: tenantCommunications?.connectionId,
         correlation: trustedCorrelation,
         revision
       });

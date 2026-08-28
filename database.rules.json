@@ -39,6 +39,36 @@
       ".write": false
     },
 
+    "ask_resolutions": {
+      ".read": false,
+      ".write": false
+    },
+
+    "communication_delivery": {
+      ".read": false,
+      ".write": false
+    },
+
+    "triage_items": {
+      ".read": false,
+      ".write": false
+    },
+
+    "schedules": {
+      ".read": false,
+      ".write": false
+    },
+
+    "schedule_runs": {
+      ".read": false,
+      ".write": false
+    },
+
+    "communication_cursors": {
+      ".read": false,
+      ".write": false
+    },
+
     "serverActivity": {
       ".read": false,
       ".write": false

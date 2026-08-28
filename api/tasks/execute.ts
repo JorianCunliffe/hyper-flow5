@@ -12,15 +12,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const requestedOrgId = typeof correlation?.orgId === 'string' ? correlation.orgId : undefined;
     const member = await requireAppMember(req, requestedOrgId);
     const trustedCorrelation = { ...correlation, orgId: member.orgId };
-    let communicationsFromNumber: string | undefined;
+    let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
     if (trustedCorrelation.orgId) {
-      try { communicationsFromNumber = (await readTenantCommunicationsSettings(trustedCorrelation.orgId)).fromNumber; } catch { /* project/env fallback */ }
+      try { tenantCommunications = await readTenantCommunicationsSettings(trustedCorrelation.orgId); } catch { /* project/env fallback */ }
     }
     // The callback secret and public base URL stay server-side; callers only
     // supply the correlation ids that identify the run.
     const result = await executeTask(taskType, templateFile, projectData, {
       webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-      communicationsFromNumber,
+      communicationsFromNumber: tenantCommunications?.fromNumber,
+      communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
+      communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
+      communicationsConnectionId: tenantCommunications?.connectionId,
       correlation: trustedCorrelation,
       revision
     });

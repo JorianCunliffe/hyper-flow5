@@ -25,6 +25,102 @@ export interface TeamMemberDetails {
 export interface CommunicationsSettings {
   /** Public E.164 service number used as the sender for SMS and voice. */
   fromNumber?: string;
+  /** Non-secret Communications Service identity selected for outbound email. */
+  defaultEmailIdentity?: string;
+  /** Optional reply-to address override; omit to use a service-generated reply route. */
+  replyServiceIdentity?: string;
+  /** Provider connection selected for this organization. Never a credential. */
+  connectionId?: string;
+  timezone?: string;
+  triagePolicy?: 'all_inbound' | 'human_only' | 'correlated_only';
+  sendPolicy?: 'draft_only' | 'allow_approved_send' | 'automatic';
+  allowedAutomaticActions?: Array<'classify' | 'link_workflow' | 'progress_ask' | 'create_draft' | 'send_reply'>;
+}
+
+export type TriageDisposition =
+  | 'new'
+  | 'linked_workflow'
+  | 'awaiting_interpretation'
+  | 'draft_prepared'
+  | 'needs_review'
+  | 'ignored'
+  | 'resolved'
+  | 'spam_automatic'
+  | 'delivery_failure';
+
+export interface TriageInterpretation {
+  intent?: string;
+  decision?: AskDecision;
+  values?: Record<string, unknown>;
+  confidence?: number;
+  evidence?: string;
+  modelVersion?: string;
+  interpretedAt?: number;
+  acceptedAt?: number;
+  correctedBy?: string;
+}
+
+export interface TriageItem {
+  id: string;
+  orgId: string;
+  communicationId: string;
+  threadId?: string;
+  channel: 'email' | 'sms' | 'voice' | 'web' | string;
+  direction: 'inbound' | 'outbound';
+  occurredAt: string;
+  sender?: string;
+  recipients?: string[];
+  subject?: string;
+  preview?: string;
+  personId?: string;
+  projectId?: string;
+  askId?: string;
+  askKind?: AskKind;
+  askFields?: AskField[];
+  runId?: string;
+  taskId?: string;
+  classification?: string;
+  automated?: boolean;
+  bounce?: boolean;
+  spam?: boolean;
+  memoryEligible?: boolean;
+  disposition: TriageDisposition;
+  proposedAction?: string;
+  interpretation?: TriageInterpretation;
+  audit: Array<{ at: number; action: string; actor: string; detail?: string }>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TenantSchedule {
+  id: string;
+  orgId: string;
+  name: string;
+  activity: 'communications_triage';
+  enabled: boolean;
+  intervalMinutes: number;
+  timezone: string;
+  connectionId?: string;
+  policy: 'draft_only' | 'allow_approved_send' | 'automatic';
+  nextRunAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScheduleRun {
+  id: string;
+  orgId: string;
+  scheduleId: string;
+  scheduledFor: number;
+  status: 'running' | 'completed' | 'failed';
+  claimId: string;
+  startedAt: number;
+  attempt?: number;
+  completedAt?: number | null;
+  cursorBefore?: string;
+  cursorAfter?: string;
+  processedCount?: number;
+  error?: string | null;
 }
 
 export interface AppSettings {
@@ -192,6 +288,10 @@ export interface HumanResponse {
   /** Provider-neutral delivery identifiers retained for end-to-end audit. */
   communicationId?: string;
   transcriptId?: string;
+  intent?: string;
+  evidenceExcerpt?: string;
+  modelVersion?: string;
+  interpretedAt?: number;
   /** Original provider payload, kept for audit. */
   raw?: any;
 }
@@ -224,6 +324,15 @@ export interface ReviewPolicy {
   maxRevisions?: number;
   responsePolicy?: 'any' | 'all' | 'quorum';
   quorum?: number;
+}
+
+export interface AskResponseContract {
+  expectedIntents?: string[];
+  allowedDecisions?: AskDecision[];
+  confidenceThreshold?: number;
+  automaticProgress?: 'never' | 'high_confidence' | 'validated';
+  reviewRequired?: boolean;
+  expiryPolicy?: 'block' | 'escalate' | 'close';
 }
 
 export interface HumanAsk {
@@ -270,6 +379,7 @@ export interface HumanAsk {
 
   responses: HumanResponse[];
   writeBack?: OutputVariable[];
+  responseContract?: AskResponseContract;
 
   /** Which revision cycle produced this ask (0 = first attempt). */
   revision?: number;

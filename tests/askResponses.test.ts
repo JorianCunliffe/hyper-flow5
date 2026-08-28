@@ -189,4 +189,10 @@ describe('validateResponse', () => {
     const r = buildResponse(ask, { via: 'web', actor: 'jorian', values: { x: 'y' } });
     assert.equal(validateResponse(ask, r), null);
   });
+
+  test('a decision cannot answer a question ask', () => {
+    const ask = createQuestionAsk(openMilestone('N'), ['x']);
+    const r = buildResponse(ask, { via: 'web', actor: 'jorian', decision: 'approved' });
+    assert.match(validateResponse(ask, r)!, /only valid for an approval Ask/);
+  });
 });

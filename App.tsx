@@ -47,7 +47,8 @@ import {
   Edit2,
   CheckCircle,
   BarChart3,
-  Play
+  Play,
+  Inbox
 } from 'lucide-react';
 import { geminiService } from './services/geminiService';
 import { firebaseService } from './services/firebaseService';
@@ -67,6 +68,7 @@ import { Scratchpad } from './components/Scratchpad';
 import { FeedView } from './components/FeedView';
 import { ApprovalsView } from './components/ApprovalsView';
 import { ReportingView } from './components/ReportingView';
+import { TriageInbox } from './components/TriageInbox';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { CloudSetupModal } from './components/modals/CloudSetupModal';
 import { CreateProjectModal } from './components/modals/CreateProjectModal';
@@ -110,7 +112,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Client"
   ],
   teamMemberDetails: {},
-  communications: {},
+  communications: {
+    timezone: 'Australia/Brisbane',
+    triagePolicy: 'human_only',
+    sendPolicy: 'draft_only',
+    allowedAutomaticActions: ['classify', 'create_draft']
+  },
   statuses: [
     "Not started",
     "Needs preparation",
@@ -137,7 +144,7 @@ const migrateSettings = (loadedSettings: Partial<AppSettings>): AppSettings => {
   merged.roles = merged.roles || DEFAULT_SETTINGS.roles || [];
   merged.statuses = merged.statuses || DEFAULT_SETTINGS.statuses;
   merged.teamMemberDetails = merged.teamMemberDetails || {};
-  merged.communications = merged.communications || {};
+  merged.communications = { ...DEFAULT_SETTINGS.communications, ...(merged.communications || {}) };
   
   // Migration: If we detect the old default status order, update to new order
   const oldOrderJSON = JSON.stringify(["Started", "Held", "Complete", "Not started"]);
@@ -207,14 +214,6 @@ export const App: React.FC = () => {
     handleInvite();
   }, [currentUser]);
 
-  // Readiness cron
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setProjects(prevProjects => prevProjects.map(p => runProjectReadinessCheck(p)));
-    }, 60000); // every minute
-    return () => clearInterval(interval);
-  }, []);
-
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -233,6 +232,7 @@ export const App: React.FC = () => {
   const [isFeedMode, setIsFeedMode] = useState(false);
   const [isApprovalsMode, setIsApprovalsMode] = useState(false);
   const [isReportingMode, setIsReportingMode] = useState(false);
+  const [isTriageMode, setIsTriageMode] = useState(false);
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
@@ -1888,6 +1888,15 @@ export const App: React.FC = () => {
               HyperFlow
             </h1>
             <div className="flex bg-slate-100 rounded-lg p-0.5">
+               <button
+                 type="button"
+                 onClick={() => setIsTriageMode(current => !current)}
+                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                 aria-pressed={isTriageMode}
+               >
+                 <Inbox size={12} /> {isTriageMode ? 'Projects' : 'Triage'}
+               </button>
+               {!isTriageMode && <>
                <button 
                  onClick={() => setKanbanGrouping('project')}
                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
@@ -1900,9 +1909,10 @@ export const App: React.FC = () => {
                >
                  <Users size={12} /> Member
                </button>
+               </>}
             </div>
          </div>
-         <div className="p-2 flex gap-2 overflow-x-auto">
+         {!isTriageMode && <div className="p-2 flex gap-2 overflow-x-auto">
              <select 
                className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                value={kanbanFilterProject}
@@ -1956,7 +1966,7 @@ export const App: React.FC = () => {
                <Clock size={14} />
                Late
              </button>
-         </div>
+         </div>}
       </div>
 
       {/* DESKTOP HEADER - Hidden on small screens */}
@@ -1981,7 +1991,10 @@ export const App: React.FC = () => {
                           body: JSON.stringify({
                             to: email,
                             subject: "You've been invited to HyperFlow!",
-                            html: `<p>You have been invited to join an organization on HyperFlow.</p><p><a href="${url}">Click here to accept the invitation</a></p><p>Alternatively, copy and paste this link: ${url}</p>`
+                            html: `<p>You have been invited to join an organization on HyperFlow.</p><p><a href="${url}">Click here to accept the invitation</a></p><p>Alternatively, copy and paste this link: ${url}</p>`,
+                            projectId: 'organization-invite',
+                            taskId: 'invite',
+                            runId: `invite:${currentOrgId}:${url}`
                           })
                         });
                         if (response.ok) {
@@ -2012,16 +2025,16 @@ export const App: React.FC = () => {
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
-              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode && !isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {selectedProjectId ? <MapIcon size={16} /> : <Layout size={16} />}
             <span className="hidden xl:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2030,7 +2043,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Kanban</span>
           </button>
           <button 
-            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2039,7 +2052,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Scratch</span>
           </button>
           <button 
-            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isFeedMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2048,7 +2061,7 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Feed</span>
           </button>
           <button 
-            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); }}
+            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2057,13 +2070,20 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Approvals</span>
           </button>
           <button 
-            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsTriageMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <BarChart3 size={16} />
             <span className="hidden xl:inline">Reports</span>
+          </button>
+          <button
+            onClick={() => { setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Inbox size={16} />
+            <span className="hidden xl:inline">Triage</span>
           </button>
         </div>
 
@@ -2188,7 +2208,9 @@ export const App: React.FC = () => {
         )}
 
         {/* MAIN VIEW CONTENT */}
-        {isScratchMode ? (
+        {isTriageMode ? (
+          <TriageInbox />
+        ) : isScratchMode ? (
           <Scratchpad 
             scratchTasks={scratchTasks.filter(t => t.createdBy === currentUser?.uid || t.createdBy === currentUser?.email || !t.createdBy)}
             onUpdateScratchTasks={(newFiltered) => {

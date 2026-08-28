@@ -4,11 +4,14 @@ import { readTenantCommunicationsSettings } from './serverStore.js';
 
 /** Server-side action execution shared by flow advancement and ask responses. */
 export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
-  let communicationsFromNumber: string | undefined;
-  try { communicationsFromNumber = (await readTenantCommunicationsSettings(ctx.orgId)).fromNumber; } catch { /* use project/env fallback */ }
+  let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
+  try { tenantCommunications = await readTenantCommunicationsSettings(ctx.orgId); } catch { /* use project/env fallback */ }
   const result = await executeTask(taskType, templateFile, projectData, {
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-    communicationsFromNumber,
+    communicationsFromNumber: tenantCommunications?.fromNumber,
+    communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
+    communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
+    communicationsConnectionId: tenantCommunications?.connectionId,
     correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId },
     revision: ctx.revision
   });

@@ -17,12 +17,11 @@ export const deliverRaisedAsks = async (
 ): Promise<{ project: Project; log: string[] }> => {
   let current = project;
   const log: string[] = [];
-  let configuredFromNumber: string | undefined;
+  let communicationsSettings: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
   try {
-    configuredFromNumber = (await readTenantCommunicationsSettings(orgId)).fromNumber;
+    communicationsSettings = await readTenantCommunicationsSettings(orgId);
   } catch {
-    // Email-only asks do not require Communications configuration. Individual
-    // channel attempts below retain the actionable failure when it is needed.
+    // Individual delivery attempts retain the actionable configuration failure.
   }
 
   for (const item of raised) {
@@ -39,7 +38,10 @@ export const deliverRaisedAsks = async (
             ask, orgId, projectId: current.id, personId, recipient, channel, deliveryAskId, deliveryToken,
             fromNumber: typeof current.projectData?.communications_from_number === 'string'
               ? current.projectData.communications_from_number
-              : configuredFromNumber
+              : communicationsSettings?.fromNumber,
+            emailIdentity: communicationsSettings?.defaultEmailIdentity,
+            replyIdentity: communicationsSettings?.replyServiceIdentity,
+            connectionId: communicationsSettings?.connectionId
           });
           ask = {
             ...ask,

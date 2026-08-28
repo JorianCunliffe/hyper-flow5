@@ -27,6 +27,7 @@ const TaskEmailButton: React.FC<{
       await sendTaskEmail(
         settings.teamMemberDetails![task.assignedTo].email!,
         {
+          id: task.id,
           name: task.name,
           displayId: task.displayId,
           description: task.description,

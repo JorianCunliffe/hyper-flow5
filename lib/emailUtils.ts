@@ -8,6 +8,7 @@ const escapeHtml = (value: unknown): string => String(value ?? '')
 export const sendTaskEmail = async (
   email: string,
   task: { 
+    id?: string;
     name: string; 
     displayId?: string; 
     description?: string; 
@@ -68,6 +69,9 @@ export const sendTaskEmail = async (
       to: email,
       subject,
       html,
+      projectId: projectName,
+      taskId: task.id || task.displayId || task.name,
+      runId: `task-notification:${task.id || task.displayId || task.name}:${task.status}:${task.dueDate || 'none'}`
     }),
   });
 

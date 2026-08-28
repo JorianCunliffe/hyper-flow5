@@ -43,6 +43,7 @@ export interface CreateAskInput {
   askToken?: string;
   responsePolicy?: HumanAsk['responsePolicy'];
   quorum?: number;
+  responseContract?: HumanAsk['responseContract'];
 }
 
 /** Creates the durable, channel-independent identity shared by every ask. */
@@ -62,6 +63,7 @@ export const createAsk = (input: CreateAskInput): HumanAsk => ({
   channels: input.channels?.length ? input.channels : ['web'],
   responsePolicy: input.responsePolicy || 'any',
   quorum: input.quorum,
+  responseContract: input.responseContract,
   createdAt: input.now ?? Date.now(),
   dueAt: input.expiresAt,
   responses: [],

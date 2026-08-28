@@ -23,6 +23,11 @@ This reference describes the HTTP handlers under `api/`, their local Express equ
 | `GET|POST /api/asks/{token}` | Same handler and authentication as the public form path. |
 | `POST /api/events` | `X-Communications-Signature` HMAC using `COMMUNICATIONS_WEBHOOK_SECRET`. |
 | `POST /api/send-email` | Firebase ID token and organization membership. |
+| `GET /api/communications/status` | Firebase ID token and organization membership. |
+| `GET|PATCH /api/triage` | Firebase ID token and organization membership. |
+| `GET|POST|PATCH|DELETE /api/schedules` | Firebase ID token and organization membership. |
+| `POST /api/schedules/run` | Firebase ID token and organization membership. |
+| `GET|POST /api/schedules/tick` | `Authorization: Bearer $CRON_SECRET` or `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`. |
 | `POST /api/gemini/*` | Firebase ID token and organization membership. |
 
 Common authentication responses are `401` for a missing, invalid, or expired Firebase token; `403` for missing organization membership or insufficient role; and `503` when server-side Firebase authentication is not configured.
@@ -39,7 +44,12 @@ Common authentication responses are `401` for a missing, invalid, or expired Fir
 | `GET`, `POST` | `/forms/ask/{token}` | Render/read or answer one Ask. |
 | `GET`, `POST` | `/api/asks/{token}` | Direct Ask handler behind the form rewrite. |
 | `POST` | `/api/events` | Receive signed Communications events. |
-| `POST` | `/api/send-email` | Send an HTML email with Resend. |
+| `POST` | `/api/send-email` | Submit a tenant-correlated email to Communications. |
+| `GET` | `/api/communications/status` | Check Communications connectivity and tenant identity selection. |
+| `GET`, `PATCH` | `/api/triage` | List and review tenant communications triage. |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/schedules` | Manage tenant communications-reconciliation schedules. |
+| `POST` | `/api/schedules/run` | Run one tenant schedule immediately. |
+| `GET`, `POST` | `/api/schedules/tick` | Run due schedules from a platform timer. |
 | `POST` | `/api/gemini/brainstormSubtasks` | Generate five subtask suggestions. |
 | `POST` | `/api/gemini/generateProjectStructure` | Generate a milestone graph. |
 
@@ -158,7 +168,7 @@ Canonical task types:
 
 | `taskType` | Template JSON | Behavior |
 |---|---|---|
-| `send_email` | `{ "to", "subject", "body" }` | Sends plain text through Resend. |
+| `send_email` | `{ "to", "cc?", "bcc?", "subject", "body", "from?", "service_identity_id?", "provider_connection_id?" }` | Submits an idempotent tenant-correlated email to Communications. |
 | `send_sms` | `{ "to", "from?", "body" }` | Starts an SMS through Communications. |
 | `outgoing_call` | `{ "to", "from?", "instruction" }` | Starts a call; `prompt` or `body` may supply the instruction. |
 | `webhook` | `{ "url", "method?", "headers?", "payload?" }` | Calls a public HTTPS/443 endpoint. |
@@ -527,7 +537,9 @@ Terminal mapping:
 
 New events should use `correlation.external_project_id`. HyperFlow also accepts the transitional `correlation.project_id` alias and normalizes either value to its internal project ID.
 
-Events are persisted before processing under `external_events/{event_id}`. Processing states are `received`, `processing`, `processed`, and `processing_failed`; expiring leases allow safe retry after interrupted work. A processed duplicate returns `200`. A concurrent or retryable event returns `409`, prompting Communications to retry. Invalid signatures return `401`, invalid envelopes return `400`, handler failures return `500`, and missing webhook secret or server persistence returns `503`.
+Events are persisted before processing under `external_events/{tenant_id}/{event_id}`. Processing states are `received`, `processing`, `processed`, and `processing_failed`; expiring leases allow safe retry after interrupted work. A processed duplicate returns `200`. A concurrent or retryable event returns `409`, prompting Communications to retry. Invalid signatures return `401`, invalid envelopes return `400`, handler failures return `500`, and missing webhook secret or server persistence returns `503`.
+
+For email events HyperFlow retrieves the authoritative communication using the signed event's tenant and `communication_id`. Human inbound messages become tenant triage items. Bounce, spam, automatic replies, voicemail, wrong-number, and other ineligible responses are recorded as excluded and never passed into `respondToAsk` or workflow memory. Uncertain Ask interpretations remain open with `needs_review` until an authenticated reviewer accepts them.
 
 ## Send an email
 
@@ -542,13 +554,68 @@ Content-Type: application/json
 {
   "to": "person@example.com",
   "subject": "Project update",
-  "html": "<p>The report is ready.</p>"
+  "html": "<p>The report is ready.</p>",
+  "projectId": "project_1",
+  "taskId": "EMAIL_1",
+  "runId": "run_1"
 }
 ```
 
-Success returns `200` with Resend's `data` object. A Resend response containing an error returns `400`; configuration or unexpected failures return `500`.
+The tenant must have `settings.communications.defaultEmailIdentity`; `connectionId` is passed when configured. Success returns `202` with `{ "communication": { ... } }`. The request is idempotent for the same tenant/project/task/run correlation. Configuration, validation, and Communications errors return an error response.
 
-This endpoint, the `send_email` action, and Human Ask email delivery use `RESEND_FROM_EMAIL`, defaulting to `HyperFlow <automation@projectflow.online>`. Inbound email Ask replies are not implemented; Ask emails link to the tokenized form.
+This endpoint, the `send_email` action, organization invitations, and email Human Asks all use Communications. Email Ask messages include the secure form as a fallback, while a later correlated email reply can be interpreted and progress the same Ask.
+
+## Communications triage
+
+### `GET /api/communications/status`
+
+Returns `connected`, `emailReady`, the selected non-secret connection and email identity IDs, or a sanitized connectivity error. `emailReady` means a tenant outbound identity is selected; it does not expose or validate provider credentials. The endpoint never returns API keys or provider credentials.
+
+### `GET /api/triage?limit=100`
+
+Returns `{ "data": TriageItem[] }`, newest first, for the authenticated organization only. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, and audit entries.
+
+### `PATCH /api/triage`
+
+Disposition update:
+
+```json
+{ "id": "comm_123", "action": "resolve", "disposition": "resolved" }
+```
+
+Accept an uncertain linked Ask interpretation:
+
+```json
+{ "id": "comm_123", "action": "accept_interpretation", "decision": "approved", "text": "Approved" }
+```
+
+For question and choice Asks, send `values` matching the Ask's declared fields instead of a decision. Revision decisions require a non-empty explanatory `text` value.
+
+Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `draft_prepared`, `needs_review`, `ignored`, `resolved`, `spam_automatic`, and `delivery_failure`. Accepting an interpretation uses canonical `respondToAsk`; it replaces the provisional response for that communication.
+
+## Durable schedules
+
+### `/api/schedules`
+
+`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a communications-triage schedule:
+
+```json
+{
+  "id": "optional_existing_id",
+  "name": "Inbox triage",
+  "enabled": true,
+  "intervalMinutes": 60,
+  "timezone": "Australia/Brisbane",
+  "connectionId": "connection_123",
+  "policy": "draft_only"
+}
+```
+
+Intervals are clamped to 5-1440 minutes. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
+
+`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. `POST` is also accepted for an external timer using either supported secret header.
+
+Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The per-tenant/per-connection cursor advances only after all new communications were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged.
 
 ## Gemini helpers
 
@@ -582,10 +649,11 @@ HyperFlow calls the service configured by `COMMUNICATIONS_API_URL`. Every reques
 
 ```http
 X-API-Key: <COMMUNICATIONS_API_KEY>
+X-Tenant-Id: <tenant_id>
 Accept: application/json
 ```
 
-POST requests include `Content-Type: application/json`. SMS and call creation also include:
+POST requests include `Content-Type: application/json`. Email, SMS, and call creation also include:
 
 ```http
 Idempotency-Key: hyperflow:{tenant_id}:{external_project_id}:{run_id}:{task_id}:{channel}:{ask_id-or-action}
@@ -644,9 +712,17 @@ POST {COMMUNICATIONS_API_URL}/v1/calls
 
 HyperFlow sends only the allow-listed voice overrides shown above.
 
+### Send email
+
+```http
+POST {COMMUNICATIONS_API_URL}/v1/emails
+```
+
+The body contains recipients, subject, text or HTML, `service_identity_id` or an explicit sender, optional `provider_connection_id`, purpose, callback URL, and the same tenant/project/run/task correlation used by other channels. HyperFlow does not store or expose provider credentials.
+
 ### Deliver a Human Ask
 
-There is no Communications `POST /v1/asks` delivery route. HyperFlow sends the Ask through `/v1/messages` or `/v1/calls` and adds:
+There is no Communications `POST /v1/asks` delivery route. HyperFlow sends the Ask through `/v1/emails`, `/v1/messages`, or `/v1/calls` and adds:
 
 ```json
 {
@@ -666,7 +742,7 @@ There is no Communications `POST /v1/asks` delivery route. HyperFlow sends the A
 }
 ```
 
-HyperFlow resolves each assignee to one unambiguous email address or E.164 number before delivery. Email and web-form delivery remain HyperFlow responsibilities.
+HyperFlow resolves each assignee to one unambiguous email address or E.164 number before delivery. The tokenized web form remains available as an email fallback.
 
 ### Resolve a Communications Ask
 
@@ -691,17 +767,22 @@ GET {COMMUNICATIONS_API_URL}/v1/communications/{communicationId}
 
 The current client supports `accepted`, `queued`, `ready`, `running`, `in_progress`, `waiting`, `completed`, and `failed` statuses.
 
+HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /v1/inbox` for provider-side triage, and `GET /v1/threads/{threadId}`. Provider-side disposition changes use `POST /v1/communications/{communicationId}/disposition`.
+
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Gemini helpers and report actions. |
-| `RESEND_API_KEY` | Email helper, email actions, and Human Ask email delivery. |
-| `RESEND_FROM_EMAIL` | Optional sender; defaults to `HyperFlow <automation@projectflow.online>`. |
+| `GEMINI_API_KEY` | Gemini helpers, report actions, and optional ambiguous-response interpretation. |
 | `COMMUNICATIONS_API_URL` | Communications Service base URL. |
 | `COMMUNICATIONS_API_KEY` | Backend-only outbound `X-API-Key` credential. |
 | `COMMUNICATIONS_WEBHOOK_SECRET` | Backend-only HMAC secret for `/api/events`; must match Communications. |
 | `COMMUNICATIONS_FROM_NUMBER` | Optional global E.164 sender fallback. |
+| `COMMUNICATIONS_EMAIL_IDENTITY` | Optional global email service-identity fallback; prefer tenant settings. |
+| `COMMUNICATIONS_CONNECTION_ID` | Optional global provider-connection fallback for Ask email delivery; prefer tenant settings. |
+| `COMMUNICATIONS_INTENT_MODEL` | Optional Gemini model for conservative ambiguous-response extraction. |
+| `CRON_SECRET` | Secret supplied by Vercel Cron to `/api/schedules/tick`. |
+| `SCHEDULER_SECRET` | Optional secret for a non-Vercel timer caller. |
 | `WEBHOOK_ALLOWED_HOSTS` | Optional comma-separated allowlist for webhook action hostnames. |
 | `PUBLIC_BASE_URL` | Public HTTPS origin for form links and Communications callbacks. |
 | `WEBHOOK_SECRET` | Shared secret for machine calls to `/api/flow/advance`. |

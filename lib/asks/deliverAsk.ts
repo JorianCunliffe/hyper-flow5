@@ -1,4 +1,3 @@
-import { Resend } from 'resend';
 import type { AskChannel, HumanAsk } from '../../types.js';
 import { createCommunicationsClient } from '../communications/client.js';
 import type { CommunicationResult, CommunicationsClient, HyperFlowCallOverrides } from '../communications/types.js';
@@ -12,6 +11,9 @@ export interface DeliverAskInput {
   deliveryToken?: string;
   recipient: string;
   fromNumber?: string;
+  emailIdentity?: string;
+  replyIdentity?: string;
+  connectionId?: string;
   channel: Exclude<AskChannel, 'web'>;
   publicBaseUrl?: string;
   client?: CommunicationsClient;
@@ -42,23 +44,7 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
   if (!baseUrl) throw new Error('PUBLIC_BASE_URL is required to deliver an ask');
   const formUrl = `${baseUrl}/forms/ask/${encodeURIComponent(input.deliveryToken || input.ask.token)}?org=${encodeURIComponent(input.orgId)}&project=${encodeURIComponent(input.projectId)}`;
 
-  if (input.channel === 'email') {
-    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY environment variable is required');
-    const result = await new Resend(process.env.RESEND_API_KEY).emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'HyperFlow <automation@projectflow.online>',
-      to: input.recipient,
-      subject: `HyperFlow response requested: ${input.ask.prompt.slice(0, 80)}`,
-      html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`
-    });
-    if (result.error) throw new Error(result.error.message || 'Resend rejected the ask email');
-    return { id: `email_${result.data?.id || input.ask.id}`, status: 'accepted' };
-  }
-
   if (!input.ask.runId) throw new Error(`Ask ${input.ask.id} has no run_id correlation`);
-  const from = (input.fromNumber || process.env.COMMUNICATIONS_FROM_NUMBER || '').trim();
-  if (!e164.test(from)) throw new Error('A valid E.164 Communications sending number is required');
-  if (!e164.test(input.recipient)) throw new Error(`Person identity "${input.personId}" phone number must use E.164 format`);
-
   const client = input.client || createCommunicationsClient();
   const correlation = {
     tenant_id: input.orgId,
@@ -73,6 +59,28 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
     token: input.deliveryToken || input.ask.token
   };
   const callback_url = callbackUrl(baseUrl);
+
+  if (input.channel === 'email') {
+    const identity = (input.emailIdentity || process.env.COMMUNICATIONS_EMAIL_IDENTITY || '').trim();
+    if (!identity) throw new Error('A Communications email service identity is required');
+    return client.sendEmail({
+      to: [input.recipient],
+      service_identity_id: identity,
+      provider_connection_id: input.connectionId || process.env.COMMUNICATIONS_CONNECTION_ID || undefined,
+      reply_to: input.replyIdentity ? [input.replyIdentity] : undefined,
+      subject: `HyperFlow response requested: ${input.ask.prompt.slice(0, 80)}`,
+      text: `${input.ask.prompt}\n\nSecure response form: ${formUrl}`,
+      html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`,
+      person_id: input.personId,
+      purpose,
+      correlation,
+      callback_url
+    });
+  }
+
+  const from = (input.fromNumber || process.env.COMMUNICATIONS_FROM_NUMBER || '').trim();
+  if (!e164.test(from)) throw new Error('A valid E.164 Communications sending number is required');
+  if (!e164.test(input.recipient)) throw new Error(`Person identity "${input.personId}" phone number must use E.164 format`);
 
   return input.channel === 'sms'
     ? client.sendSms({ to: input.recipient, from, body: input.ask.prompt, purpose, correlation, callback_url })

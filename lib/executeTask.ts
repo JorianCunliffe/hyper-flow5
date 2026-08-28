@@ -1,5 +1,4 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { Resend } from 'resend';
 import { createCommunicationsClient } from './communications/client.js';
 import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides } from './communications/types.js';
 import { safeWebhookFetch } from './safeWebhook.js';
@@ -22,6 +21,9 @@ export interface TaskExecutionResult {
 export interface ExecuteContext {
   webhookBaseUrl?: string;
   communicationsFromNumber?: string;
+  communicationsEmailIdentity?: string;
+  communicationsReplyIdentity?: string;
+  communicationsConnectionId?: string;
   correlation?: {
     orgId?: string;
     projectId?: string;
@@ -157,32 +159,56 @@ export async function executeTask(
   const logs: string[] = [];
 
   if (taskType === 'send_email') {
-    logs.push('--- DISPATCHING EMAIL VIA RESEND ---');
+    logs.push('--- DISPATCHING EMAIL VIA COMMUNICATIONS API ---');
     const emailBody = templateData.body || parsedContent;
 
     try {
-      if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY environment variable is required');
-      const resendClient = new Resend(process.env.RESEND_API_KEY);
-      const data = await resendClient.emails.send({
-        from: process.env.RESEND_FROM_EMAIL || 'HyperFlow <automation@projectflow.online>',
-        to: templateData.to,
-        subject: templateData.subject || 'New Communication',
-        text: emailBody
+      const to = Array.isArray(templateData.to) ? templateData.to : [templateData.to].filter(Boolean);
+      if (!to.length) throw new Error('Email destination "to" is required');
+      const serviceIdentityId = String(
+        templateData.service_identity_id || ctx?.communicationsEmailIdentity || process.env.COMMUNICATIONS_EMAIL_IDENTITY || ''
+      ).trim();
+      const from = typeof templateData.from === 'string' ? templateData.from.trim() : '';
+      if (!from && !serviceIdentityId) {
+        throw new Error('A Communications email from address or service identity is required');
+      }
+      const result = await createCommunicationsClient().sendEmail({
+        to: to.map(String),
+        cc: Array.isArray(templateData.cc) ? templateData.cc.map(String) : undefined,
+        bcc: Array.isArray(templateData.bcc) ? templateData.bcc.map(String) : undefined,
+        ...(from ? { from } : { service_identity_id: serviceIdentityId }),
+        provider_connection_id: templateData.provider_connection_id || ctx?.communicationsConnectionId || undefined,
+        reply_to: Array.isArray(templateData.reply_to)
+          ? templateData.reply_to.map(String)
+          : (templateData.reply_to || ctx?.communicationsReplyIdentity)
+            ? [String(templateData.reply_to || ctx?.communicationsReplyIdentity)]
+            : undefined,
+        subject: String(templateData.subject || 'New Communication'),
+        text: String(emailBody || ''),
+        correlation: communicationCorrelation(ctx),
+        purpose: { type: 'workflow_action' },
+        callback_url: communicationCallbackUrl(ctx)
       });
-      if (data.error) throw new Error(data.error.message || 'Resend rejected the email');
-      logs.push(`Email accepted by Resend${data.data?.id ? ` as ${data.data.id}` : ''}`);
+      if (result.status === 'failed') throw new Error(result.error || 'Communications rejected the email');
+      logs.push(`Email ${result.id} accepted by Communications`);
 
       return {
         httpStatus: 200,
         body: {
           status: 'success',
-          output: { email_sent: true, email_data: templateData, resend_id: data.data?.id },
+          output: {
+            email_sent: true,
+            email_data: templateData,
+            communication_id: result.id,
+            thread_id: result.threadId,
+            communication_status: result.status
+          },
           logs
         }
       };
     } catch (error: any) {
-      logs.push(`Resend Error: ${error.message}`);
-      return { httpStatus: 500, body: { error: error.message, logs } };
+      logs.push(`Communications Error: ${error.message}`);
+      return { httpStatus: 500, body: { status: 'error', error: error.message, logs } };
     }
   } else if (taskType === 'send_sms') {
     const smsTo = templateData.to || projectData?.contact_phone || projectData?.phone_number;
