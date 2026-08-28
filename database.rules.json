@@ -51,7 +51,10 @@
 
     "triage_items": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        ".indexOn": "updatedAt"
+      }
     },
 
     "schedules": {
