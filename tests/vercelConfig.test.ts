@@ -12,6 +12,7 @@ const walkTs = (directory: string): string[] => fs.readdirSync(directory, { with
 
 describe('Vercel Hobby deployment configuration', () => {
   const config = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+  const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
   test('stays within the twelve-function deployment limit', () => {
     assert.ok(walkTs(path.join(root, 'api')).length <= 12);
@@ -27,5 +28,9 @@ describe('Vercel Hobby deployment configuration', () => {
 
   test('uses a Hobby-compatible daily cron', () => {
     assert.deepEqual(config.crons, [{ path: '/api/schedules/tick', schedule: '0 0 * * *' }]);
+  });
+
+  test('keeps Firebase Admin loadable in Vercel CommonJS functions', () => {
+    assert.equal(packageJson.overrides?.['jwks-rsa']?.jose, '4.15.9');
   });
 });
