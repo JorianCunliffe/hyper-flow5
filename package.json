@@ -11,7 +11,7 @@
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "start": "node dist/server.cjs",
     "test:e2e": "node tests/e2e/inbound.e2e.mjs",
-    "test:rules": "npx --yes firebase-tools emulators:exec --only database --config firebase.test.json \"node tests/e2e/rules.test.mjs\"",
+    "test:rules": "npx --yes firebase-tools emulators:exec --project hyper-flow-a459b --only database --config firebase.test.json \"node tests/e2e/rules.test.mjs\"",
     "check:live": "node tests/e2e/live-rules-check.mjs",
     "migrate:memberships": "tsx scripts/migrateMemberships.ts"
   },

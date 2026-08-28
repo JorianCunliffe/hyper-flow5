@@ -2,6 +2,7 @@
 // membership and invites are server-owned; clients may only access tenant data
 // when a corresponding organizations/{orgId}/members/{uid} record exists.
 const DB = 'http://127.0.0.1:9010';
+const PROJECT_ID = 'hyper-flow-a459b';
 const NS = 'hyper-flow-a459b-default-rtdb';
 
 let pass = 0, fail = 0;
@@ -12,8 +13,8 @@ const ok = (condition, label, detail) => {
 const section = label => console.log(`\n${label}`);
 const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
 const tokenFor = uid => `${b64({ alg: 'none', typ: 'JWT' })}.${b64({
-  sub: uid, user_id: uid, iss: `https://securetoken.google.com/${NS}`,
-  aud: NS, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600,
+  sub: uid, user_id: uid, iss: `https://securetoken.google.com/${PROJECT_ID}`,
+  aud: PROJECT_ID, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600,
   firebase: { sign_in_provider: 'password' }
 })}.`;
 
