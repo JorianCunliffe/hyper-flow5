@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy } from '../../types';
+import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy, AskChannel } from '../../types';
 import { NODE_TYPE_META } from '../../constants';
 import { isActionNode, getNodeType } from '../../lib/flowEngine';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
+import { buildReviewPolicy } from '../../lib/reviewPolicy';
 
 const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.EMAIL]: '{"to": "{{contact_email}}", "subject": "Update on {{project_name}}", "body": "Hi..."}',
@@ -35,6 +36,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
   const [reviewRequired, setReviewRequired] = useState(milestone.reviewPolicy?.required ?? false);
   const [reviewers, setReviewers] = useState<string[]>(milestone.reviewPolicy?.reviewers || []);
+  const [reviewChannels, setReviewChannels] = useState<AskChannel[]>(milestone.reviewPolicy?.channels || ['web']);
   const [slaHours, setSlaHours] = useState<number | ''>(milestone.reviewPolicy?.slaHours ?? '');
   const [onExpiry, setOnExpiry] = useState<NonNullable<ReviewPolicy['onExpiry']>>(milestone.reviewPolicy?.onExpiry || 'block');
   const [maxRevisions, setMaxRevisions] = useState<number | ''>(milestone.reviewPolicy?.maxRevisions ?? '');
@@ -58,15 +60,14 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
     setJsonError(null);
     const updates: Partial<Milestone> = { nodeType };
 
-    updates.reviewPolicy = reviewRequired
-      ? {
-          required: true,
-          reviewers: reviewers.length ? reviewers : undefined,
-          slaHours: slaHours === '' ? undefined : Number(slaHours),
-          onExpiry,
-          maxRevisions: maxRevisions === '' ? undefined : Number(maxRevisions)
-        }
-      : undefined;
+    updates.reviewPolicy = buildReviewPolicy(milestone.reviewPolicy, {
+      required: reviewRequired,
+      reviewers,
+      channels: reviewChannels,
+      slaHours,
+      onExpiry,
+      maxRevisions
+    });
 
     if (nodeType === NodeType.DECISION) {
       // Keep only branches pointing at current children
@@ -336,6 +337,28 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
                 )}
                 <p className="text-[10px] text-slate-400 mt-1">Leave empty to fall back to whoever is accountable for the node's tasks.</p>
               </div>
+
+              <fieldset>
+                <legend className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delivery channels</legend>
+                <div className="flex flex-wrap gap-2">
+                  {(['web', 'email', 'sms', 'voice'] as AskChannel[]).map(channel => {
+                    const selected = reviewChannels.includes(channel);
+                    return (
+                      <label key={channel} className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => setReviewChannels(current => selected
+                            ? current.filter(item => item !== channel)
+                            : [...current, channel])}
+                        />
+                        {channel}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Web keeps the Ask in HyperFlow. External channels deliver it through the Communications Service.</p>
+              </fieldset>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
