@@ -293,12 +293,19 @@ async function startServer() {
       const state = verifyGoogleOAuthState(String(req.query.state || ''));
       await requireOrganizationMember(state.uid, state.tenantId);
       if (!await consumeOAuthStateNonce(state.tenantId, state.nonce, state.uid)) {
+        console.warn('[google-oauth] callback rejected: state unavailable');
         return res.status(400).json({ error: 'OAuth state was already used or expired' });
       }
       const code = String(req.query.code || '');
-      if (!code) return res.status(400).json({ error: 'Google authorization code is required' });
+      if (!code) {
+        console.warn('[google-oauth] callback rejected: code missing');
+        return res.status(400).json({ error: 'Google authorization code is required' });
+      }
       const tokens = await exchangeGoogleCode(code);
-      if (!tokens.refresh_token) return res.status(400).json({ error: 'Google did not issue offline access; reconnect and grant consent' });
+      if (!tokens.refresh_token) {
+        console.warn('[google-oauth] callback rejected: refresh token missing');
+        return res.status(400).json({ error: 'Google did not issue offline access; reconnect and grant consent' });
+      }
       const accountEmail = await googleAccountEmail(tokens.access_token);
       await storeGoogleWorkspaceCredential(state.tenantId, {
         tokens, accountEmail, scopes: String(tokens.scope || '').split(/\s+/).filter(Boolean)
