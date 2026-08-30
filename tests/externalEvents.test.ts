@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createExternalEventRecord, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
+import { createExternalEventRecord, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
 
 const fixture = (name: string): any => JSON.parse(readFileSync(
   new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
@@ -57,6 +57,12 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventStatus('sms.failed'), 'error');
     assert.equal(terminalExternalEventStatus('transcript.completed'), null);
     assert.equal(terminalExternalEventStatus('future.completed'), null);
+  });
+
+  test('accepts canonical inbound communications and the legacy SMS alias', () => {
+    assert.equal(isInboundCommunicationEvent('communication.received'), true);
+    assert.equal(isInboundCommunicationEvent('sms.received'), true);
+    assert.equal(isInboundCommunicationEvent('sms.delivered'), false);
   });
 
   test('classifies current Communications sms.sent payload statuses', () => {

@@ -14,6 +14,9 @@ import {
   writeCommunicationDeliveryState
 } from './serverStore.js';
 import { triageItemFromEvent } from './triage/emailTriage.js';
+
+export const isInboundCommunicationEvent = (type: string): boolean =>
+  type === 'communication.received' || type === 'sms.received';
 import type { CommunicationResult } from './communications/types.js';
 
 export type ExternalEventProcessingStatus = 'received' | 'processing' | 'processed' | 'processing_failed';
@@ -219,7 +222,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       };
     }
 
-    if (event.type === 'communication.received') {
+    if (isInboundCommunicationEvent(event.type)) {
       const item = triageItemFromEvent(event, communication);
       if (tenantSettings.triagePolicy === 'correlated_only' && !item.askId && !item.projectId) {
         await finishExternalEventProcessing(orgId, event.event_id, 'processed');
