@@ -8,7 +8,7 @@ import {
   verifyGoogleOAuthState
 } from '../lib/integrations/googleOAuth';
 import { GOOGLE_SHEET_VALUE_INPUT_OPTION, googleWorkspaceConnectionId } from '../lib/integrations/googleWorkspace';
-import { normalizeWorkspaceResourceGrant } from '../lib/serverStore';
+import { consumeOAuthStateNonceAtRef, normalizeWorkspaceResourceGrant } from '../lib/serverStore';
 
 const envBefore = { ...process.env };
 afterEach(() => {
@@ -62,6 +62,54 @@ describe('Google OAuth state and authorization', () => {
       assert.match(source, /requireOrganizationMember\(state\.uid, state\.tenantId\)/);
       assert.doesNotMatch(source, /requireOrganizationMember\(state\.tenantId, state\.uid\)/);
     }
+  });
+
+  test('claims an unconsumed server nonce even when the transaction cache starts empty', async () => {
+    const now = 1_788_000_000_000;
+    let consumedAt: number | null = null;
+    const ref = {
+      get: async () => ({
+        exists: () => true,
+        val: () => ({ uid: 'user_1', expiresAt: now + 60_000 })
+      }),
+      child: (path: string) => {
+        assert.equal(path, 'consumedAt');
+        return {
+          transaction: async (update: (current: any) => any) => {
+            consumedAt = update(consumedAt);
+            return { committed: consumedAt !== undefined };
+          }
+        };
+      }
+    };
+
+    assert.equal(await consumeOAuthStateNonceAtRef(ref, 'user_1', now), true);
+    assert.equal(consumedAt, now);
+  });
+
+  test('rejects replay, expiry, and the wrong user before claiming a nonce', async () => {
+    const now = 1_788_000_000_000;
+    let transactionCalls = 0;
+    const refFor = (state: Record<string, unknown>) => ({
+      get: async () => ({ exists: () => true, val: () => state }),
+      child: () => ({
+        transaction: async () => {
+          transactionCalls += 1;
+          return { committed: true };
+        }
+      })
+    });
+
+    assert.equal(await consumeOAuthStateNonceAtRef(refFor({
+      uid: 'user_1', expiresAt: now + 60_000, consumedAt: now - 1
+    }), 'user_1', now), false);
+    assert.equal(await consumeOAuthStateNonceAtRef(refFor({
+      uid: 'user_1', expiresAt: now
+    }), 'user_1', now), false);
+    assert.equal(await consumeOAuthStateNonceAtRef(refFor({
+      uid: 'user_2', expiresAt: now + 60_000
+    }), 'user_1', now), false);
+    assert.equal(transactionCalls, 0);
   });
 });
 

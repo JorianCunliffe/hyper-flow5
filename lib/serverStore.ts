@@ -1299,18 +1299,39 @@ export const registerOAuthStateNonce = async (
     .set({ uid, expiresAt, createdAt: Date.now() });
 };
 
+interface OAuthStateNonceRef {
+  get: () => Promise<{ exists: () => boolean; val: () => any }>;
+  child: (path: string) => {
+    transaction: (update: (current: any) => any) => Promise<{ committed: boolean }>;
+  };
+}
+
+/**
+ * Claims only the nonce's consumedAt child after validating the server record.
+ * Firebase Admin may invoke a transaction updater with a cold-cache null before
+ * it has read the canonical value. Null is the valid unclaimed value for this
+ * child, so the transaction can propose the claim without weakening replay
+ * protection; a concurrent claim makes Firebase rerun it with a timestamp.
+ */
+export const consumeOAuthStateNonceAtRef = async (
+  ref: OAuthStateNonceRef,
+  uid: string,
+  now = Date.now()
+): Promise<boolean> => {
+  const snapshot = await ref.get();
+  const state = snapshot.exists() ? snapshot.val() : null;
+  if (!state || state.uid !== uid || Number(state.expiresAt) <= now || state.consumedAt != null) return false;
+  const result = await ref.child('consumedAt').transaction(current => current == null ? now : undefined);
+  return result.committed;
+};
+
 export const consumeOAuthStateNonce = async (
   orgId: string,
   nonce: string,
   uid: string
 ): Promise<boolean> => {
-  const now = Date.now();
   const ref = getDb().ref(`oauth_states/${safeRtdbKey(orgId)}/${safeRtdbKey(nonce)}`);
-  const result = await ref.transaction(current => {
-    if (!current || current.uid !== uid || Number(current.expiresAt) <= now || current.consumedAt) return undefined;
-    return { ...current, consumedAt: now };
-  });
-  return result.committed;
+  return consumeOAuthStateNonceAtRef(ref, uid);
 };
 
 const workspaceGrantRef = (orgId: string, projectId: string) =>
