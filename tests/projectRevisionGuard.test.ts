@@ -17,14 +17,25 @@ describe('browser project revision guard', () => {
     ), false);
   });
 
-  test('rejects missing, additional, or duplicate project identities', () => {
+  test('accepts intentional project creation and deletion at a matching tenant revision', () => {
     assert.equal(projectCollectionsShareRevisions(
       [{ id: 'p-1', revision: 1 }, { id: 'p-2', revision: 1 }],
       [{ id: 'p-1', revision: 1 }]
-    ), false);
+    ), true);
+    assert.equal(projectCollectionsShareRevisions(
+      [{ id: 'p-1', revision: 1 }],
+      [{ id: 'p-1', revision: 1 }, { id: 'p-2', revision: 0 }]
+    ), true);
+  });
+
+  test('rejects duplicate project identities in either collection', () => {
     assert.equal(projectCollectionsShareRevisions(
       [{ id: 'p-1', revision: 1 }, { id: 'p-1', revision: 1 }],
       [{ id: 'p-1', revision: 1 }, { id: 'p-2', revision: 1 }]
+    ), false);
+    assert.equal(projectCollectionsShareRevisions(
+      [{ id: 'p-1', revision: 1 }],
+      [{ id: 'p-1', revision: 1 }, { id: 'p-1', revision: 1 }]
     ), false);
   });
 });
