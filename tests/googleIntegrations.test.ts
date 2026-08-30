@@ -131,3 +131,12 @@ describe('Google Workspace tenant grants', () => {
     }), /Invalid Google resource/);
   });
 });
+
+describe('integration connection identity separation', () => {
+  test('selecting a mailbox cannot overwrite the Communications provider connection', () => {
+    const source = readFileSync(new URL('../components/modals/SettingsModal.tsx', import.meta.url), 'utf8');
+    const mailboxHandler = source.match(/<select id="mailbox-connection"[^>]+>/)?.[0] || '';
+    assert.match(mailboxHandler, /mailboxConnectionId/);
+    assert.doesNotMatch(mailboxHandler, /\bconnectionId\s*:/);
+  });
+});

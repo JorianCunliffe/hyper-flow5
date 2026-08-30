@@ -632,7 +632,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="mailbox-connection"><Link2 size={14} className="inline mr-1" />Connected mailbox</label>
-                  <select id="mailbox-connection" value={settings.communications?.mailboxConnectionId || ''} onChange={event => updateCommunications({ mailboxConnectionId: event.target.value || undefined, connectionId: event.target.value || settings.communications?.connectionId })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                  <select id="mailbox-connection" value={settings.communications?.mailboxConnectionId || ''} onChange={event => updateCommunications({ mailboxConnectionId: event.target.value || undefined })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
                     <option value="">No connected mailbox</option>
                     {integrationStatus.mailboxes.map(connection => <option key={connection.id} value={connection.id}>{connection.provider}: {connection.mailboxAddress} ({connection.state})</option>)}
                   </select>
