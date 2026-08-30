@@ -14,6 +14,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       return res.status(200).json({ ok: true, results: await tickSchedules() });
     } catch (error: any) {
+      console.error('Scheduled tick failed', {
+        name: error?.name || 'Error',
+        message: error?.message || String(error)
+      });
       return res.status(500).json({ error: error?.message || String(error) });
     }
   }
