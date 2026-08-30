@@ -61,10 +61,12 @@ The fixture is a non-terminal `communication.created` event. It writes one idemp
 
 The checked-in Vercel Hobby cron is a daily fallback only. Production omnichannel operation needs a trusted invocation at least every five minutes.
 
-Choose one:
+The production repository includes `.github/workflows/scheduler.yml`, which calls the endpoint at minutes 2, 7, 12, and so on. Configure the same generated value as Vercel `SCHEDULER_SECRET` and GitHub Actions secret `HYPERFLOW_SCHEDULER_SECRET`, then enable the workflow on the default branch.
+
+Alternative options are:
 
 - upgrade the HyperFlow Vercel project and change the cron to `*/5 * * * *`; or
-- configure an external scheduler to `POST https://<hyperflow-origin>/api/schedules/tick` with `x-hyperflow-scheduler-secret: <SCHEDULER_SECRET>`.
+- configure another external scheduler to `POST https://<hyperflow-origin>/api/schedules/tick` with `x-hyperflow-scheduler-secret: <SCHEDULER_SECRET>`.
 
 Do not put `SCHEDULER_SECRET` in the URL. Verify two consecutive invocations and confirm the operations panel shows successful schedule claims without duplicate occurrences.
 

@@ -1,0 +1,31 @@
+name: HyperFlow Scheduler
+
+on:
+  schedule:
+    # Offset from minute zero to reduce queueing at the busiest cron boundary.
+    - cron: '2/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hyperflow-production-scheduler
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Claim due HyperFlow schedules
+        env:
+          HYPERFLOW_SCHEDULER_SECRET: ${{ secrets.HYPERFLOW_SCHEDULER_SECRET }}
+        run: |
+          test -n "$HYPERFLOW_SCHEDULER_SECRET"
+          curl --silent --show-error --fail --max-time 45 --retry 2 \
+            --request POST \
+            --header "x-hyperflow-scheduler-secret: $HYPERFLOW_SCHEDULER_SECRET" \
+            --output scheduler-response.json \
+            https://hyper-flow5.vercel.app/api/schedules/tick
+          node -e "const fs=require('node:fs');const body=JSON.parse(fs.readFileSync('scheduler-response.json','utf8'));if(body.ok!==true)process.exit(1);console.log('HyperFlow scheduler tick accepted')"
