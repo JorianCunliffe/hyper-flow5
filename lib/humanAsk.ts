@@ -12,6 +12,7 @@ import {
 } from '../types.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
 import { createAsk, newAskId as createNewAskId, newAskToken as createNewAskToken } from './asks/createAsk.js';
+import { checkReadyCondition } from './taskReadinessUtils.js';
 
 /**
  * Human-in-the-loop asks: pure logic only.
@@ -91,9 +92,17 @@ export const asksForRun = (node: Milestone, runId?: string): HumanAsk[] =>
  * For action nodes the approval must belong to the *current* run — otherwise a
  * node that is re-run by a loop would inherit an approval given for earlier work.
  */
-export const isReviewSatisfied = (node: Milestone): boolean => {
+export const reviewPolicyApplies = (node: Milestone, projectData?: Record<string, any>): boolean => {
   const policy = node.reviewPolicy;
-  if (!policy?.required) return true;
+  if (!policy?.required) return false;
+  if (!policy.when?.length) return true;
+  if (!projectData) return true;
+  return policy.when.every(condition => checkReadyCondition(condition, projectData));
+};
+
+export const isReviewSatisfied = (node: Milestone, projectData?: Record<string, any>): boolean => {
+  const policy = node.reviewPolicy;
+  if (!reviewPolicyApplies(node, projectData)) return true;
 
   const runId = isActionNode(node) ? node.actionConfig?.lastRun?.id : undefined;
   const relevant = (node.asks || []).filter(a => a.kind === 'approval' && (!runId || a.runId === runId));
@@ -108,9 +117,9 @@ export const isReviewSatisfied = (node: Milestone): boolean => {
 };
 
 /** True when a node needs a review ask raised that does not exist yet. */
-export const needsApprovalAsk = (node: Milestone): boolean => {
+export const needsApprovalAsk = (node: Milestone, projectData?: Record<string, any>): boolean => {
   const policy = node.reviewPolicy;
-  if (!policy?.required) return false;
+  if (!reviewPolicyApplies(node, projectData)) return false;
 
   const runId = isActionNode(node) ? node.actionConfig?.lastRun?.id : undefined;
   const relevant = (node.asks || []).filter(

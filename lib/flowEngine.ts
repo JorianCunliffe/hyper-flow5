@@ -34,10 +34,12 @@ export const isNodeWorkDone = (m: Milestone): boolean => {
  * been satisfied. An unreviewed node stays pending, so the flow does not run
  * ahead of the person who is supposed to sign the work off.
  */
-export const isNodeComplete = (m: Milestone): boolean => isNodeWorkDone(m) && isReviewSatisfied(m);
+export const isNodeComplete = (m: Milestone, projectData?: Record<string, any>): boolean =>
+  isNodeWorkDone(m) && isReviewSatisfied(m, projectData);
 
 /** A node whose work is finished but which is waiting on a human. */
-export const isAwaitingReview = (m: Milestone): boolean => isNodeWorkDone(m) && !isReviewSatisfied(m);
+export const isAwaitingReview = (m: Milestone, projectData?: Record<string, any>): boolean =>
+  isNodeWorkDone(m) && !isReviewSatisfied(m, projectData);
 
 const getChildren = (milestones: Milestone[], id: string): Milestone[] =>
   milestones.filter(m => (m.dependsOn || []).includes(id));
@@ -82,7 +84,7 @@ export const resolveNodeStates = (project: Project): Map<string, NodeResolution>
       }
     }
 
-    const state: NodeResolution = skipped ? 'skipped' : isNodeComplete(m) ? 'complete' : 'pending';
+    const state: NodeResolution = skipped ? 'skipped' : isNodeComplete(m, project.projectData) ? 'complete' : 'pending';
     states.set(id, state);
     return state;
   };
@@ -260,7 +262,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
   // raised. Skipped nodes are excluded — nobody should be asked to review work
   // on a branch the flow never took.
   const asksToOpen = current.milestones
-    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m) && needsApprovalAsk(m))
+    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m) && needsApprovalAsk(m, current.projectData))
     .map(m => m.id);
 
   return { project: current, actionsToRun, asksToOpen, log };

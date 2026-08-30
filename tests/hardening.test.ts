@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import { isPrivateAddress } from '../lib/safeWebhook.js';
 import { renderAskForm } from '../lib/askForm.js';
 import { recordAskResponse } from '../lib/humanAsk.js';
+import { validateAskUpload } from '../lib/serverStore.js';
 import type { HumanAsk, HumanResponse } from '../types.js';
 
 const ask = (overrides: Partial<HumanAsk> = {}): HumanAsk => ({
@@ -62,5 +63,56 @@ describe('rendered Ask form', () => {
     assert.match(html, /Approve &lt;this&gt;\?/);
     assert.match(html, /fetch\(location.href/);
     assert.doesNotMatch(html, /projectData/);
+  });
+
+  test('renders the escaped work product and only safe artifact links', () => {
+    const html = renderAskForm({
+      ask: ask({
+        artifact: {
+          kind: 'markdown', title: 'Draft <one>', content: '# Hello <script>alert(1)</script>',
+          previousContent: 'Old <draft>', evaluation: { confidence: 0.8 }
+        }
+      }),
+      projectName: 'Project', nodeName: 'Review'
+    });
+    assert.match(html, /Draft &lt;one&gt;/);
+    assert.match(html, /# Hello &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.match(html, /Old &lt;draft&gt;/);
+    assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
+
+    const unsafe = renderAskForm({
+      ask: ask({ artifact: { kind: 'link', url: 'javascript:alert(1)', title: 'Open' } }),
+      projectName: 'Project', nodeName: 'Review'
+    });
+    assert.doesNotMatch(unsafe, /href=/);
+  });
+
+  test('renders declared file fields and submits uploads rather than trusted attachment metadata', () => {
+    const html = renderAskForm({
+      ask: ask({
+        kind: 'upload',
+        fields: [{ name: 'evidence', label: 'Evidence', type: 'file', required: true }]
+      }),
+      projectName: 'Project', nodeName: 'Upload'
+    });
+    assert.match(html, /name=\"evidence\" type=\"file\"/);
+    assert.match(html, /uploads\.push/);
+    assert.doesNotMatch(html, /JSON\.stringify\([^)]*attachments/);
+  });
+});
+
+describe('Ask upload validation', () => {
+  const upload = { field: 'evidence', name: 'note.txt', mime: 'text/plain', base64: Buffer.from('hello').toString('base64') };
+
+  test('accepts a canonical, allowlisted upload for a declared field', () => {
+    const result = validateAskUpload(upload, ['evidence']);
+    assert.equal(result.bytes.toString('utf8'), 'hello');
+  });
+
+  test('rejects undeclared fields, unsafe names, unapproved MIME types and oversized files', () => {
+    assert.throws(() => validateAskUpload(upload, []), /not declared/);
+    assert.throws(() => validateAskUpload({ ...upload, name: '../note.txt' }, ['evidence']), /filename/);
+    assert.throws(() => validateAskUpload({ ...upload, mime: 'text/html' }, ['evidence']), /type/);
+    assert.throws(() => validateAskUpload({ ...upload, base64: Buffer.alloc(2 * 1024 * 1024 + 1).toString('base64') }, ['evidence']), /2 MB/);
   });
 });

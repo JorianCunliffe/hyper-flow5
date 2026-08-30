@@ -82,6 +82,8 @@ export interface CommunicationResult {
   subject?: string;
   sender?: string;
   recipients?: string[];
+  providerThreadId?: string;
+  messageId?: string;
   correlation?: Partial<CommunicationCorrelation>;
   purpose?: CommunicationPurpose;
   outcome?: Record<string, unknown>;
@@ -98,6 +100,7 @@ export interface CommunicationListOptions {
   personId?: string;
   direction?: 'inbound' | 'outbound';
   memoryEligible?: boolean;
+  connectionId?: string;
 }
 
 export interface CommunicationListResult {
@@ -129,6 +132,40 @@ export interface ResolveAskResult {
   communication_id: string;
 }
 
+export interface CommunicationsMailboxRef {
+  id: string;
+  provider: 'gmail' | 'outlook';
+  mailboxAddress: string;
+  state: 'connected' | 'pending' | 'healthy' | 'syncing' | 'degraded' | 'expired' | 'revoked';
+  scopes: string[];
+  lastSuccessfulSyncAt?: string;
+  watchExpiration?: string;
+  lastError?: string;
+  canCreateDrafts: boolean;
+}
+
+export interface CommunicationsPersonRef {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface MailboxDraftRequest {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  reply_to?: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  communication_id?: string;
+  provider_thread_id?: string;
+  in_reply_to?: string;
+  references?: string;
+  initiator_id?: string;
+}
+
 export interface CommunicationsClient {
   sendSms(request: SendSmsRequest): Promise<CommunicationResult>;
   startCall(request: StartCallRequest): Promise<CommunicationResult>;
@@ -139,4 +176,10 @@ export interface CommunicationsClient {
   listTriageItems(tenantId: string, options?: CommunicationListOptions): Promise<CommunicationsTriageItem[]>;
   setTriageDisposition(tenantId: string, itemId: string, disposition: string): Promise<CommunicationsTriageItem>;
   resolveAsk(tenantId: string, askId: string, communicationId: string): Promise<ResolveAskResult>;
+  listMailboxes(tenantId: string): Promise<CommunicationsMailboxRef[]>;
+  listPeople(tenantId: string): Promise<CommunicationsPersonRef[]>;
+  startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string>;
+  syncMailbox(tenantId: string, connectionId: string, initiatorId?: string): Promise<Record<string, unknown>>;
+  createMailboxDraft(tenantId: string, connectionId: string, request: MailboxDraftRequest, idempotencyKey: string): Promise<Record<string, unknown>>;
+  getMailboxDraft(tenantId: string, connectionId: string, draftId: string): Promise<Record<string, unknown>>;
 }

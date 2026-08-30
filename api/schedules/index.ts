@@ -30,12 +30,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') return res.status(200).json({ data: await listTenantSchedules(member.orgId) });
     if (req.method === 'POST' || req.method === 'PATCH') {
       const settings = req.method === 'POST' ? await readTenantCommunicationsSettings(member.orgId) : undefined;
+      const activity = req.body?.activity || 'communications_triage';
       const schedule = await saveTenantSchedule(member.orgId, {
         ...(req.body || {}),
-        ...(req.method === 'POST' ? {
+        ...(req.method === 'POST' && activity === 'communications_triage' ? {
           policy: req.body?.policy || settings?.sendPolicy || 'draft_only',
           timezone: req.body?.timezone || settings?.timezone || 'Australia/Brisbane',
-          connectionId: req.body?.connectionId || settings?.connectionId
+          connectionId: req.body?.connectionId || settings?.mailboxConnectionId || settings?.connectionId
         } : {})
       });
       return res.status(req.method === 'POST' ? 201 : 200).json({ schedule });

@@ -4,11 +4,11 @@
 
 import { createHmac } from 'node:crypto';
 
-const APP = 'http://localhost:3000';
-const DB = 'http://127.0.0.1:9000';
+const APP = process.env.HYPERFLOW_E2E_URL || 'http://localhost:3000';
+const DB = `http://${process.env.FIREBASE_DATABASE_EMULATOR_HOST || '127.0.0.1:9010'}`;
 // The admin SDK derives the emulator namespace from the databaseURL hostname,
 // so this must match FIREBASE_DATABASE_URL's first label.
-const NS = 'demo-hyperflow-default-rtdb';
+const NS = process.env.FIREBASE_DATABASE_NAMESPACE || 'demo-hyperflow-default-rtdb';
 const ORG = 'org_test';
 const SECRET = 'test-secret-123';
 
@@ -18,12 +18,15 @@ const ok = (cond, label, detail) => {
   else { fail++; console.log(`  \x1b[31m✗\x1b[0m ${label}${detail ? `\n      ${detail}` : ''}`); }
 };
 const section = (t) => console.log(`\n\x1b[1m${t}\x1b[0m`);
+const emulatorAdminHeaders = { Authorization: 'Bearer owner' };
 
 const dbPut = async (path, value) => {
-  const r = await fetch(`${DB}/${path}.json?ns=${NS}`, { method: 'PUT', body: JSON.stringify(value) });
+  const r = await fetch(`${DB}/${path}.json?ns=${NS}`, {
+    method: 'PUT', headers: emulatorAdminHeaders, body: JSON.stringify(value)
+  });
   if (!r.ok) throw new Error(`seed failed ${r.status}: ${await r.text()}`);
 };
-const dbGet = async (path) => (await fetch(`${DB}/${path}.json?ns=${NS}`)).json();
+const dbGet = async (path) => (await fetch(`${DB}/${path}.json?ns=${NS}`, { headers: emulatorAdminHeaders })).json();
 
 const req = async (method, path, body, headers = {}) => {
   const r = await fetch(`${APP}${path}`, {
@@ -36,9 +39,13 @@ const req = async (method, path, body, headers = {}) => {
   try { json = JSON.parse(text); } catch { /* keep text */ }
   return { status: r.status, json, text };
 };
-const signedHeaders = (body, secret = SECRET) => ({
-  'X-Communications-Signature': `sha256=${createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex')}`
-});
+const signedHeaders = (body, secret = SECRET) => {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  return {
+    'X-Communications-Timestamp': timestamp,
+    'X-Communications-Signature-V2': `sha256=${createHmac('sha256', secret).update(`${timestamp}.${JSON.stringify(body)}`).digest('hex')}`
+  };
+};
 
 const seedProject = async () => {
   await dbPut(`projects/${ORG}`, {
@@ -107,10 +114,10 @@ const run = async () => {
   section('Guards (auth, method, validation)');
   {
     let r = await req('POST', '/api/flow/advance', { orgId: ORG, projectId: 'proj_1' });
-    ok(r.status === 403, 'flow/advance without secret → 403', `got ${r.status}`);
+    ok(r.status === 401, 'flow/advance without secret → 401', `got ${r.status}`);
 
     r = await req('POST', '/api/flow/advance', { orgId: ORG, projectId: 'proj_1' }, { 'x-webhook-secret': 'wrong' });
-    ok(r.status === 403, 'flow/advance with wrong secret → 403', `got ${r.status}`);
+    ok(r.status === 401, 'flow/advance with wrong secret → 401', `got ${r.status}`);
 
     r = await req('POST', '/api/events', communicationEvent(), signedHeaders(communicationEvent(), 'wrong'));
     ok(r.status === 401, 'event inbox with wrong HMAC signature → 401', `got ${r.status}`);
@@ -121,8 +128,8 @@ const run = async () => {
 
     const orphan = { event_id: 'evt_orphan', type: 'call.completed' };
     r = await req('POST', '/api/events', orphan, signedHeaders(orphan));
-    ok(r.status === 200 && /missing .*correlation/.test(r.json?.reason || ''),
-      'event without correlation → persisted processing failure', JSON.stringify(r.json));
+    ok(r.status === 400 && /tenant_id/.test(r.json?.error || ''),
+      'event without trusted tenant correlation → 400', JSON.stringify(r.json));
 
     r = await req('GET', '/api/asks/tok_x');
     ok(r.status === 400, 'ask endpoint without org/project → 400', `got ${r.status}`);
@@ -196,7 +203,7 @@ const run = async () => {
     ok(report.actionConfig.revision?.count === 1, 'revision counter incremented');
     ok(report.actionConfig.revision?.priorOutput?.report_content === '# Draft one', 'rejected draft kept for the redo');
     ok(report.actionConfig.runHistory?.length === 1, 'rejected run archived');
-    ok(report.asks[0].responses[0].actor === 'Jorian', 'responder recorded');
+    ok(report.asks[0].responses[0].actor === 'via link', 'unverified actor claim is not trusted');
     ok(report.asks[0].responses[0].via === 'web', 'channel recorded');
 
     r = await req('POST', `/api/asks/tok_review_abc?org=${ORG}&project=proj_1`, { decision: 'approved' });
@@ -216,6 +223,16 @@ const run = async () => {
     ok(report.asks[0].status === 'open', 'gate not released by an ambiguous reply');
     ok(report.asks[0].responses.length === 1, 'but what they said was recorded');
     ok(report.actionConfig.lastRun.status === 'success', 'work left intact');
+  }
+
+  section('Expired Ask capability');
+  {
+    await seedProject();
+    await dbPut(`projects/${ORG}/projects/0/milestones/4/asks/0/dueAt`, Date.now() - 1);
+    let r = await req('GET', `/api/asks/tok_review_abc?org=${ORG}&project=proj_1`);
+    ok(r.status === 200 && r.json?.ask?.status === 'expired', 'expired Ask renders as closed', JSON.stringify(r.json));
+    r = await req('POST', `/api/asks/tok_review_abc?org=${ORG}&project=proj_1`, { decision: 'approved' });
+    ok(r.status === 400 && r.json?.error === 'ask_expired', 'expired Ask token cannot submit a response', JSON.stringify(r.json));
   }
 
   section('Server-side advance');

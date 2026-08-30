@@ -101,6 +101,7 @@ interface MilestoneNodeProps {
   onClick: () => void;
   settings: AppSettings;
   projectName: string;
+  projectData?: Record<string, any>;
   projectTimeUnit: string;
   duration: number;
 }
@@ -133,6 +134,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   onClick,
   settings,
   projectName,
+  projectData,
   projectTimeUnit,
   duration
 }) => {
@@ -272,7 +274,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
   const meta = NODE_TYPE_META[nodeType];
   const isMilestoneType = nodeType === NodeType.MILESTONE;
   const isAction = isActionNode(milestone);
-  const isComplete = isNodeComplete(milestone);
+  const isComplete = isNodeComplete(milestone, projectData);
   const lastRun = milestone.actionConfig?.lastRun;
 
   // Status accent for non-milestone nodes

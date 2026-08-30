@@ -22,6 +22,11 @@ describe('Vercel Hobby deployment configuration', () => {
     const rewrites = new Map(config.rewrites.map((rewrite: any) => [rewrite.source, rewrite.destination]));
     assert.equal(rewrites.get('/api/schedules/run'), '/api/schedules?action=run');
     assert.equal(rewrites.get('/api/schedules/tick'), '/api/schedules?action=tick');
+    assert.equal(rewrites.get('/api/integrations'), '/api/communications/status?action=integrations');
+    assert.equal(rewrites.get('/api/integrations/google/callback'), '/api/communications/status?action=google_callback');
+    assert.equal(rewrites.get('/api/agent/voice-context'), '/api/events?action=voice_context');
+    assert.equal(rewrites.get('/api/operations'), '/api/communications/status?action=operations');
+    assert.equal(rewrites.get('/api/operations/agent-jobs/replay'), '/api/communications/status?action=operations_replay');
     assert.equal(rewrites.get('/api/gemini/brainstormSubtasks'), '/api/gemini?action=brainstormSubtasks');
     assert.equal(rewrites.get('/api/gemini/generateProjectStructure'), '/api/gemini?action=generateProjectStructure');
   });

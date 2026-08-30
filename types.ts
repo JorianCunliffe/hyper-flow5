@@ -35,6 +35,177 @@ export interface CommunicationsSettings {
   triagePolicy?: 'all_inbound' | 'human_only' | 'correlated_only';
   sendPolicy?: 'draft_only' | 'allow_approved_send' | 'automatic';
   allowedAutomaticActions?: Array<'classify' | 'link_workflow' | 'progress_ask' | 'create_draft' | 'send_reply'>;
+  /** Tenant-selected mailbox connection. The credential remains in Communications Service. */
+  mailboxConnectionId?: string;
+}
+
+export type ConnectionState = 'connected' | 'degraded' | 'expired' | 'revoked' | 'pending';
+export type MailboxProvider = 'gmail' | 'outlook' | 'resend';
+
+/** Non-secret reference to a mailbox connection owned by Communications Service. */
+export interface MailboxConnectionRef {
+  id: string;
+  provider: MailboxProvider;
+  mailboxAddress: string;
+  state: ConnectionState;
+  scopes?: string[];
+  lastSuccessfulSyncAt?: number;
+  updatedAt: number;
+}
+
+/** Non-secret reference to Google credentials held by the server-side integration backend. */
+export interface WorkspaceConnectionRef {
+  id: string;
+  provider: 'google';
+  accountEmail: string;
+  state: ConnectionState;
+  scopes?: string[];
+  updatedAt: number;
+}
+
+export interface WorkspaceResourceGrant {
+  projectId: string;
+  connectionId: string;
+  documentId?: string;
+  spreadsheetId?: string;
+  sheetRange?: string;
+  updatedAt: number;
+}
+
+export interface ExternalActionReceipt {
+  id: string;
+  orgId: string;
+  projectId: string;
+  kind: 'google_sheet_append' | 'google_sheet_upsert' | 'mailbox_draft' | string;
+  idempotencyKey: string;
+  requestHash: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: number;
+  completedAt?: number;
+  response?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface CoachingSession {
+  id: string;
+  orgId: string;
+  projectId: string;
+  scheduleId?: string;
+  scheduleRunId?: string;
+  scheduledFor?: number;
+  communicationId?: string;
+  documentId?: string;
+  documentRevision?: string;
+  documentReadAt?: string;
+  spreadsheetId?: string;
+  sheetRange?: string;
+  sheetReadAt?: string;
+  disposition?: string;
+  transcriptId?: string;
+  status: 'scheduled' | 'calling' | 'review_required' | 'completed' | 'failed';
+  summary?: string;
+  progress?: string;
+  blockers?: string;
+  commitments?: string;
+  nextActions?: string;
+  confidence?: number;
+  sheetWrite?: Record<string, unknown>;
+  failureReason?: string;
+  attemptCount?: number;
+  nextRetryAt?: number;
+  retryStatus?: 'pending' | 'processing' | 'exhausted';
+  retryClaimedAt?: number;
+  retryLeaseExpiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TenantAgentProfile {
+  agentId: string;
+  displayName: string;
+  timezone: string;
+  primaryPersonId?: string;
+  defaultProjectId?: string;
+  allowedProjectIds?: string[];
+  /** Optional person-specific grants keyed by the stable Communications person UUID. */
+  personProjectAccess?: Array<{
+    personId: string;
+    projectIds: string[];
+  }>;
+  serviceIdentities?: {
+    phone?: string;
+    sms?: string;
+    email?: string;
+  };
+  clarificationPolicy?: 'always' | 'when_ambiguous';
+  automaticActions?: Array<'draft' | 'send' | 'call' | 'sheet_write'>;
+}
+
+export interface CommunicationsPersonRef {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface ConversationContext {
+  id: string;
+  orgId: string;
+  threadId: string;
+  personId?: string;
+  channel: 'email' | 'sms' | 'voice' | string;
+  activeProjectId?: string;
+  topic?: string;
+  selectionConfidence?: number;
+  clarificationState?: 'none' | 'awaiting_project';
+  replyWindowStartedAt?: number;
+  automaticReplyCount?: number;
+  lastAutomaticReplyAt?: number;
+  updatedAt: number;
+  expiresAt: number;
+}
+
+export interface ProjectRoutingDecision {
+  kind: 'routed' | 'clarification' | 'unavailable';
+  projectId?: string;
+  reason: 'trusted_correlation' | 'explicit_reference' | 'active_context' | 'default_project' | 'single_project' | 'ambiguous' | 'no_projects';
+  confidence: number;
+  candidateProjectIds: string[];
+  decidedAt: number;
+}
+
+export interface AgentInboxJob {
+  id: string;
+  orgId: string;
+  communicationId: string;
+  eventId: string;
+  channel: 'email' | 'sms' | 'voice' | string;
+  threadId?: string;
+  personId?: string;
+  trustedProjectId?: string;
+  status: 'pending' | 'processing' | 'completed' | 'needs_review' | 'failed';
+  attemptCount: number;
+  createdAt: number;
+  updatedAt: number;
+  claimedAt?: number;
+  leaseExpiresAt?: number;
+  routing?: ProjectRoutingDecision;
+  responseCommunicationId?: string;
+  responseDraftId?: string;
+  error?: string;
+}
+
+export interface AgentActionProposal {
+  kind: 'coaching_commitment' | 'coaching_next_action' | 'request_coaching_call';
+  projectId: string;
+  summary: string;
+  value?: string;
+  confidence: number;
+  status: 'pending' | 'processing' | 'applied' | 'rejected' | 'failed';
+  requestedAt: number;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  error?: string;
 }
 
 export type TriageDisposition =
@@ -87,30 +258,107 @@ export interface TriageItem {
   disposition: TriageDisposition;
   proposedAction?: string;
   interpretation?: TriageInterpretation;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  intent?: string;
+  requestedAction?: string;
+  deadline?: string;
+  risk?: 'low' | 'medium' | 'high';
+  summary?: string;
+  evidence?: string[];
+  recommendation?: string;
+  providerDraftId?: string;
+  agentProposal?: AgentActionProposal;
   audit: Array<{ at: number; action: string; actor: string; detail?: string }>;
   createdAt: number;
   updatedAt: number;
 }
 
-export interface TenantSchedule {
+export type ScheduleRecurrence =
+  | { kind: 'interval'; intervalMinutes: number }
+  | { kind: 'daily'; localTime: string };
+
+export type ScheduleMisfirePolicy = 'run_once' | 'catch_up' | 'skip';
+
+export interface TenantScheduleBase {
   id: string;
   orgId: string;
   name: string;
-  activity: 'communications_triage';
   enabled: boolean;
+  /** Retained for backward compatibility; recurrence is authoritative when present. */
   intervalMinutes: number;
+  recurrence: ScheduleRecurrence;
+  misfirePolicy: ScheduleMisfirePolicy;
   timezone: string;
-  connectionId?: string;
-  policy: 'draft_only' | 'allow_approved_send' | 'automatic';
   nextRunAt: number;
   createdAt: number;
   updatedAt: number;
 }
 
+export interface TriageDigest {
+  id: string;
+  orgId: string;
+  scheduleId: string;
+  scheduledFor: number;
+  timezone: string;
+  itemIds: string[];
+  counts: {
+    total: number;
+    outstanding: number;
+    urgent: number;
+    high: number;
+    needsReview: number;
+    draftsPrepared: number;
+  };
+  summary: string;
+  deliveryChannel: 'web' | 'email' | 'sms';
+  deliveryStatus: 'available' | 'drafted' | 'sent' | 'needs_review' | 'failed';
+  deliveryId?: string;
+  deliveryError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CommunicationsTriageSchedule extends TenantScheduleBase {
+  activity: 'communications_triage';
+  connectionId?: string;
+  policy: 'draft_only' | 'allow_approved_send' | 'automatic';
+  digestChannel?: 'web' | 'email' | 'sms';
+  digestRecipient?: string;
+}
+
+export interface FlowStartSchedule extends TenantScheduleBase {
+  activity: 'flow_start';
+  projectId: string;
+  flowId?: string;
+  input?: Record<string, unknown>;
+  resetPolicy?: 'none' | 'flow';
+  clearProjectDataKeys?: string[];
+}
+
+export type TenantSchedule = CommunicationsTriageSchedule | FlowStartSchedule;
+
+export type TenantScheduleInput = Partial<Omit<TenantScheduleBase, 'id' | 'orgId' | 'createdAt' | 'updatedAt'>> & {
+  id?: string;
+  name?: string;
+  activity?: TenantSchedule['activity'];
+  connectionId?: string;
+  policy?: CommunicationsTriageSchedule['policy'];
+  digestChannel?: CommunicationsTriageSchedule['digestChannel'];
+  digestRecipient?: string;
+  projectId?: string;
+  flowId?: string;
+  input?: Record<string, unknown>;
+  resetPolicy?: FlowStartSchedule['resetPolicy'];
+  clearProjectDataKeys?: string[];
+};
+
 export interface ScheduleRun {
   id: string;
   orgId: string;
   scheduleId: string;
+  activity: TenantSchedule['activity'];
+  projectId?: string;
+  flowId?: string;
   scheduledFor: number;
   status: 'running' | 'completed' | 'failed';
   claimId: string;
@@ -130,6 +378,10 @@ export interface AppSettings {
   roles: string[];
   teamMemberDetails?: Record<string, TeamMemberDetails>; // name -> details
   communications?: CommunicationsSettings;
+  agent?: TenantAgentProfile;
+  mailboxConnections?: Record<string, MailboxConnectionRef>;
+  workspaceConnections?: Record<string, WorkspaceConnectionRef>;
+  activeWorkspaceConnectionId?: string;
   statuses: string[];
   dateFormat: 'DD/MM/YY' | 'MM/DD/YY';
   nextProjectId?: number;
@@ -150,7 +402,11 @@ export enum NodeType {
   SMS = 'sms',
   PHONE_CALL = 'phone_call',
   WEBHOOK = 'webhook',
-  REPORT = 'report'
+  REPORT = 'report',
+  GOOGLE_DOC = 'google_doc',
+  GOOGLE_SHEET_READ = 'google_sheet_read',
+  GOOGLE_SHEET_APPEND = 'google_sheet_append',
+  COACHING_EXTRACT = 'coaching_extract'
 }
 
 export interface DecisionBranch {
@@ -311,6 +567,8 @@ export interface AskArtifact {
 
 export interface ReviewPolicy {
   required: boolean;
+  /** Optional project-data predicate. When it is false, this run needs no review. */
+  when?: ReadyCondition[];
   reviewers?: string[];
   channels?: AskChannel[];
   slaHours?: number;

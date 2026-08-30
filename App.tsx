@@ -75,6 +75,7 @@ import { CreateProjectModal } from './components/modals/CreateProjectModal';
 import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
 import { NodeConfigModal } from './components/modals/NodeConfigModal';
+import { dailyCoachingTemplate, emailTriageTemplate } from './lib/projectTemplates';
 
 const STORAGE_KEY = 'hyperflow_data_v1';
 const LEGACY_STORAGE_KEY = 'projectflow_data_v6';
@@ -1023,6 +1024,7 @@ export const App: React.FC = () => {
     setIsGenerating(true);
     let milestones: Milestone[] = [];
     let markers: TimelineMarkerType[] | undefined = undefined;
+    let templateProjectData: Record<string, any> | undefined;
     let currentTaskId = settings.nextTaskId || 1;
 
     const generateSubtask = (s: any) => {
@@ -1046,7 +1048,17 @@ export const App: React.FC = () => {
       subtasks: [generateSubtask({ name: 'Define Scope', description: 'Basic requirements gather' })]
     }];
 
-    if (newProjectData.cloneFromId) {
+    if (newProjectData.template === 'daily_coaching') {
+      const reviewer = String(newProjectData.coachPerson || '');
+      const details = settings.teamMemberDetails?.[reviewer];
+      const generated = dailyCoachingTemplate({ reviewer, phone: details?.phone, email: details?.email });
+      milestones = generated.milestones;
+      templateProjectData = generated.projectData;
+    } else if (newProjectData.template === 'email_triage') {
+      const generated = emailTriageTemplate();
+      milestones = generated.milestones;
+      templateProjectData = generated.projectData;
+    } else if (newProjectData.cloneFromId) {
       const parentProject = [...projects, ...archivedProjects].find(p => p.id === newProjectData.cloneFromId);
       if (parentProject) {
         const idMap: Record<string, string> = {};
@@ -1109,6 +1121,7 @@ export const App: React.FC = () => {
       profit: newProjectData.profit,
       milestones,
       markers,
+      projectData: templateProjectData,
       createdAt: now,
       updatedAt: now
     };
@@ -2620,6 +2633,7 @@ export const App: React.FC = () => {
                                   dateFormat={settings.dateFormat}
                                   settings={settings}
                                   projectName={activeProject?.name || ''}
+                                  projectData={activeProject?.projectData}
                                   projectTimeUnit={activeProject?.timeUnit || 'days'}
                                   duration={getMilestoneDuration(m)}
                                   onClick={() => {}}
@@ -2667,6 +2681,7 @@ export const App: React.FC = () => {
         isCloudConfigured={firebaseService.isConfigured()}
         cloudStatus={cloudStatus}
         onOpenCloudSetup={() => setIsCloudSetupOpen(true)}
+        projects={projects}
       />
       <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup} />
       <CreateProjectModal 

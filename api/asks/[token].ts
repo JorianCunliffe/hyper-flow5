@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readAskByToken, respondToAsk } from '../../lib/serverFlow.js';
-import { isServerStoreConfigured, resolveReviewerActor } from '../../lib/serverStore.js';
+import { deleteStoredAskAttachments, isServerStoreConfigured, resolveReviewerActor, storeAskUploads } from '../../lib/serverStore.js';
 import { renderAskForm } from '../../lib/askForm.js';
 import { ApiAuthError, bearerToken, requireAppMember } from '../../lib/apiAuth.js';
 
@@ -67,12 +67,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { decision, text, values, attachments, actor } = req.body || {};
+      const { decision, text, values, uploads } = req.body || {};
       if (typeof text === 'string' && text.length > MAX_TEXT) {
         return res.status(413).json({ error: 'Comment is too long' });
       }
 
+      const found = await readAskByToken(orgId, projectId, token);
+      if (!found) return res.status(404).json({ error: 'Not found' });
       const authenticated = bearerToken(req) ? await requireAppMember(req, orgId) : null;
+      const allowedUploadFields = (found.ask.fields || []).filter(field => field.type === 'file').map(field => field.name);
+      const attachments = Array.isArray(uploads) && uploads.length
+        ? await storeAskUploads({ orgId, projectId, askId: found.ask.id, allowedFields: allowedUploadFields, uploads })
+        : [];
       const verifiedActor = authenticated
         ? await resolveReviewerActor(orgId, authenticated.email, authenticated.uid)
         : null;
@@ -82,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         askToken: token,
         channel: 'web',
         response: {
-          actor: verifiedActor || (typeof actor === 'string' && actor.trim() ? actor.trim() : 'via link'),
+          actor: verifiedActor || 'via link',
           decision,
           text,
           structured: values,
@@ -91,6 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         actorVerified: Boolean(authenticated)
       });
       if (!outcome.ok) {
+        await deleteStoredAskAttachments(attachments);
         const status = outcome.reason === 'already_answered' ? 409
           : outcome.reason === 'ask_not_found' || outcome.reason === 'project_not_found' ? 404
           : 400;

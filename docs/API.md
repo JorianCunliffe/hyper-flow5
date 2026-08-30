@@ -21,9 +21,12 @@ This reference describes the HTTP handlers under `api/`, their local Express equ
 | `POST /api/flow/advance` | Either Firebase ID token and organization membership, or `x-webhook-secret: $WEBHOOK_SECRET`. |
 | `GET|POST /forms/ask/{token}` | Ask capability token in the path; optional Firebase token verifies reviewer identity. |
 | `GET|POST /api/asks/{token}` | Same handler and authentication as the public form path. |
-| `POST /api/events` | `X-Communications-Signature` HMAC using `COMMUNICATIONS_WEBHOOK_SECRET`. |
+| `POST /api/events` | Timestamped V2 signature headers in production using `COMMUNICATIONS_WEBHOOK_SECRET`; legacy HMAC remains available only for controlled non-production/migration compatibility. |
+| `POST /api/agent/voice-context` | Timestamped V2 Communications signature using `COMMUNICATIONS_WEBHOOK_SECRET`; no browser authentication. |
 | `POST /api/send-email` | Firebase ID token and organization membership. |
 | `GET /api/communications/status` | Firebase ID token and organization membership. |
+| `/api/integrations/*`, `/api/coaching/sessions` | Firebase ID token and organization membership; OAuth callback validates signed, single-use state. |
+| `/api/operations`, `/api/operations/agent-jobs/replay` | Firebase ID token and organization membership. |
 | `GET|PATCH /api/triage` | Firebase ID token and organization membership. |
 | `GET|POST|PATCH|DELETE /api/schedules` | Firebase ID token and organization membership. |
 | `POST /api/schedules/run` | Firebase ID token and organization membership. |
@@ -44,8 +47,16 @@ Common authentication responses are `401` for a missing, invalid, or expired Fir
 | `GET`, `POST` | `/forms/ask/{token}` | Render/read or answer one Ask. |
 | `GET`, `POST` | `/api/asks/{token}` | Direct Ask handler behind the form rewrite. |
 | `POST` | `/api/events` | Receive signed Communications events. |
+| `POST` | `/api/agent/voice-context` | Select an authorized project and return bounded live-call context. |
 | `POST` | `/api/send-email` | Submit a tenant-correlated email to Communications. |
 | `GET` | `/api/communications/status` | Check Communications connectivity and tenant identity selection. |
+| `GET`, `PATCH` | `/api/integrations` | List non-secret connection health and read/update the tenant agent profile. |
+| `POST`, `GET` | `/api/integrations/google/start`, `/api/integrations/google/callback` | Start/complete protected Google Workspace OAuth. |
+| `GET`, `PUT` | `/api/integrations/google/resources`, `/api/integrations/google/grant` | List Google files and save a project resource allowlist. |
+| `GET` | `/api/integrations/google/document`, `/api/integrations/google/sheet` | Read the project-allowlisted Doc or Sheet. |
+| `POST` | `/api/integrations/mailbox/start`, `/api/integrations/mailbox/sync` | Start Gmail OAuth through Communications or reconcile the selected mailbox. |
+| `GET` | `/api/coaching/sessions` | List tenant/project coaching session projections. |
+| `GET`, `POST` | `/api/operations`, `/api/operations/agent-jobs/replay` | Inspect tenant operations and replay a failed/review-held agent job. |
 | `GET`, `PATCH` | `/api/triage` | List and review tenant communications triage. |
 | `GET`, `POST`, `PATCH`, `DELETE` | `/api/schedules` | Manage tenant communications-reconciliation schedules. |
 | `POST` | `/api/schedules/run` | Run one tenant schedule immediately. |
@@ -173,8 +184,15 @@ Canonical task types:
 | `outgoing_call` | `{ "to", "from?", "instruction" }` | Starts a call; `prompt` or `body` may supply the instruction. |
 | `webhook` | `{ "url", "method?", "headers?", "payload?" }` | Calls a public HTTPS/443 endpoint. |
 | `write_report` | `{ "prompt", "sop?", "template?", "eval_criteria?" }` | Generates, evaluates, and when required revises a report with Gemini. |
+| `read_google_doc` | `{}` | Reads the Doc allowlisted for the authenticated tenant/project and returns bounded text plus revision metadata. |
+| `read_google_sheet` | `{}` | Reads up to 500 rows and 50 columns from the allowlisted Sheet range. |
+| `append_google_sheet` | `{ "idempotency_key", "values" }` | Appends 1-100 rows to the allowlisted Sheet range under an external-action receipt. Values use Google `RAW` input so imported/model text cannot become a formula. |
+| `upsert_google_sheet` | `{ "idempotency_key", "key_column", "key_value", "values" }` | Updates the unique matching row or appends one row inside the allowlisted A1 range. `key_column` is zero-based and values use Google `RAW` input. |
+| `extract_coaching_result` | `{ "minimum_confidence?", "instruction?" }` | Extracts an evidence-bounded typed coaching result from a verified human call; low confidence raises review. |
 
 Friendly aliases such as `email`, `sms`, `call`, `voice`, `http`, and `report` are normalized to the canonical types.
+
+Google task actions ignore arbitrary file IDs in the template: the authenticated tenant/project resource grant is authoritative. Sheet append accepts at most 50 columns per row. Sheet upsert requires an A1 range such as `Coaching!A2:G`, rejects duplicate matching keys, and requires the row value at `key_column` to equal `key_value`. Both actions reuse a completed receipt for an identical idempotency key/content pair; changing content under the same key fails closed.
 
 SMS and call destination numbers fall back to `projectData.contact_phone` or `projectData.phone_number`. Destination and sender numbers must use E.164 format. Sender precedence is action template, `projectData.communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`.
 
@@ -234,7 +252,14 @@ X-Communications-Event-Id: evt_...
 X-Communications-Signature: sha256=<HMAC-SHA256 of the exact raw JSON body>
 ```
 
-The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits the signature when that secret is configured, while HyperFlow requires it; therefore the secret must be enabled in both deployments. HyperFlow verifies the legacy raw-body `X-Communications-Signature` before parsing JSON or defaulting a missing `source` to `communications`, then persists the complete event before applying it. Communications may also send its timestamped V2 signature headers, but this handler does not currently validate them. `event_id` in the body is the idempotency key. `X-Communications-Event-Id` is emitted for observability but HyperFlow does not currently compare it with the body.
+The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits a signature when that secret is configured, while HyperFlow requires it; therefore the secret must be enabled in both deployments. The preferred V2 headers are:
+
+```http
+X-Communications-Timestamp: 1788070000
+X-Communications-Signature-V2: sha256=<HMAC-SHA256 of "1788070000.<exact raw JSON body>">
+```
+
+HyperFlow requires the complete V2 pair when either V2 header is present, accepts only ten-digit Unix seconds within a five-minute clock-skew window, and verifies the exact raw bytes before parsing JSON. The legacy raw-body signature remains accepted for compatibility when no V2 header is present. The complete event is persisted before it is applied. `event_id` in the body is the durable idempotency key. `X-Communications-Event-Id` is observability metadata; the body remains authoritative.
 
 ### Canonical inbound communication event
 
@@ -263,7 +288,7 @@ The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits the s
 }
 ```
 
-For email, HyperFlow retrieves the authoritative tenant-scoped communication before projecting the triage item. For SMS, response text is taken from the signed event payload. If tenant triage policy is `correlated_only`, an inbound event with neither an Ask nor project link is acknowledged and ignored. Eligible text may be enriched asynchronously into Communications Service memory; HyperFlow's triage `memoryEligible` field records eligibility, not enrichment completion.
+For email, HyperFlow retrieves the authoritative tenant-scoped communication before projecting the triage item. For SMS and voice, response text is taken from the signed canonical payload. Eligible generic messages are queued idempotently for the tenant agent after the triage projection. If tenant triage policy is `correlated_only`, an inbound event with neither an Ask nor project link is acknowledged and ignored before agent routing. Eligible text may be enriched asynchronously into Communications Service memory; HyperFlow's triage `memoryEligible` field records eligibility, not enrichment completion.
 
 ### Ask response event
 
@@ -476,14 +501,20 @@ The JSON response excludes Project Data and raw provider payloads. Missing routi
   "decision": "approved",
   "text": "Looks good.",
   "values": {},
-  "attachments": [],
-  "actor": "Jorian"
+  "uploads": [
+    {
+      "field": "supporting_file",
+      "name": "evidence.pdf",
+      "mime": "application/pdf",
+      "base64": "JVBERi0xLjQ..."
+    }
+  ]
 }
 ```
 
-`decision` may be `approved`, `rejected`, or `revise`; the accepted fields depend on the Ask kind. A revision requires a comment. `text` is limited to 20,000 characters.
+`decision` may be `approved`, `rejected`, or `revise`; the accepted fields depend on the Ask kind. A revision requires a comment. `text` is limited to 20,000 characters. Uploads are accepted only for file fields declared by that Ask, with at most three files and 2 MB per file. Allowed types are PDF, plain text, CSV, PNG, JPEG, WebP, DOCX, and XLSX. Caller-supplied `attachments`, URLs, storage paths, and actor identities are ignored.
 
-When a valid Firebase token is supplied, HyperFlow derives a verified reviewer identity from the authenticated member. Without it, a delivery-specific capability token identifies the assigned recipient. A caller-supplied `actor` is only a label and cannot satisfy `all` or `quorum` policies unless the delivery token itself maps to an assigned reviewer.
+When a valid Firebase token is supplied, HyperFlow derives a verified reviewer identity from the authenticated member. Without it, a delivery-specific capability token identifies the assigned recipient. The rendered form escapes artifact content, permits only safe HTTPS artifact links, and uploads through Firebase Admin to an Ask-scoped private object path.
 
 Success: `200`
 
@@ -528,9 +559,45 @@ This endpoint, the `send_email` action, organization invitations, and email Huma
 
 Returns `connected`, `emailReady`, the selected non-secret connection and email identity IDs, or a sanitized connectivity error. `emailReady` means a tenant outbound identity is selected; it does not expose or validate provider credentials. The endpoint never returns API keys or provider credentials.
 
+## Agent and connection APIs
+
+The following public paths are rewrites into the consolidated Communications status handler so the Vercel Hobby deployment stays under its function limit. Every browser route below requires Firebase membership except the signed Google callback.
+
+- `GET /api/integrations` returns the tenant agent profile, safe Communications person references, and non-secret mailbox/Workspace connection references. `PATCH` with `{ "agent": { ... } }` updates display name, timezone, stable primary Communications person, tenant-wide allowed/default projects, `personProjectAccess` grants, service identities, clarification policy, and action policy. Inbound people fail closed until a primary person or explicit grant exists; when person grants exist, an unlisted person is denied.
+- `POST /api/integrations/mailbox/start` starts Communications-owned Gmail OAuth. `POST /api/integrations/mailbox/sync?connectionId=...` runs authoritative reconciliation. HyperFlow stores only the returned opaque connection reference.
+- `POST /api/integrations/google/start` starts HyperFlow-owned Google Workspace OAuth. `GET /api/integrations/google/callback` verifies a ten-minute, single-use state bound to tenant and user, exchanges the code, and stores encrypted credentials.
+- `GET /api/integrations/google/resources?connectionId=...&kind=document|spreadsheet` lists selectable Drive metadata.
+- `GET|PUT /api/integrations/google/grant?projectId=...` reads or writes the project's allowlisted connection, Doc ID, Sheet ID, and Sheet range.
+- `GET /api/integrations/google/document?projectId=...` and `/api/integrations/google/sheet?projectId=...` read only the allowlisted resource.
+- `GET /api/coaching/sessions?projectId=...&limit=50` lists coaching projections for that tenant/project.
+
+### `POST /api/agent/voice-context`
+
+Communications calls this before exposing project context during an inbound voice session and again through its `select_hyperflow_project` tool when the caller selects or switches projects. The exact JSON bytes must carry `X-Communications-Timestamp` and `X-Communications-Signature-V2` just like `/api/events`:
+
+```json
+{
+  "request_id": "voice_ctx_...",
+  "tenant_id": "tenant_1",
+  "person_id": "communications-person-uuid",
+  "thread_id": "thread_...",
+  "communication_id": "comm_...",
+  "service_identity": "+61411111111",
+  "utterance": "Daily Coaching"
+}
+```
+
+The tenant, person, thread, communication, and service identity are resolved by Communications from its verified webhook and persistence; they are not copied from caller speech. HyperFlow validates the service identity and person-specific project grants. It returns a routed project with bounded safe facts or a clarification containing only visible project names. Requests are timestamp-windowed and request-ID idempotent; reusing an ID with different bytes fails. No raw Google Doc, transcript, token, credential, or secret is returned.
+
+### Operations and replay
+
+`GET /api/operations` returns the authenticated tenant's recent agent inbox jobs, coaching call/session outcomes, Google/external action receipts, and schedules. `POST /api/operations/agent-jobs/replay` accepts `{ "jobId": "..." }` and requeues only a `failed` or `needs_review` agent job, resetting its bounded attempt counter. The Communications triage screen exposes the same snapshot and replay action. Completed jobs cannot be replayed.
+
+Google credentials are sealed with AES-256-GCM under `INTEGRATION_ENCRYPTION_KEY`. Connected Gmail credentials stay in Communications Service under its independent encryption key. Neither API returns OAuth tokens. Outlook mailbox OAuth is not implemented.
+
 ### `GET /api/triage?limit=100`
 
-Returns `{ "data": TriageItem[] }`, newest first, for the authenticated organization only. Canonical inbound email and SMS events can both appear here. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, and audit entries.
+Returns `{ "data": TriageItem[], "digests": TriageDigest[] }`, newest first, for the authenticated organization only. Canonical inbound email, SMS, and eligible voice events can appear here. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, optional typed `agentProposal`, and audit entries. Digests are occurrence-idempotent and record their delivery channel/status, counts, item IDs, summary, and any delivery error.
 
 An ordinary inbound item is not an Ask answer merely because it shares project, run, task, or thread correlation. `ask.response.received` plus an explicit Ask ID is required for automatic Ask handling. `memoryEligible` means the communication is permitted to enter Communications Service memory; this endpoint does not report the asynchronous enrichment job's completion state.
 
@@ -550,31 +617,66 @@ Accept an uncertain linked Ask interpretation:
 
 For question and choice Asks, send `values` matching the Ask's declared fields instead of a decision. Revision decisions require a non-empty explanatory `text` value.
 
+Approve or reject a typed coaching proposal:
+
+```json
+{ "id": "comm_123", "action": "approve_agent_proposal" }
+```
+
+```json
+{ "id": "comm_123", "action": "reject_agent_proposal" }
+```
+
+Only `coaching_commitment`, `coaching_next_action`, and `request_coaching_call` proposals linked to a Daily Coaching project are executable. Approval is authenticated and atomically claims the proposal. Commitment/next-action approval appends one idempotent row to the project's allowlisted Sheet and records the update in Project Data. Call approval starts one stable, correlated coaching occurrence. Model output alone never executes either action. A failed proposal remains reviewable and reuses the same external-action idempotency key.
+
+Automatic agent replies and connected-mailbox drafts are limited per semantic thread to one every 15 seconds and six within a rolling one-hour window. The counters live in durable conversation context; excess work is held as `needs_review` rather than delivered.
+
 Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `draft_prepared`, `needs_review`, `ignored`, `resolved`, `spam_automatic`, and `delivery_failure`. Accepting an interpretation uses canonical `respondToAsk`; it replaces the provisional response for that communication.
 
 ## Durable schedules
 
 ### `/api/schedules`
 
-`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a communications-triage schedule:
+`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a typed schedule. A daily communications-triage occurrence can publish a web digest, create a connected-Gmail digest draft, or send an explicitly authorized SMS/transactional-email digest:
 
 ```json
 {
   "id": "optional_existing_id",
   "name": "Inbox triage",
   "enabled": true,
-  "intervalMinutes": 60,
+  "activity": "communications_triage",
+  "recurrence": { "kind": "daily", "localTime": "08:00" },
+  "misfirePolicy": "run_once",
   "timezone": "Australia/Brisbane",
   "connectionId": "connection_123",
-  "policy": "draft_only"
+  "policy": "draft_only",
+  "digestChannel": "web"
 }
 ```
 
-Intervals are clamped to 5-1440 minutes. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
+A daily project occurrence uses `flow_start`:
+
+```json
+{
+  "name": "Daily coaching",
+  "activity": "flow_start",
+  "projectId": "project_1",
+  "flowId": "coaching",
+  "recurrence": { "kind": "daily", "localTime": "09:00" },
+  "timezone": "Australia/Brisbane",
+  "misfirePolicy": "run_once",
+  "resetPolicy": "flow",
+  "clearProjectDataKeys": ["google_doc_text", "transcript", "coaching_summary"]
+}
+```
+
+Recurrence may instead be `{ "kind": "interval", "intervalMinutes": 15 }`; intervals are clamped to 5-1440 minutes. Misfire policy is `run_once`, `catch_up`, or `skip`. Non-web digests require `digestRecipient`. Connected Gmail creates a draft when `create_draft` is allowed. SMS or transactional email sends require schedule `policy: "automatic"` and tenant `send_reply` permission. Digest delivery failure is recorded on the digest but does not roll back a completed mailbox reconciliation. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
 
 `POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
 
-Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The current reconciliation worker lists inbound email only. Its per-tenant/per-connection cursor advances only after all new inbound emails were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged. SMS relies on signed event delivery rather than this cursor scan.
+Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. `flow_start` resets only configured transient flow state and writes authoritative occurrence correlation before advancing the persisted project. Communications reconciliation invokes provider sync, reads complete inbound email threads, classifies tenant-scoped items, optionally creates provider-native Gmail drafts, stores one digest, and advances its per-connection cursor only after every item is persisted. A failed occurrence leaves both schedule time and cursor unchanged. SMS and voice rely on signed event delivery rather than mailbox cursor scanning.
+
+The same tick claims sparse `agent_inbox_pending` and `coaching_retry_pending` indexes. Jobs carry two-minute leases and remain recoverable after a worker crash; completed/held work is removed from the index. Coaching retries are bounded by the project attempt/window settings and never redispatch from the same terminal callback.
 
 ## Gemini helpers
 
@@ -683,6 +785,18 @@ POST {COMMUNICATIONS_API_URL}/v1/emails
 
 The body contains recipients, subject, text or HTML, `service_identity_id` or an explicit sender, optional `provider_connection_id`, purpose, callback URL, and the same tenant/project/run/task correlation used by other channels. HyperFlow does not store or expose provider credentials.
 
+Connected Gmail is a different adapter and is never passed to `/v1/emails`. HyperFlow uses:
+
+```http
+GET  {COMMUNICATIONS_API_URL}/v1/mailboxes
+POST {COMMUNICATIONS_API_URL}/v1/mailboxes/oauth/google/start
+POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/sync
+POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts
+GET  {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts/{draftId}
+```
+
+Draft creation requires its own stable `Idempotency-Key`, preserves provider thread/reply identifiers when present, and has no connected-mailbox send counterpart. The agent router prefers this draft route whenever a selected connected mailbox exists; a separately provisioned send-capable service identity is required for automatic transactional email.
+
 ### Deliver a Human Ask
 
 There is no Communications `POST /v1/asks` delivery route. HyperFlow sends the Ask through `/v1/emails`, `/v1/messages`, or `/v1/calls` and adds:
@@ -739,7 +853,8 @@ HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /
 | `GEMINI_API_KEY` | Gemini helpers, report actions, and optional ambiguous-response interpretation. |
 | `COMMUNICATIONS_API_URL` | Communications Service base URL. |
 | `COMMUNICATIONS_API_KEY` | Backend-only outbound `X-API-Key` credential. |
-| `COMMUNICATIONS_WEBHOOK_SECRET` | Backend-only HMAC secret for `/api/events`; must match Communications. |
+| `COMMUNICATIONS_WEBHOOK_SECRET` | Backend-only HMAC secret for `/api/events` and `/api/agent/voice-context`; must match Communications. |
+| `COMMUNICATIONS_REQUIRE_SIGNATURE_V2` | Optional explicit webhook policy; production defaults to `true`. Set `false` only during a controlled legacy-sender migration. Voice context always requires V2. |
 | `COMMUNICATIONS_FROM_NUMBER` | Optional global E.164 sender fallback. |
 | `COMMUNICATIONS_EMAIL_IDENTITY` | Optional global email service-identity fallback; prefer tenant settings. |
 | `COMMUNICATIONS_CONNECTION_ID` | Optional global provider-connection fallback for Ask email delivery; prefer tenant settings. |
@@ -751,6 +866,12 @@ HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /
 | `WEBHOOK_SECRET` | Shared secret for machine calls to `/api/flow/advance`. |
 | `FIREBASE_SERVICE_ACCOUNT` | Privileged server-side Firebase credentials, as JSON or base64. |
 | `FIREBASE_DATABASE_URL` | Server-side Realtime Database URL; must match the browser database. |
+| `FIREBASE_STORAGE_BUCKET` | Server-side Firebase Storage bucket; required only for external Ask uploads. |
+| `GOOGLE_CLIENT_ID` | Backend Google OAuth web-client ID for Workspace. |
+| `GOOGLE_CLIENT_SECRET` | Backend Google OAuth web-client secret for Workspace. |
+| `GOOGLE_OAUTH_STATE_SECRET` | At least 32 random characters used to sign tenant/user-bound OAuth state. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Optional exact callback; defaults to `{PUBLIC_BASE_URL}/api/integrations/google/callback`. |
+| `INTEGRATION_ENCRYPTION_KEY` | Exactly 32 random bytes encoded as 64 hex characters or base64; seals Workspace tokens. |
 
 Cross-service values must be paired as follows:
 
@@ -760,8 +881,9 @@ Cross-service values must be paired as follows:
 | `COMMUNICATIONS_API_KEY=<secret>` | `API_KEY=<same secret>` for the compatibility credential, or the corresponding tenant-scoped API credential. |
 | `COMMUNICATIONS_WEBHOOK_SECRET=<secret>` | `COMMUNICATIONS_WEBHOOK_SECRET=<same secret>`. |
 | `PUBLIC_BASE_URL=https://<public-hyperflow-origin>` | `HYPERFLOW_EVENT_URL=https://<same-origin>/api/events` as the default durable destination. |
+| `PUBLIC_BASE_URL=https://<public-hyperflow-origin>` | `HYPERFLOW_AGENT_CONTEXT_URL=https://<same-origin>/api/agent/voice-context` for live inbound voice. |
 
-Per-request `callback_url` wins over `HYPERFLOW_EVENT_URL`. The HyperFlow callback route is `/api/events`; `/api/communications/events` does not exist. The current HyperFlow client does not add a Vercel automation-bypass query parameter, so the chosen public origin must permit service-to-service POST requests to `/api/events` without an interactive login redirect.
+Per-request `callback_url` wins over `HYPERFLOW_EVENT_URL`. The HyperFlow callback route is `/api/events`; `/api/communications/events` does not exist. Use the stable production origin and verify that anonymous requests reach both `/api/events` and `/api/agent/voice-context` without an interactive login redirect. An application JSON `401` is the expected unsigned result. Generated Vercel deployment and preview URLs may remain protected even when the production domain is public. If the selected origin is actually blocked, configure Communications backend-only `HYPERFLOW_VERCEL_AUTOMATION_BYPASS_SECRET`; Communications sends `x-vercel-protection-bypass` only to the exact configured HyperFlow origin.
 
 Browser Firebase overrides are public application configuration, not server credentials:
 

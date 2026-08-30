@@ -10,7 +10,11 @@ export const ACTION_NODE_TYPES: NodeType[] = [
   NodeType.SMS,
   NodeType.PHONE_CALL,
   NodeType.WEBHOOK,
-  NodeType.REPORT
+  NodeType.REPORT,
+  NodeType.GOOGLE_DOC,
+  NodeType.GOOGLE_SHEET_READ,
+  NodeType.GOOGLE_SHEET_APPEND,
+  NodeType.COACHING_EXTRACT
 ];
 
 // Maps action node types to the taskType handled by /api/tasks/execute
@@ -19,7 +23,11 @@ export const ACTION_TASK_TYPE: Partial<Record<NodeType, string>> = {
   [NodeType.SMS]: 'send_sms',
   [NodeType.PHONE_CALL]: 'outgoing_call',
   [NodeType.WEBHOOK]: 'webhook',
-  [NodeType.REPORT]: 'write_report'
+  [NodeType.REPORT]: 'write_report',
+  [NodeType.GOOGLE_DOC]: 'read_google_doc',
+  [NodeType.GOOGLE_SHEET_READ]: 'read_google_sheet',
+  [NodeType.GOOGLE_SHEET_APPEND]: 'append_google_sheet',
+  [NodeType.COACHING_EXTRACT]: 'extract_coaching_result'
 };
 
 export const getNodeType = (m: Milestone): NodeType => m.nodeType || NodeType.MILESTONE;

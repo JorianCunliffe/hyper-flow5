@@ -5,6 +5,7 @@ import { createCommunicationsClient } from './communications/client.js';
 import {
   beginExternalEventProcessing,
   claimAskResolution,
+  enqueueAgentInboxJob,
   enqueueAskResolution,
   finishExternalEventProcessing,
   finishAskResolution,
@@ -39,6 +40,7 @@ export interface ExternalEventEnvelope {
   ask_id?: string;
   channel?: AskChannel;
   response?: { text?: string; structured?: Record<string, unknown> };
+  purpose?: { type?: string; [key: string]: unknown };
   correlation: ExternalEventCorrelation;
   payload: Record<string, unknown>;
 }
@@ -105,6 +107,7 @@ export const normalizeExternalEvent = (raw: any, defaultSource?: 'communications
               ? transcriptText(payload.transcript)
               : typeof payload.content === 'string' ? payload.content : undefined
           },
+    purpose: raw.purpose && typeof raw.purpose === 'object' && !Array.isArray(raw.purpose) ? raw.purpose : undefined,
     correlation: {
       tenant_id: correlation.tenant_id || correlation.org_id || correlation.orgId || raw.tenant_id,
       project_id: correlation.external_project_id || correlation.project_id || correlation.projectId,
@@ -139,6 +142,11 @@ export interface ExternalEventOutcome {
   log?: string[];
   pending?: string[];
 }
+
+export const externalEventHttpStatus = (outcome: Pick<ExternalEventOutcome, 'ok' | 'retryable'>): number => {
+  if (outcome.ok) return 200;
+  return outcome.retryable ? 503 : 422;
+};
 
 const TERMINAL_EVENTS: Readonly<Record<string, 'success' | 'error'>> = {
   'call.completed': 'success',
@@ -229,8 +237,53 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         return { ok: true, ignored: true, reason: 'tenant_triage_policy' };
       }
       await upsertTriageItem(item);
+      if (item.memoryEligible !== false) {
+        await enqueueAgentInboxJob({
+          id: item.communicationId,
+          orgId,
+          communicationId: item.communicationId,
+          eventId: event.event_id,
+          channel: item.channel,
+          threadId: item.threadId,
+          personId: item.personId,
+          trustedProjectId: item.projectId
+        });
+      }
       await finishExternalEventProcessing(orgId, event.event_id, 'processed');
-      return { ok: true, reason: 'triage_item_recorded' };
+      return { ok: true, reason: item.memoryEligible === false ? 'triage_item_recorded' : 'agent_job_queued' };
+    }
+
+    if (['call.completed', 'call.failed'].includes(event.type) && event.purpose?.type === 'agent_conversation') {
+      if (event.communication_id) {
+        communication = await createCommunicationsClient().getCommunication(orgId, event.communication_id);
+        if (!event.response?.text && communication.content) event.response = { ...(event.response || {}), text: communication.content };
+        event.payload = {
+          ...event.payload,
+          thread_id: event.payload.thread_id || communication.threadId,
+          memory_eligible: event.payload.memory_eligible ?? communication.outcome?.memory_eligible,
+          disposition: event.payload.disposition || communication.outcome?.disposition
+        };
+      }
+      const item = triageItemFromEvent(event, communication);
+      await upsertTriageItem(item);
+      if (event.type === 'call.completed' && item.memoryEligible !== false) {
+        await enqueueAgentInboxJob({
+          id: item.communicationId,
+          orgId,
+          communicationId: item.communicationId,
+          eventId: event.event_id,
+          channel: 'voice',
+          threadId: item.threadId,
+          personId: item.personId,
+          trustedProjectId: item.projectId
+        });
+      }
+      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      return {
+        ok: true,
+        ignored: event.type === 'call.failed' || undefined,
+        reason: event.type === 'call.completed' ? 'agent_job_queued' : 'failed_agent_call_recorded'
+      };
     }
 
     if (['email.accepted', 'email.delivered', 'email.failed'].includes(event.type)) {

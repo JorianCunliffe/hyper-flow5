@@ -57,6 +57,14 @@
       }
     },
 
+    "triage_digests": {
+      ".read": false,
+      ".write": false,
+      "$orgId": {
+        ".indexOn": "scheduledFor"
+      }
+    },
+
     "schedules": {
       ".read": false,
       ".write": false
@@ -65,6 +73,71 @@
     "schedule_runs": {
       ".read": false,
       ".write": false
+    },
+
+    "agent_profiles": {
+      ".read": false,
+      ".write": false
+    },
+
+    "agent_inbox_jobs": {
+      ".read": false,
+      ".write": false,
+      "$orgId": {
+        ".indexOn": "status"
+      }
+    },
+
+    "agent_inbox_pending": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": "availableAt"
+    },
+
+    "conversation_contexts": {
+      ".read": false,
+      ".write": false
+    },
+
+    "agent_voice_context_requests": {
+      ".read": false,
+      ".write": false
+    },
+
+    "integration_connections": {
+      ".read": false,
+      ".write": false
+    },
+
+    "integration_credentials": {
+      ".read": false,
+      ".write": false
+    },
+
+    "oauth_states": {
+      ".read": false,
+      ".write": false
+    },
+
+    "workspace_grants": {
+      ".read": false,
+      ".write": false
+    },
+
+    "external_action_receipts": {
+      ".read": false,
+      ".write": false
+    },
+
+    "coaching_sessions": {
+      ".read": false,
+      ".write": false
+    },
+
+    "coaching_retry_pending": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": "availableAt"
     },
 
     "communication_cursors": {

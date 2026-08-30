@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
-import { externalEventHttpStatus, POST } from '../api/events.js';
+import { POST } from '../api/events.js';
+import { externalEventHttpStatus } from '../lib/externalEvents.js';
 import { createExternalEventRecord, normalizeExternalEvent } from '../lib/externalEvents.js';
 import { beginExternalEventProcessingAtRef, projectIdsMatch, projectRevisionsMatch } from '../lib/serverStore.js';
 
@@ -109,5 +110,13 @@ describe('Vercel Communications event intake', () => {
 
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: 'Invalid or missing Communications signature' });
+  });
+
+  test('voice context uses the same exact-byte signature boundary', async () => {
+    process.env.COMMUNICATIONS_WEBHOOK_SECRET = 'test-secret';
+    const response = await POST(new Request('https://hyperflow.example/api/events?action=voice_context', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"tenant_id":"tenant_1"}'
+    }));
+    assert.equal(response.status, 401);
   });
 });

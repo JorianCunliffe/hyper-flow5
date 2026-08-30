@@ -1,6 +1,6 @@
 import type { CommunicationResult } from '../communications/types.js';
 import type { ExternalEventEnvelope } from '../externalEvents.js';
-import type { TriageDisposition, TriageItem } from '../../types.js';
+import type { TriageDigest, TriageDisposition, TriageItem } from '../../types.js';
 
 const stringValue = (...values: unknown[]): string | undefined => {
   const value = values.find(item => typeof item === 'string' && item.trim());
@@ -84,4 +84,52 @@ export const triageItemFromCommunication = (orgId: string, communication: Commun
     payload: { channel: communication.channel, thread_id: communication.threadId }
   };
   return triageItemFromEvent(event, communication);
+};
+
+const priorityRank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+
+export const buildTriageDigest = (input: {
+  orgId: string;
+  scheduleId: string;
+  scheduledFor: number;
+  timezone: string;
+  items: TriageItem[];
+  newItemIds?: string[];
+  deliveryChannel?: TriageDigest['deliveryChannel'];
+}): TriageDigest => {
+  const now = Date.now();
+  const items = [...input.items]
+    .sort((a, b) => (priorityRank[a.priority || 'normal'] ?? 2) - (priorityRank[b.priority || 'normal'] ?? 2) || b.updatedAt - a.updatedAt)
+    .slice(0, 100);
+  const actionable = items.filter(item => !['ignored', 'resolved', 'spam_automatic'].includes(item.disposition));
+  const newIds = new Set(input.newItemIds || items.map(item => item.id));
+  const lines = actionable.slice(0, 12).map(item => {
+    const label = (item.priority || 'normal').toUpperCase();
+    const title = String(item.subject || item.sender || 'Inbound communication').replace(/[\r\n]+/g, ' ').slice(0, 140);
+    const action = String(item.recommendation || item.proposedAction || item.summary || 'Review').replace(/[\r\n]+/g, ' ').slice(0, 240);
+    return `- [${label}] ${title} — ${action}`;
+  });
+  const counts = {
+    total: items.filter(item => newIds.has(item.id)).length,
+    outstanding: actionable.length,
+    urgent: actionable.filter(item => item.priority === 'urgent').length,
+    high: actionable.filter(item => item.priority === 'high').length,
+    needsReview: actionable.filter(item => item.disposition === 'needs_review').length,
+    draftsPrepared: actionable.filter(item => item.disposition === 'draft_prepared').length
+  };
+  const header = `${counts.total} new message${counts.total === 1 ? '' : 's'}; ${counts.outstanding} outstanding, including ${counts.urgent} urgent, ${counts.high} high priority, ${counts.needsReview} needing review, and ${counts.draftsPrepared} draft${counts.draftsPrepared === 1 ? '' : 's'} prepared.`;
+  return {
+    id: `${input.scheduleId}:${input.scheduledFor}`,
+    orgId: input.orgId,
+    scheduleId: input.scheduleId,
+    scheduledFor: input.scheduledFor,
+    timezone: input.timezone,
+    itemIds: items.map(item => item.id),
+    counts,
+    summary: [header, lines.length ? lines.join('\n') : 'Nothing requires attention from this occurrence.'].join('\n\n'),
+    deliveryChannel: input.deliveryChannel || 'web',
+    deliveryStatus: 'available',
+    createdAt: now,
+    updatedAt: now
+  };
 };

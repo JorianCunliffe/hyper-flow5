@@ -20,6 +20,8 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
     name: '', 
     company: '', 
     type: '', 
+    template: 'blank',
+    coachPerson: '',
     cloneFromId: '',
     startDate: new Date().toISOString().split('T')[0],
     timeUnit: 'days',
@@ -71,6 +73,21 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               {(settings.projectTypes || []).map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-black text-violet-500 uppercase tracking-widest mb-2">HyperFlow Service Template</label>
+            <select className="w-full bg-violet-50/50 border-2 border-violet-100 rounded-2xl px-5 py-3 outline-none focus:border-violet-500 text-violet-900 font-bold shadow-sm transition-all" value={newProject.template} onChange={(e) => setNewProject({ ...newProject, template: e.target.value, name: e.target.value === 'daily_coaching' && !newProject.name ? 'Daily Coaching' : e.target.value === 'email_triage' && !newProject.name ? 'Daily Email Triage' : newProject.name })}>
+              <option value="blank">Blank project</option>
+              <option value="daily_coaching">Daily Coaching</option>
+              <option value="email_triage">Daily Email Triage</option>
+            </select>
+          </div>
+          {newProject.template === 'daily_coaching' && <div className="col-span-2">
+            <label className="block text-xs font-black text-violet-500 uppercase tracking-widest mb-2">Person receiving coaching</label>
+            <select className="w-full bg-violet-50/50 border-2 border-violet-100 rounded-2xl px-5 py-3 outline-none focus:border-violet-500 text-violet-900 font-bold shadow-sm transition-all" value={newProject.coachPerson} onChange={(e) => setNewProject({ ...newProject, coachPerson: e.target.value })}>
+              <option value="">Select person...</option>
+              {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
+            </select>
+          </div>}
           <div className="col-span-2">
             <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Copy size={12}/> Clone From Existing Project (Optional)</label>
             <select className="w-full bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-indigo-900 font-bold shadow-sm transition-all" value={newProject.cloneFromId} onChange={(e) => setNewProject({ ...newProject, cloneFromId: e.target.value })}>
@@ -195,18 +212,18 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               <>
                 <button 
                   onClick={() => onCreate(newProject, false)} 
-                  disabled={!newProject.name}
+                  disabled={!newProject.name || (newProject.template === 'daily_coaching' && !newProject.coachPerson)}
                   className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create Blank
+                  {newProject.template === 'blank' ? 'Create Blank' : 'Create from Template'}
                 </button>
-                <button 
+                {newProject.template === 'blank' && <button
                   onClick={() => onCreate(newProject, true)} 
                   disabled={!newProject.name}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Wand2 size={18} /> AI Generate
-                </button>
+                </button>}
               </>
             ) : (
               <button 

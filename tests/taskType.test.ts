@@ -19,6 +19,10 @@ describe('normalizeTaskType', () => {
     assert.equal(normalizeTaskType('SMS'), 'send_sms');
     assert.equal(normalizeTaskType('Report'), 'write_report');
     assert.equal(normalizeTaskType('Webhook'), 'webhook');
+    assert.equal(normalizeTaskType('Google Doc'), 'read_google_doc');
+    assert.equal(normalizeTaskType('Google Sheet'), 'read_google_sheet');
+    assert.equal(normalizeTaskType('Append Google Sheet'), 'append_google_sheet');
+    assert.equal(normalizeTaskType('Upsert Google Sheet'), 'upsert_google_sheet');
   });
 
   test('tolerates surrounding whitespace', () => {
@@ -34,7 +38,10 @@ describe('normalizeTaskType', () => {
   });
 
   test('every node type maps to a canonical task type', () => {
-    for (const nodeType of [NodeType.EMAIL, NodeType.SMS, NodeType.PHONE_CALL, NodeType.WEBHOOK, NodeType.REPORT]) {
+    for (const nodeType of [
+      NodeType.EMAIL, NodeType.SMS, NodeType.PHONE_CALL, NodeType.WEBHOOK, NodeType.REPORT,
+      NodeType.GOOGLE_DOC, NodeType.GOOGLE_SHEET_READ, NodeType.GOOGLE_SHEET_APPEND, NodeType.COACHING_EXTRACT
+    ]) {
       const mapped = ACTION_TASK_TYPE[nodeType];
       assert.ok(mapped, `${nodeType} has no task type`);
       assert.equal(normalizeTaskType(mapped), mapped, `${nodeType} -> ${mapped} is not canonical`);
@@ -64,5 +71,17 @@ describe('executeTask with a bad task type', () => {
     // check — the point is that it got past normalization.
     const res = await executeTask('Phone Call', '{"to":"+61400000000"}', {});
     assert.notEqual(res.body.status, 'unknown_task_type');
+  });
+
+  test('Google Workspace actions fail before access without trusted tenant and project correlation', async () => {
+    const read = await executeTask('read_google_doc', '{}', {});
+    assert.equal(read.httpStatus, 500);
+    assert.match(read.body.error, /trusted orgId and projectId/);
+    const append = await executeTask('append_google_sheet', '{"idempotency_key":"one","values":[["x"]]}', {});
+    assert.equal(append.httpStatus, 500);
+    assert.match(append.body.error, /trusted orgId and projectId/);
+    const upsert = await executeTask('upsert_google_sheet', '{"idempotency_key":"one","key_column":0,"key_value":"x","values":["x"]}', {});
+    assert.equal(upsert.httpStatus, 500);
+    assert.match(upsert.body.error, /trusted orgId and projectId/);
   });
 });

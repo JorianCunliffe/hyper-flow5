@@ -5,8 +5,11 @@ import type {
   CommunicationListResult,
   CommunicationsTriageItem,
   CommunicationsClient,
+  CommunicationsMailboxRef,
+  CommunicationsPersonRef,
   CommunicationThreadResult,
   ResolveAskResult,
+  MailboxDraftRequest,
   SendEmailRequest,
   SendSmsRequest,
   StartCallRequest
@@ -70,6 +73,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     if (options.askId) query.set('ask_id', options.askId);
     if (options.personId) query.set('person_id', options.personId);
     if (options.memoryEligible !== undefined) query.set('memory_eligible', String(options.memoryEligible));
+    if (options.connectionId) query.set('provider_connection_id', options.connectionId);
     const body = await this.rawRequest(`/v1/communications${query.size ? `?${query}` : ''}`, {
       method: 'GET', tenantId
     });
@@ -162,6 +166,68 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     };
   }
 
+  async listMailboxes(tenantId: string): Promise<CommunicationsMailboxRef[]> {
+    this.requireTenant(tenantId);
+    const body = await this.rawRequest('/v1/mailboxes', { method: 'GET', tenantId });
+    return Array.isArray(body?.data) ? body.data.map((item: any) => ({
+      id: String(item.id),
+      provider: item.provider,
+      mailboxAddress: String(item.mailbox_address || ''),
+      state: item.state,
+      scopes: Array.isArray(item.scopes) ? item.scopes.map(String) : [],
+      lastSuccessfulSyncAt: typeof item.last_successful_sync_at === 'string' ? item.last_successful_sync_at : undefined,
+      watchExpiration: typeof item.watch_expiration === 'string' ? item.watch_expiration : undefined,
+      lastError: typeof item.last_error === 'string' ? item.last_error : undefined,
+      canCreateDrafts: item.can_create_drafts === true
+    })) : [];
+  }
+
+  async listPeople(tenantId: string): Promise<CommunicationsPersonRef[]> {
+    this.requireTenant(tenantId);
+    const body = await this.rawRequest('/v1/contacts', { method: 'GET', tenantId });
+    return Array.isArray(body?.data) ? body.data.map((item: any) => ({
+      id: String(item.person_id || item.id),
+      name: typeof item.name === 'string' ? item.name : undefined,
+      email: typeof item.email === 'string' ? item.email : undefined,
+      phone: typeof item.phone_number === 'string' ? item.phone_number : undefined
+    })) : [];
+  }
+
+  async startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string> {
+    this.requireTenant(tenantId);
+    const body = await this.rawRequest('/v1/mailboxes/oauth/google/start', {
+      method: 'POST', tenantId, body: { initiator_id: initiatorId, return_url: returnUrl }
+    });
+    if (typeof body?.authorization_url !== 'string') throw new CommunicationsApiError('Communications API did not return a Gmail authorization URL');
+    return body.authorization_url;
+  }
+
+  async syncMailbox(tenantId: string, connectionId: string, initiatorId?: string): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/sync`, {
+      method: 'POST', tenantId, body: initiatorId ? { initiator_id: initiatorId } : {}
+    });
+  }
+
+  async createMailboxDraft(
+    tenantId: string,
+    connectionId: string,
+    request: MailboxDraftRequest,
+    idempotencyKey: string
+  ): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts`, {
+      method: 'POST', tenantId, body: request, idempotencyKey
+    });
+  }
+
+  async getMailboxDraft(tenantId: string, connectionId: string, draftId: string): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts/${encodeURIComponent(draftId)}`, {
+      method: 'GET', tenantId
+    });
+  }
+
   private async communicationRequest(
     path: string,
     options: {
@@ -251,11 +317,13 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       summary: result?.summary,
       subject: result?.email?.subject || result?.subject,
       sender: Array.isArray(result?.email?.from_addresses)
-        ? result.email.from_addresses.map(String).join(', ')
+        ? result.email.from_addresses.map((item: any) => String(item?.formatted || item?.address || item)).join(', ')
         : result?.sender,
       recipients: Array.isArray(result?.email?.to_addresses)
-        ? result.email.to_addresses.map(String)
+        ? result.email.to_addresses.map((item: any) => String(item?.formatted || item?.address || item))
         : result?.recipients,
+      providerThreadId: typeof result?.email?.provider_conversation_id === 'string' ? result.email.provider_conversation_id : undefined,
+      messageId: typeof result?.email?.message_id === 'string' ? result.email.message_id : undefined,
       correlation: result?.correlation,
       purpose: result?.purpose,
       outcome: result?.outcome,

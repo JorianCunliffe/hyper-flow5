@@ -6,6 +6,7 @@ import { serverExecutor } from '../serverExecutor.js';
 import { findProject, writeProject } from '../serverStore.js';
 import { deliverRaisedAsks } from './deliverRaisedAsks.js';
 import { interpretAskResponse } from '../triage/responseInterpreter.js';
+import { expireAsk } from './expireAsk.js';
 
 export interface AskResponsePayload {
   text?: string;
@@ -79,6 +80,9 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
 
   const found = input.askId ? findAskById(located.project, input.askId) : findAskByToken(located.project, input.askToken!);
   if (!found) return { ok: false, reason: 'ask_not_found' };
+  if (expireAsk(found.ask, input.occurredAt ?? Date.now()).status === 'expired') {
+    return { ok: false, reason: 'ask_expired', askStatus: 'expired', askKind: found.ask.kind, askFields: found.ask.fields };
+  }
   if (found.ask.status === 'cancelled') return { ok: false, reason: 'ask_cancelled' };
   if (found.ask.status === 'expired') return { ok: false, reason: 'ask_expired' };
   if (found.ask.status === 'answered') {

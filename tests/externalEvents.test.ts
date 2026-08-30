@@ -59,6 +59,17 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventStatus('future.completed'), null);
   });
 
+  test('preserves the agent-conversation purpose needed to separate inbound calls from workflow calls', () => {
+    const event = normalizeExternalEvent({
+      event_id: 'evt_agent_call', source: 'communications', type: 'call.completed',
+      communication_id: 'comm_agent', purpose: { type: 'agent_conversation' },
+      correlation: { tenant_id: 'org_1', project_id: 'coaching', person_id: 'person_1' },
+      payload: { channel: 'voice', disposition: 'human_completed', successful: true, memory_eligible: true }
+    });
+    assert.equal(event.purpose?.type, 'agent_conversation');
+    assert.equal(event.correlation.person_id, 'person_1');
+  });
+
   test('accepts canonical inbound communications and the legacy SMS alias', () => {
     assert.equal(isInboundCommunicationEvent('communication.received'), true);
     assert.equal(isInboundCommunicationEvent('sms.received'), true);

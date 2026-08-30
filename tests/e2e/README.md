@@ -23,11 +23,11 @@ is what caught it.
 
 Three terminals, or background the first two.
 
-**1. Database emulator** (needs Java; `npm i -g firebase-tools`):
+**1. Database emulator** (needs Java; the Android Studio bundled runtime also works):
 
-```bash
-cd tests/e2e
-firebase emulators:start --only database --project demo-hyperflow
+```powershell
+$env:Path = 'C:\Program Files\Android\Android Studio\jbr\bin;' + $env:Path
+npx --yes firebase-tools emulators:start --project demo-hyperflow --only database --config firebase.test.json
 ```
 
 If your shell has an HTTP proxy configured, unset it for this command — the CLI
@@ -35,7 +35,8 @@ uploads rules over localhost and a proxy will intercept it:
 
 ```bash
 env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-  firebase emulators:start --only database --project demo-hyperflow
+  npx --yes firebase-tools emulators:start --only database \
+  --project demo-hyperflow --config firebase.test.json
 ```
 
 **2. A service account.** The emulator ignores credentials, but `cert()` still
@@ -55,7 +56,7 @@ node -e 'const fs=require("fs");fs.writeFileSync("/tmp/sa.json",JSON.stringify({
 NODE_ENV=production \
 FIREBASE_SERVICE_ACCOUNT="$(cat /tmp/sa.json)" \
 FIREBASE_DATABASE_URL="https://demo-hyperflow-default-rtdb.firebaseio.com" \
-FIREBASE_DATABASE_EMULATOR_HOST="127.0.0.1:9000" \
+FIREBASE_DATABASE_EMULATOR_HOST="127.0.0.1:9010" \
 WEBHOOK_SECRET="test-secret-123" \
 COMMUNICATIONS_WEBHOOK_SECRET="test-secret-123" \
 PUBLIC_BASE_URL="http://localhost:3000" \
@@ -80,22 +81,14 @@ holds the data — the suite's `NS` constant must match the URL.
 
 `npm run test:rules` checks `database.rules.json` against the emulator, using the
 real invite flow from `services/firebaseService.ts` plus the attacks the rules
-are meant to stop. Run the emulator with the repo's rules on port 9010:
-
-```bash
-cd tests/e2e
-env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-  firebase emulators:start --only database --project hyper-flow-a459b \
-  --config firebase.rules.json
-```
-
-then `npm run test:rules`. It needs no server and no service account — the
-emulator accepts unsigned JWTs, so the suite can act as several different users.
+are meant to stop. The script starts and stops the emulator automatically on
+port `9010`; it needs no server and no service account. The emulator accepts
+unsigned test JWTs, so the suite can act as several different users.
 
 Rules are the only thing standing between the database and the public internet,
 so changing them without running this is how you either lock everyone out or
 leave a hole open. Against the rules as they were before this suite existed, 10
-of its 25 checks failed.
+of its original checks failed; the current suite contains 26 checks.
 
 ## What it covers
 

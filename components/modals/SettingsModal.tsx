@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff } from 'lucide-react';
-import { AppSettings, TeamMemberDetails } from '../../types';
+import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff, Bot, Link2 } from 'lucide-react';
+import { AppSettings, CommunicationsPersonRef, MailboxConnectionRef, Project, TeamMemberDetails, TenantAgentProfile, TenantSchedule, WorkspaceConnectionRef } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
+import { COACHING_TRANSIENT_KEYS } from '../../lib/projectTemplates';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface SettingsModalProps {
   isCloudConfigured: boolean;
   cloudStatus: 'disconnected' | 'connected' | 'syncing' | 'error';
   onOpenCloudSetup: () => void;
+  projects: Project[];
 }
 
 const TeamMemberSection: React.FC<{ 
@@ -210,10 +212,34 @@ const SettingsSection: React.FC<{
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup
+  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup, projects
 }) => {
   const [communicationsDraft, setCommunicationsDraft] = useState(settings.communications?.fromNumber || '');
   const [communicationsStatus, setCommunicationsStatus] = useState<{ loading: boolean; connected?: boolean; emailReady?: boolean; error?: string }>({ loading: false });
+  const [integrationStatus, setIntegrationStatus] = useState<{
+    loading: boolean;
+    saving?: boolean;
+    agent?: TenantAgentProfile | null;
+    people: CommunicationsPersonRef[];
+    mailboxes: MailboxConnectionRef[];
+    workspaces: WorkspaceConnectionRef[];
+    error?: string;
+  }>({ loading: false, mailboxes: [], workspaces: [], people: [] });
+  const [agentDraft, setAgentDraft] = useState<Partial<TenantAgentProfile>>({
+    displayName: 'HyperFlow Agent', timezone: settings.communications?.timezone || 'Australia/Brisbane'
+  });
+  const [scheduleStatus, setScheduleStatus] = useState<{ loading: boolean; items: TenantSchedule[]; error?: string }>({ loading: false, items: [] });
+  const [scheduleDraft, setScheduleDraft] = useState({
+    name: 'Daily coaching', activity: 'flow_start' as TenantSchedule['activity'], projectId: '',
+    localTime: '09:00', timezone: settings.communications?.timezone || 'Australia/Brisbane',
+    misfirePolicy: 'run_once' as TenantSchedule['misfirePolicy'],
+    digestChannel: 'web' as 'web' | 'email' | 'sms', digestRecipient: ''
+  });
+  const [workspaceGrantDraft, setWorkspaceGrantDraft] = useState({
+    projectId: '', connectionId: '', documentId: '', spreadsheetId: '', sheetRange: 'Coaching!A:G'
+  });
+  const [googleResources, setGoogleResources] = useState<Array<{ id: string; name: string; kind: 'document' | 'spreadsheet' }>>([]);
+  const [automationStatus, setAutomationStatus] = useState<{ working?: boolean; message?: string; error?: string }>({});
   const communicationsNumberValid = !communicationsDraft || /^\+[1-9]\d{7,14}$/.test(communicationsDraft.trim());
   const [replaceOldName, setReplaceOldName] = useState('');
   const [replaceNewName, setReplaceNewName] = useState('');
@@ -237,6 +263,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       .catch((error: any) => {
         if (active) setCommunicationsStatus({ loading: false, connected: false, error: error?.message || String(error) });
       });
+    setIntegrationStatus(current => ({ ...current, loading: true, error: undefined }));
+    void firebaseService.authorizedFetch('/api/integrations')
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Integration check failed (${response.status})`);
+        if (!active) return;
+        const fallback = { displayName: 'HyperFlow Agent', timezone: settings.communications?.timezone || 'Australia/Brisbane' };
+        setAgentDraft(body.agent || fallback);
+        setIntegrationStatus({
+          loading: false,
+          agent: body.agent || null,
+          mailboxes: Array.isArray(body.mailboxes) ? body.mailboxes : [],
+          workspaces: Array.isArray(body.workspaces) ? body.workspaces : [],
+          people: Array.isArray(body.people) ? body.people : []
+        });
+      })
+      .catch((error: any) => {
+        if (active) setIntegrationStatus({ loading: false, mailboxes: [], workspaces: [], people: [], error: error?.message || String(error) });
+      });
+    return () => { active = false; };
+  }, [currentOrgId, isOpen, settings.communications?.timezone]);
+
+  useEffect(() => {
+    if (!isOpen || !currentOrgId || !firebaseService.isConfigured()) return;
+    let active = true;
+    setScheduleStatus(current => ({ ...current, loading: true, error: undefined }));
+    void firebaseService.authorizedFetch('/api/schedules')
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Schedule load failed (${response.status})`);
+        if (active) setScheduleStatus({ loading: false, items: Array.isArray(body.data) ? body.data : [] });
+      })
+      .catch((error: any) => {
+        if (active) setScheduleStatus({ loading: false, items: [], error: error?.message || String(error) });
+      });
     return () => { active = false; };
   }, [currentOrgId, isOpen]);
 
@@ -255,6 +316,167 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const updateCommunications = (patch: NonNullable<AppSettings['communications']>) => {
     onUpdateSettings({ ...settings, communications: { ...settings.communications, ...patch } });
+  };
+
+  const saveAgentProfile = async () => {
+    setIntegrationStatus(current => ({ ...current, saving: true, error: undefined }));
+    try {
+      const response = await firebaseService.authorizedFetch('/api/integrations', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: agentDraft })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Agent save failed (${response.status})`);
+      setAgentDraft(body.agent);
+      setIntegrationStatus(current => ({ ...current, saving: false, agent: body.agent }));
+    } catch (error: any) {
+      setIntegrationStatus(current => ({ ...current, saving: false, error: error?.message || String(error) }));
+    }
+  };
+
+  const connectGoogleWorkspace = async () => {
+    setIntegrationStatus(current => ({ ...current, saving: true, error: undefined }));
+    try {
+      const response = await firebaseService.authorizedFetch('/api/integrations/google/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnTo: '/' })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.authorizationUrl) throw new Error(body.error || 'Google connection could not be started');
+      window.location.assign(body.authorizationUrl);
+    } catch (error: any) {
+      setIntegrationStatus(current => ({ ...current, saving: false, error: error?.message || String(error) }));
+    }
+  };
+
+  const connectGmailMailbox = async () => {
+    setIntegrationStatus(current => ({ ...current, saving: true, error: undefined }));
+    try {
+      const response = await firebaseService.authorizedFetch('/api/integrations/mailbox/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnTo: '/' })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.authorizationUrl) throw new Error(body.error || 'Gmail connection could not be started');
+      window.location.assign(body.authorizationUrl);
+    } catch (error: any) {
+      setIntegrationStatus(current => ({ ...current, saving: false, error: error?.message || String(error) }));
+    }
+  };
+
+  const syncSelectedMailbox = async () => {
+    const connectionId = settings.communications?.mailboxConnectionId;
+    if (!connectionId) return;
+    setIntegrationStatus(current => ({ ...current, saving: true, error: undefined }));
+    try {
+      const response = await firebaseService.authorizedFetch(`/api/integrations/mailbox/sync?connectionId=${encodeURIComponent(connectionId)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Mailbox sync failed (${response.status})`);
+      const refreshed = await firebaseService.authorizedFetch('/api/integrations');
+      const integrations = await refreshed.json().catch(() => ({}));
+      if (!refreshed.ok) throw new Error(integrations.error || `Mailbox refresh failed (${refreshed.status})`);
+      setIntegrationStatus(current => ({
+        ...current,
+        saving: false,
+        mailboxes: Array.isArray(integrations.mailboxes) ? integrations.mailboxes : current.mailboxes,
+        workspaces: Array.isArray(integrations.workspaces) ? integrations.workspaces : current.workspaces,
+        agent: integrations.agent || current.agent,
+        people: Array.isArray(integrations.people) ? integrations.people : current.people
+      }));
+    } catch (error: any) {
+      setIntegrationStatus(current => ({ ...current, saving: false, error: error?.message || String(error) }));
+    }
+  };
+
+  const createDailySchedule = async () => {
+    setAutomationStatus({ working: true });
+    try {
+      const payload = {
+        name: scheduleDraft.name,
+        activity: scheduleDraft.activity,
+        recurrence: { kind: 'daily', localTime: scheduleDraft.localTime },
+        timezone: scheduleDraft.timezone,
+        misfirePolicy: scheduleDraft.misfirePolicy,
+        ...(scheduleDraft.activity === 'flow_start'
+          ? {
+              projectId: scheduleDraft.projectId,
+              resetPolicy: 'flow',
+              clearProjectDataKeys: COACHING_TRANSIENT_KEYS
+            }
+          : {
+              connectionId: settings.communications?.mailboxConnectionId || settings.communications?.connectionId,
+              policy: settings.communications?.sendPolicy || 'draft_only',
+              digestChannel: scheduleDraft.digestChannel,
+              ...(scheduleDraft.digestChannel !== 'web' ? { digestRecipient: scheduleDraft.digestRecipient.trim() } : {})
+            })
+      };
+      const response = await firebaseService.authorizedFetch('/api/schedules', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Schedule creation failed (${response.status})`);
+      setScheduleStatus(current => ({ ...current, items: [...current.items, body.schedule] }));
+      setAutomationStatus({ message: 'Daily schedule created.' });
+    } catch (error: any) {
+      setAutomationStatus({ error: error?.message || String(error) });
+    }
+  };
+
+  const runScheduleNow = async (id: string) => {
+    setAutomationStatus({ working: true });
+    try {
+      const response = await firebaseService.authorizedFetch('/api/schedules/run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Schedule run failed (${response.status})`);
+      setAutomationStatus({ message: `Run ${body.result?.status || 'submitted'}.` });
+    } catch (error: any) {
+      setAutomationStatus({ error: error?.message || String(error) });
+    }
+  };
+
+  const deleteSchedule = async (id: string) => {
+    setAutomationStatus({ working: true });
+    try {
+      const response = await firebaseService.authorizedFetch(`/api/schedules?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Schedule deletion failed (${response.status})`);
+      }
+      setScheduleStatus(current => ({ ...current, items: current.items.filter(item => item.id !== id) }));
+      setAutomationStatus({ message: 'Schedule deleted.' });
+    } catch (error: any) {
+      setAutomationStatus({ error: error?.message || String(error) });
+    }
+  };
+
+  const loadGoogleResources = async () => {
+    if (!workspaceGrantDraft.connectionId) return setAutomationStatus({ error: 'Select a Google Workspace connection first.' });
+    setAutomationStatus({ working: true });
+    try {
+      const response = await firebaseService.authorizedFetch(`/api/integrations/google/resources?connectionId=${encodeURIComponent(workspaceGrantDraft.connectionId)}`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Google resource load failed (${response.status})`);
+      setGoogleResources(Array.isArray(body.data) ? body.data : []);
+      setAutomationStatus({ message: 'Google Docs and Sheets loaded.' });
+    } catch (error: any) {
+      setAutomationStatus({ error: error?.message || String(error) });
+    }
+  };
+
+  const saveWorkspaceGrant = async () => {
+    if (!workspaceGrantDraft.projectId) return setAutomationStatus({ error: 'Select a project first.' });
+    setAutomationStatus({ working: true });
+    try {
+      const response = await firebaseService.authorizedFetch('/api/integrations/google/grant', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(workspaceGrantDraft)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Workspace grant save failed (${response.status})`);
+      setAutomationStatus({ message: 'Project Google resources saved.' });
+    } catch (error: any) {
+      setAutomationStatus({ error: error?.message || String(error) });
+    }
   };
 
   return (
@@ -319,6 +541,165 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-10 mb-16">
+            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><RefreshCw size={24} className="text-indigo-600" /> Daily Automations</h4>
+            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200 space-y-8">
+              {(automationStatus.message || automationStatus.error) && <div className={`rounded-xl border p-3 text-sm font-semibold ${automationStatus.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{automationStatus.error || automationStatus.message}</div>}
+
+              <div>
+                <h5 className="font-black text-slate-800 mb-3">Create daily schedule</h5>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <input aria-label="Schedule name" value={scheduleDraft.name} onChange={event => setScheduleDraft(current => ({ ...current, name: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
+                  <select aria-label="Schedule activity" value={scheduleDraft.activity} onChange={event => setScheduleDraft(current => ({ ...current, activity: event.target.value as TenantSchedule['activity'], name: event.target.value === 'flow_start' ? 'Daily coaching' : 'Daily email triage' }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm">
+                    <option value="flow_start">Start project flow</option>
+                    <option value="communications_triage">Email triage reconciliation</option>
+                  </select>
+                  {scheduleDraft.activity === 'flow_start' ? <select aria-label="Scheduled project" value={scheduleDraft.projectId} onChange={event => setScheduleDraft(current => ({ ...current, projectId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select project</option>{projects.filter(project => !project.isArchived).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select> : <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-600">Mailbox: {integrationStatus.mailboxes.find(item => item.id === settings.communications?.mailboxConnectionId)?.mailboxAddress || 'not connected'}</div>}
+                  <input aria-label="Daily local time" type="time" value={scheduleDraft.localTime} onChange={event => setScheduleDraft(current => ({ ...current, localTime: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
+                  <input aria-label="Schedule timezone" value={scheduleDraft.timezone} onChange={event => setScheduleDraft(current => ({ ...current, timezone: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
+                  <select aria-label="Misfire policy" value={scheduleDraft.misfirePolicy} onChange={event => setScheduleDraft(current => ({ ...current, misfirePolicy: event.target.value as TenantSchedule['misfirePolicy'] }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="run_once">Run once after downtime</option><option value="catch_up">Catch up every occurrence</option><option value="skip">Skip missed occurrences</option></select>
+                  {scheduleDraft.activity === 'communications_triage' && <select aria-label="Digest channel" value={scheduleDraft.digestChannel} onChange={event => setScheduleDraft(current => ({ ...current, digestChannel: event.target.value as 'web' | 'email' | 'sms' }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="web">Show in HyperFlow</option><option value="email">Email digest</option><option value="sms">SMS digest</option></select>}
+                  {scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && <input aria-label="Digest recipient" type={scheduleDraft.digestChannel === 'email' ? 'email' : 'tel'} value={scheduleDraft.digestRecipient} onChange={event => setScheduleDraft(current => ({ ...current, digestRecipient: event.target.value }))} placeholder={scheduleDraft.digestChannel === 'email' ? 'you@example.com' : '+61411111111'} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />}
+                </div>
+                {scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && <p className="mt-3 text-xs text-slate-500">Connected Gmail creates a draft for review. Automatic SMS or transactional email delivery also requires Automatic send policy and the send_reply permission.</p>}
+                <button type="button" onClick={() => void createDailySchedule()} disabled={automationStatus.working || !scheduleDraft.name.trim() || (scheduleDraft.activity === 'flow_start' && !scheduleDraft.projectId) || (scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && !scheduleDraft.digestRecipient.trim())} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">Create schedule</button>
+              </div>
+
+              <div>
+                <h5 className="font-black text-slate-800 mb-3">Active schedules</h5>
+                {scheduleStatus.loading ? <p className="text-sm text-slate-500">Loading schedules…</p> : scheduleStatus.error ? <p className="text-sm text-red-600">{scheduleStatus.error}</p> : scheduleStatus.items.length === 0 ? <p className="text-sm text-slate-500">No schedules configured.</p> : <div className="space-y-2">{scheduleStatus.items.map(schedule => <div key={schedule.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-bold text-slate-800">{schedule.name}</div><div className="text-xs text-slate-500">{schedule.activity.replaceAll('_', ' ')} · {schedule.recurrence?.kind === 'daily' ? `${schedule.recurrence.localTime} ${schedule.timezone}` : `every ${schedule.intervalMinutes} minutes`} · next {new Date(schedule.nextRunAt).toLocaleString()}{schedule.activity === 'communications_triage' ? ` · digest ${schedule.digestChannel || 'web'}` : ''}</div></div><div className="flex gap-2"><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">Run now</button><button type="button" onClick={() => void deleteSchedule(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700">Delete</button></div></div>)}</div>}
+              </div>
+
+              <div className="border-t border-slate-200 pt-6">
+                <h5 className="font-black text-slate-800 mb-1">Project Google resources</h5>
+                <p className="mb-4 text-xs text-slate-500">Allowlist one coaching Doc and one Sheet range for a project. Flow nodes cannot supply arbitrary file IDs.</p>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <select aria-label="Workspace project" value={workspaceGrantDraft.projectId} onChange={event => setWorkspaceGrantDraft(current => ({ ...current, projectId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select project</option>{projects.filter(project => !project.isArchived).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+                  <select aria-label="Workspace connection" value={workspaceGrantDraft.connectionId} onChange={event => setWorkspaceGrantDraft(current => ({ ...current, connectionId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select Google connection</option>{integrationStatus.workspaces.filter(item => item.state === 'connected').map(item => <option key={item.id} value={item.id}>{item.accountEmail}</option>)}</select>
+                  <select aria-label="Coaching Google Doc" value={workspaceGrantDraft.documentId} onChange={event => setWorkspaceGrantDraft(current => ({ ...current, documentId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select coaching Doc</option>{googleResources.filter(item => item.kind === 'document').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                  <select aria-label="Coaching Google Sheet" value={workspaceGrantDraft.spreadsheetId} onChange={event => setWorkspaceGrantDraft(current => ({ ...current, spreadsheetId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select coaching Sheet</option>{googleResources.filter(item => item.kind === 'spreadsheet').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+                  <input aria-label="Allowlisted Sheet range" value={workspaceGrantDraft.sheetRange} onChange={event => setWorkspaceGrantDraft(current => ({ ...current, sheetRange: event.target.value }))} placeholder="Coaching!A:G" className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
+                  <div className="flex gap-2"><button type="button" onClick={() => void loadGoogleResources()} disabled={automationStatus.working || !workspaceGrantDraft.connectionId} className="flex-1 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 disabled:opacity-50">Load files</button><button type="button" onClick={() => void saveWorkspaceGrant()} disabled={automationStatus.working || !workspaceGrantDraft.projectId || !workspaceGrantDraft.connectionId} className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Save allowlist</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-10 mb-16">
+            <h4 className="text-slate-800 font-black text-lg mb-6 flex items-center gap-3"><Bot size={24} className="text-indigo-600" /> Agent &amp; Connections</h4>
+            <div className="bg-slate-50 rounded-3xl p-8 border border-slate-200 space-y-6">
+              <div className={`rounded-xl border p-4 text-sm font-semibold ${integrationStatus.error ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-700'}`} role="status">
+                {integrationStatus.loading
+                  ? 'Loading tenant agent and connection health…'
+                  : integrationStatus.error
+                    ? integrationStatus.error
+                    : `${integrationStatus.mailboxes.length} mailbox and ${integrationStatus.workspaces.length} Workspace connection${integrationStatus.workspaces.length === 1 ? '' : 's'} available`}
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-display-name">Agent display name</label>
+                  <input id="agent-display-name" value={agentDraft.displayName || ''} onChange={event => setAgentDraft(current => ({ ...current, displayName: event.target.value }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-timezone">Agent timezone</label>
+                  <input id="agent-timezone" value={agentDraft.timezone || 'Australia/Brisbane'} onChange={event => setAgentDraft(current => ({ ...current, timezone: event.target.value }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-primary-person">Primary Communications person</label>
+                  <select id="agent-primary-person" value={agentDraft.primaryPersonId || ''} onChange={event => setAgentDraft(current => ({ ...current, primaryPersonId: event.target.value || undefined }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="">Not selected</option>
+                    {integrationStatus.people.map(person => <option key={person.id} value={person.id}>{person.name || person.email || person.phone || person.id}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-clarification">Ambiguous project routing</label>
+                  <select id="agent-clarification" value={agentDraft.clarificationPolicy || 'when_ambiguous'} onChange={event => setAgentDraft(current => ({ ...current, clarificationPolicy: event.target.value as TenantAgentProfile['clarificationPolicy'] }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="when_ambiguous">Ask only when ambiguous</option>
+                    <option value="always">Always confirm the project</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-phone">Agent voice/SMS identity</label>
+                  <input id="agent-phone" type="tel" value={agentDraft.serviceIdentities?.phone || ''} onChange={event => setAgentDraft(current => ({ ...current, serviceIdentities: { ...current.serviceIdentities, phone: event.target.value || undefined, sms: event.target.value || undefined } }))} placeholder="+61411111111" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-mono outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-email">Agent email identity</label>
+                  <input id="agent-email" type="email" value={agentDraft.serviceIdentities?.email || ''} onChange={event => setAgentDraft(current => ({ ...current, serviceIdentities: { ...current.serviceIdentities, email: event.target.value || undefined } }))} placeholder="agent@example.com" className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="mailbox-connection"><Link2 size={14} className="inline mr-1" />Connected mailbox</label>
+                  <select id="mailbox-connection" value={settings.communications?.mailboxConnectionId || ''} onChange={event => updateCommunications({ mailboxConnectionId: event.target.value || undefined, connectionId: event.target.value || settings.communications?.connectionId })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="">No connected mailbox</option>
+                    {integrationStatus.mailboxes.map(connection => <option key={connection.id} value={connection.id}>{connection.provider}: {connection.mailboxAddress} ({connection.state})</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="workspace-connection"><Link2 size={14} className="inline mr-1" />Google Workspace</label>
+                  <select id="workspace-connection" value={settings.activeWorkspaceConnectionId || ''} onChange={event => onUpdateSettings({ ...settings, activeWorkspaceConnectionId: event.target.value || undefined })} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
+                    <option value="">No Workspace connection</option>
+                    {integrationStatus.workspaces.map(connection => <option key={connection.id} value={connection.id}>{connection.accountEmail} ({connection.state})</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <fieldset>
+                <legend className="text-sm font-bold text-slate-700 mb-2">Person-specific project access</legend>
+                <p className="mb-3 text-xs text-slate-500">Grant projects to stable Communications people. Once any grants exist, people without a row cannot use the agent.</p>
+                <div className="space-y-3">
+                  {integrationStatus.people.map(person => {
+                    const grants = agentDraft.personProjectAccess || [];
+                    const entry = grants.find(item => item.personId === person.id);
+                    return <div key={person.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-2 text-sm font-bold text-slate-800">{person.name || person.email || person.phone || person.id}</div>
+                      <div className="flex flex-wrap gap-2">{projects.filter(project => !project.isArchived).map(project => {
+                        const selected = Boolean(entry?.projectIds.includes(String(project.id)));
+                        return <label key={project.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={selected} onChange={() => setAgentDraft(current => {
+                          const currentGrants = current.personProjectAccess || [];
+                          const currentEntry = currentGrants.find(item => item.personId === person.id);
+                          const projectIds = currentEntry?.projectIds || [];
+                          const nextProjectIds = selected ? projectIds.filter(id => id !== String(project.id)) : [...projectIds, String(project.id)];
+                          const withoutPerson = currentGrants.filter(item => item.personId !== person.id);
+                          return { ...current, personProjectAccess: nextProjectIds.length ? [...withoutPerson, { personId: person.id, projectIds: nextProjectIds }] : withoutPerson };
+                        })} />{project.name}</label>;
+                      })}</div>
+                    </div>;
+                  })}
+                  {!integrationStatus.people.length && <p className="text-xs text-amber-700">No Communications people are available. Receive or create the contact in Communications Service, then reload Settings.</p>}
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend className="text-sm font-bold text-slate-700 mb-2">Agent automatic-action policy</legend>
+                <div className="flex flex-wrap gap-3">
+                  {(['draft', 'send', 'call', 'sheet_write'] as const).map(action => {
+                    const selected = (agentDraft.automaticActions || []).includes(action);
+                    return <label key={action} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={selected} onChange={() => setAgentDraft(current => ({ ...current, automaticActions: selected ? (current.automaticActions || []).filter(item => item !== action) : [...(current.automaticActions || []), action] }))} />{action.replaceAll('_', ' ')}</label>;
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-2">Draft is safe by default. Send, call, and Sheet writes remain disabled until explicitly selected and are still subject to workflow policy.</p>
+              </fieldset>
+
+              <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-3">
+                <button type="button" onClick={() => void connectGmailMailbox()} disabled={integrationStatus.loading || integrationStatus.saving} className="rounded-xl border border-indigo-200 bg-white px-5 py-2.5 text-sm font-bold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  {integrationStatus.mailboxes.some(item => item.provider === 'gmail') ? 'Reconnect Gmail' : 'Connect Gmail mailbox'}
+                </button>
+                <button type="button" onClick={() => void syncSelectedMailbox()} disabled={integrationStatus.loading || integrationStatus.saving || !settings.communications?.mailboxConnectionId} className="rounded-xl border border-indigo-200 bg-white px-5 py-2.5 text-sm font-bold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  Sync mailbox now
+                </button>
+                <button type="button" onClick={() => void connectGoogleWorkspace()} disabled={integrationStatus.loading || integrationStatus.saving} className="rounded-xl border border-indigo-200 bg-white px-5 py-2.5 text-sm font-bold text-indigo-700 shadow-sm transition-colors hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  {integrationStatus.workspaces.length ? 'Reconnect Google Workspace' : 'Connect Google Workspace'}
+                </button>
+                <button type="button" onClick={() => void saveAgentProfile()} disabled={integrationStatus.loading || integrationStatus.saving} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                  {integrationStatus.saving ? 'Saving agent…' : 'Save agent profile'}
+                </button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">Only opaque connection references are shown here. OAuth tokens and provider credentials remain in protected backend stores.</p>
             </div>
           </div>
 

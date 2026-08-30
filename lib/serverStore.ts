@@ -1,17 +1,30 @@
 import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'node:crypto';
 import {
   ActivityLog,
+  AgentActionProposal,
+  AgentInboxJob,
+  Attachment,
   AppSettings,
   CommunicationsSettings,
+  ConversationContext,
+  CoachingSession,
+  ExternalActionReceipt,
+  MailboxConnectionRef,
   Project,
   ScheduleRun,
   TeamMemberDetails,
+  TenantAgentProfile,
   TenantSchedule,
+  TenantScheduleInput,
+  TriageDigest,
   TriageDisposition,
-  TriageItem
+  TriageItem,
+  WorkspaceConnectionRef,
+  WorkspaceResourceGrant
 } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
@@ -170,7 +183,8 @@ const getServerApp = () => {
     initializeApp(
       {
         credential: cert(parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT!)),
-        databaseURL: getDatabaseUrl()
+        databaseURL: getDatabaseUrl(),
+        ...(process.env.FIREBASE_STORAGE_BUCKET ? { storageBucket: process.env.FIREBASE_STORAGE_BUCKET } : {})
       },
       APP_NAME
     );
@@ -378,6 +392,7 @@ export const readTenantCommunicationsSettings = async (orgId: string): Promise<C
     defaultEmailIdentity: typeof value.defaultEmailIdentity === 'string' ? value.defaultEmailIdentity.trim() : undefined,
     replyServiceIdentity: typeof value.replyServiceIdentity === 'string' ? value.replyServiceIdentity.trim() : undefined,
     connectionId: typeof value.connectionId === 'string' ? value.connectionId.trim() : undefined,
+    mailboxConnectionId: typeof value.mailboxConnectionId === 'string' ? value.mailboxConnectionId.trim() : undefined,
     timezone: typeof value.timezone === 'string' ? value.timezone.trim() : undefined,
     triagePolicy: ['all_inbound', 'human_only', 'correlated_only'].includes(value.triagePolicy)
       ? value.triagePolicy : undefined,
@@ -485,6 +500,87 @@ export const appendActivityLog = async (orgId: string, log: ActivityLog): Promis
 };
 
 const safeRtdbKey = (value: string): string => encodeURIComponent(value).replace(/\./g, '%2E');
+
+const MAX_ASK_UPLOAD_BYTES = 2 * 1024 * 1024;
+const ALLOWED_ASK_UPLOAD_MIME = new Set([
+  'application/pdf', 'text/plain', 'text/csv',
+  'image/png', 'image/jpeg', 'image/webp',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+]);
+
+export interface AskUploadInput {
+  field: string;
+  name: string;
+  mime: string;
+  base64: string;
+}
+
+export const validateAskUpload = (input: AskUploadInput, allowedFields: string[]): { field: string; name: string; mime: string; bytes: Buffer } => {
+  const field = String(input?.field || '').trim();
+  if (!allowedFields.includes(field)) throw new Error('Upload field is not declared by this Ask');
+  const name = String(input?.name || '').replace(/[\r\n]/g, '').trim().slice(0, 180);
+  if (!name || /[\\/]/.test(name)) throw new Error('Upload filename is invalid');
+  const mime = String(input?.mime || '').trim().toLowerCase();
+  if (!ALLOWED_ASK_UPLOAD_MIME.has(mime)) throw new Error('Upload file type is not allowed');
+  if (typeof input.base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.base64)) throw new Error('Upload body is not valid base64');
+  const bytes = Buffer.from(input.base64, 'base64');
+  if (!bytes.length || bytes.length > MAX_ASK_UPLOAD_BYTES) throw new Error('Upload must be between 1 byte and 2 MB');
+  if (bytes.toString('base64').replace(/=+$/, '') !== input.base64.replace(/=+$/, '')) throw new Error('Upload body is not canonical base64');
+  return { field, name, mime, bytes };
+};
+
+export const listTenantProjects = async (orgId: string): Promise<Project[]> => {
+  const snap = await getDb().ref(`projects/${orgId}/projects`).get();
+  if (!snap.exists()) return [];
+  return toArray<Project>(snap.val()).filter(project => Boolean(project?.id));
+};
+
+export const storeAskUploads = async (input: {
+  orgId: string;
+  projectId: string;
+  askId: string;
+  allowedFields: string[];
+  uploads: AskUploadInput[];
+}): Promise<Attachment[]> => {
+  if (!process.env.FIREBASE_STORAGE_BUCKET) throw new Error('FIREBASE_STORAGE_BUCKET is required for Ask uploads');
+  if (!Array.isArray(input.uploads) || input.uploads.length > 3) throw new Error('At most three files may be uploaded');
+  const bucket = getStorage(getServerApp()).bucket();
+  const attachments: Attachment[] = [];
+  const storedFiles: Array<{ delete: () => Promise<unknown> }> = [];
+  try {
+    for (const upload of input.uploads) {
+      const valid = validateAskUpload(upload, input.allowedFields);
+      const id = `attachment_${randomUUID().replace(/-/g, '')}`;
+      const storagePath = `ask_uploads/${safeRtdbKey(input.orgId)}/${safeRtdbKey(input.projectId)}/${safeRtdbKey(input.askId)}/${id}/${valid.name}`;
+      const file = bucket.file(storagePath);
+      await file.save(valid.bytes, {
+        resumable: false,
+        validation: 'crc32c',
+        metadata: { contentType: valid.mime, contentDisposition: `attachment; filename="${valid.name.replace(/"/g, '')}"` }
+      });
+      storedFiles.push(file);
+      const [url] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 7 * 24 * 60 * 60 * 1000, version: 'v4' });
+      const kind: Attachment['kind'] = valid.mime.startsWith('image/') ? 'image' : 'document';
+      attachments.push({
+        id, url, storagePath, name: valid.name, mime: valid.mime, bytes: valid.bytes.length,
+        kind, source: 'web', capturedAt: Date.now()
+      });
+    }
+  } catch (error) {
+    await Promise.allSettled(storedFiles.map(file => file.delete()));
+    throw error;
+  }
+  return attachments;
+};
+
+export const deleteStoredAskAttachments = async (attachments: Attachment[]): Promise<void> => {
+  if (!attachments.length || !process.env.FIREBASE_STORAGE_BUCKET) return;
+  const bucket = getStorage(getServerApp()).bucket();
+  await Promise.allSettled(attachments
+    .filter(attachment => attachment.storagePath?.startsWith('ask_uploads/'))
+    .map(attachment => bucket.file(attachment.storagePath!).delete()));
+};
 
 const externalEventRef = (orgId: string, eventId: string) => {
   // encodeURIComponent covers every RTDB-forbidden key character except dot.
@@ -648,6 +744,28 @@ export const listTenantTriageItems = async (orgId: string, limit = 100): Promise
   return Object.values(snap.val() || {}).sort((a: any, b: any) => Number(b.updatedAt) - Number(a.updatedAt)) as TriageItem[];
 };
 
+const triageDigestRef = (orgId: string, digestId: string) =>
+  getDb().ref(`triage_digests/${safeRtdbKey(orgId)}/${safeRtdbKey(digestId)}`);
+
+export const saveTriageDigest = async (digest: TriageDigest): Promise<TriageDigest> => {
+  const result = await triageDigestRef(digest.orgId, digest.id).transaction(current => ({
+    ...(current || {}),
+    ...JSON.parse(JSON.stringify(digest)),
+    createdAt: Number(current?.createdAt || digest.createdAt),
+    updatedAt: Date.now()
+  }));
+  if (!result.committed) throw new Error('Triage digest could not be saved');
+  return result.snapshot.val() as TriageDigest;
+};
+
+export const listTenantTriageDigests = async (orgId: string, limit = 30): Promise<TriageDigest[]> => {
+  const snap = await getDb().ref(`triage_digests/${safeRtdbKey(orgId)}`)
+    .orderByChild('scheduledFor').limitToLast(Math.min(Math.max(limit, 1), 100)).get();
+  if (!snap.exists()) return [];
+  return (Object.values(snap.val() || {}) as TriageDigest[])
+    .sort((a, b) => Number(b.scheduledFor) - Number(a.scheduledFor));
+};
+
 export const readTenantTriageItem = async (orgId: string, itemId: string): Promise<TriageItem | null> => {
   const snap = await triageItemRef(orgId, itemId).get();
   return snap.exists() ? snap.val() as TriageItem : null;
@@ -656,7 +774,7 @@ export const readTenantTriageItem = async (orgId: string, itemId: string): Promi
 export const patchTenantTriageItem = async (
   orgId: string,
   itemId: string,
-  patch: Partial<Pick<TriageItem, 'projectId' | 'askId' | 'proposedAction' | 'interpretation'>>,
+  patch: Partial<Pick<TriageItem, 'projectId' | 'askId' | 'proposedAction' | 'interpretation' | 'agentProposal'>>,
   actor: string,
   action: string
 ): Promise<TriageItem | null> => {
@@ -715,13 +833,16 @@ export const listTenantSchedules = async (orgId: string): Promise<TenantSchedule
 
 export const saveTenantSchedule = async (
   orgId: string,
-  input: Partial<TenantSchedule>
+  input: TenantScheduleInput
 ): Promise<TenantSchedule> => {
   const now = Date.now();
   const id = String(input.id || `schedule_${randomUUID().replace(/-/g, '')}`);
   const existing = (await scheduleRef(orgId, id).get()).val() as TenantSchedule | null;
   const schedule = normalizeTenantSchedule(orgId, id, input, existing, now);
   if (!schedule.name) throw new Error('Schedule name is required');
+  if (schedule.activity === 'flow_start' && !schedule.projectId) {
+    throw new Error('projectId is required for a flow_start schedule');
+  }
   await scheduleRef(orgId, id).set(JSON.parse(JSON.stringify(schedule)));
   return schedule;
 };
@@ -729,30 +850,748 @@ export const saveTenantSchedule = async (
 export const normalizeTenantSchedule = (
   orgId: string,
   id: string,
-  input: Partial<TenantSchedule>,
+  input: TenantScheduleInput,
   existing: TenantSchedule | null,
   now: number
 ): TenantSchedule => {
-  const requestedInterval = Number(input.intervalMinutes ?? existing?.intervalMinutes ?? 15);
+  const activity = input.activity ?? existing?.activity ?? 'communications_triage';
+  const requestedInterval = Number(
+    input.recurrence?.kind === 'interval'
+      ? input.recurrence.intervalMinutes
+      : input.intervalMinutes ?? existing?.intervalMinutes ?? 15
+  );
   const intervalMinutes = Number.isFinite(requestedInterval)
     ? Math.min(Math.max(requestedInterval, 5), 1440)
     : 15;
-  const requestedNextRun = Number(input.nextRunAt ?? existing?.nextRunAt ?? now);
-  const policy = input.policy ?? existing?.policy ?? 'draft_only';
-  return {
+  const timezone = normalizeTimeZone(input.timezone ?? existing?.timezone ?? 'Australia/Brisbane');
+  const existingRecurrence = existing?.recurrence;
+  const recurrence = normalizeScheduleRecurrence(input.recurrence ?? existingRecurrence, intervalMinutes);
+  const defaultNextRun = recurrence.kind === 'daily'
+    ? nextDailyScheduleOccurrence(now, recurrence.localTime, timezone)
+    : now;
+  const requestedNextRun = Number(input.nextRunAt ?? existing?.nextRunAt ?? defaultNextRun);
+  const misfirePolicy = ['run_once', 'catch_up', 'skip'].includes(String(input.misfirePolicy ?? existing?.misfirePolicy))
+    ? (input.misfirePolicy ?? existing?.misfirePolicy) as TenantSchedule['misfirePolicy']
+    : 'run_once';
+  const base = {
     id,
     orgId,
     name: String(input.name ?? existing?.name ?? '').trim().slice(0, 120),
-    activity: 'communications_triage',
     enabled: input.enabled ?? existing?.enabled ?? true,
-    intervalMinutes,
-    timezone: String(input.timezone ?? existing?.timezone ?? 'Australia/Brisbane').trim(),
-    connectionId: input.connectionId ?? existing?.connectionId ?? undefined,
-    policy: ['draft_only', 'allow_approved_send', 'automatic'].includes(policy) ? policy : 'draft_only',
+    intervalMinutes: recurrence.kind === 'interval' ? recurrence.intervalMinutes : 1440,
+    recurrence,
+    misfirePolicy,
+    timezone,
     nextRunAt: Number.isFinite(requestedNextRun) ? requestedNextRun : now,
     createdAt: Number(existing?.createdAt || now),
     updatedAt: now
   };
+  if (activity === 'flow_start') {
+    const prior = existing?.activity === 'flow_start' ? existing : undefined;
+    return {
+      ...base,
+      activity,
+      projectId: String(input.projectId ?? prior?.projectId ?? '').trim(),
+      flowId: cleanOptionalString(input.flowId ?? prior?.flowId),
+      input: normalizeScheduleInput(input.input ?? prior?.input),
+      resetPolicy: input.resetPolicy === 'flow' || input.resetPolicy === 'none'
+        ? input.resetPolicy : prior?.resetPolicy || 'none',
+      clearProjectDataKeys: cleanStringList(input.clearProjectDataKeys ?? prior?.clearProjectDataKeys, 200)
+    };
+  }
+  const prior = existing?.activity === 'communications_triage' ? existing : undefined;
+  const policy = input.policy ?? prior?.policy ?? 'draft_only';
+  return {
+    ...base,
+    activity: 'communications_triage',
+    connectionId: cleanOptionalString(input.connectionId ?? prior?.connectionId),
+    policy: ['draft_only', 'allow_approved_send', 'automatic'].includes(policy) ? policy : 'draft_only',
+    digestChannel: ['web', 'email', 'sms'].includes(String(input.digestChannel ?? prior?.digestChannel))
+      ? (input.digestChannel ?? prior?.digestChannel) as 'web' | 'email' | 'sms'
+      : 'web',
+    digestRecipient: cleanOptionalString(input.digestRecipient ?? prior?.digestRecipient)
+  };
+};
+
+export const claimTriageAgentProposal = async (
+  orgId: string,
+  itemId: string,
+  actor: string
+): Promise<TriageItem | null> => {
+  const now = Date.now();
+  const result = await triageItemRef(orgId, itemId).transaction(current => {
+    const proposal = current?.agentProposal as AgentActionProposal | undefined;
+    if (!proposal || !['pending', 'failed'].includes(proposal.status)) return undefined;
+    const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
+    return {
+      ...current,
+      agentProposal: { ...proposal, status: 'processing', reviewedBy: actor, reviewedAt: now, error: null },
+      updatedAt: now,
+      audit: [...audit, { at: now, action: 'agent_proposal.claimed', actor }].slice(-100)
+    };
+  });
+  return result.committed ? result.snapshot.val() as TriageItem : null;
+};
+
+export const finishTriageAgentProposal = async (
+  orgId: string,
+  itemId: string,
+  status: 'applied' | 'rejected' | 'failed',
+  actor: string,
+  error?: string
+): Promise<TriageItem | null> => {
+  const now = Date.now();
+  const result = await triageItemRef(orgId, itemId).transaction(current => {
+    const proposal = current?.agentProposal as AgentActionProposal | undefined;
+    if (!proposal || (status !== 'rejected' && proposal.status !== 'processing')) return undefined;
+    if (status === 'rejected' && !['pending', 'failed'].includes(proposal.status)) return undefined;
+    const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
+    return {
+      ...current,
+      agentProposal: { ...proposal, status, reviewedBy: actor, reviewedAt: now, error: error || null },
+      disposition: status === 'applied' || status === 'rejected' ? 'resolved' : 'needs_review',
+      updatedAt: now,
+      audit: [...audit, { at: now, action: `agent_proposal.${status}`, actor, detail: error || null }].slice(-100)
+    };
+  });
+  return result.committed ? result.snapshot.val() as TriageItem : null;
+};
+
+const cleanStringList = (value: unknown, limit = 100): string[] | undefined => {
+  const clean = toArray<unknown>(value)
+    .filter(item => typeof item === 'string')
+    .map(item => String(item).trim())
+    .filter(Boolean)
+    .slice(0, limit);
+  return clean.length ? [...new Set(clean)] : undefined;
+};
+
+export const normalizeTenantAgentProfile = (
+  input: Partial<TenantAgentProfile>,
+  existing?: TenantAgentProfile | null
+): TenantAgentProfile => {
+  const timezone = normalizeTimeZone(input.timezone ?? existing?.timezone ?? 'Australia/Brisbane');
+  const automaticActions = cleanStringList(input.automaticActions ?? existing?.automaticActions)
+    ?.filter(action => ['draft', 'send', 'call', 'sheet_write'].includes(action)) as TenantAgentProfile['automaticActions'];
+  const phone = cleanOptionalString(input.serviceIdentities?.phone ?? existing?.serviceIdentities?.phone);
+  const sms = cleanOptionalString(input.serviceIdentities?.sms ?? existing?.serviceIdentities?.sms);
+  const email = cleanOptionalString(input.serviceIdentities?.email ?? existing?.serviceIdentities?.email);
+  const rawPersonAccess = Array.isArray(input.personProjectAccess)
+    ? input.personProjectAccess
+    : Array.isArray(existing?.personProjectAccess) ? existing.personProjectAccess : [];
+  const personProjectAccess = rawPersonAccess
+    .filter(item => item && typeof item === 'object')
+    .map(item => ({
+      personId: cleanOptionalString(item.personId),
+      projectIds: cleanStringList(item.projectIds) || []
+    }))
+    .filter((item): item is { personId: string; projectIds: string[] } => Boolean(item.personId))
+    .slice(0, 100)
+    .reduce<Array<{ personId: string; projectIds: string[] }>>((items, item) => {
+      const existingIndex = items.findIndex(candidate => candidate.personId === item.personId);
+      if (existingIndex >= 0) items[existingIndex] = item;
+      else items.push(item);
+      return items;
+    }, []);
+  return {
+    agentId: cleanOptionalString(input.agentId ?? existing?.agentId) || `agent_${randomUUID().replace(/-/g, '')}`,
+    displayName: String(input.displayName ?? existing?.displayName ?? 'HyperFlow Agent').trim().slice(0, 120) || 'HyperFlow Agent',
+    timezone,
+    primaryPersonId: cleanOptionalString(input.primaryPersonId ?? existing?.primaryPersonId),
+    defaultProjectId: cleanOptionalString(input.defaultProjectId ?? existing?.defaultProjectId),
+    allowedProjectIds: cleanStringList(input.allowedProjectIds ?? existing?.allowedProjectIds),
+    personProjectAccess: personProjectAccess.length ? personProjectAccess : undefined,
+    serviceIdentities: {
+      ...(phone && /^\+[1-9]\d{7,14}$/.test(phone) ? { phone } : {}),
+      ...(sms && /^\+[1-9]\d{7,14}$/.test(sms) ? { sms } : {}),
+      ...(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? { email: email.toLowerCase() } : {})
+    },
+    clarificationPolicy: input.clarificationPolicy === 'always' || input.clarificationPolicy === 'when_ambiguous'
+      ? input.clarificationPolicy
+      : existing?.clarificationPolicy || 'when_ambiguous',
+    automaticActions
+  };
+};
+
+export const readTenantAgentProfile = async (orgId: string): Promise<TenantAgentProfile | null> => {
+  const snap = await getDb().ref(`agent_profiles/${safeRtdbKey(orgId)}`).get();
+  return snap.exists() ? normalizeTenantAgentProfile(snap.val()) : null;
+};
+
+export const saveTenantAgentProfile = async (
+  orgId: string,
+  input: Partial<TenantAgentProfile>
+): Promise<TenantAgentProfile> => {
+  const existing = await readTenantAgentProfile(orgId);
+  const profile = normalizeTenantAgentProfile(input, existing);
+  await getDb().ref(`agent_profiles/${safeRtdbKey(orgId)}`).set(JSON.parse(JSON.stringify(profile)));
+  return profile;
+};
+
+const agentInboxJobRef = (orgId: string, jobId: string) =>
+  getDb().ref(`agent_inbox_jobs/${safeRtdbKey(orgId)}/${safeRtdbKey(jobId)}`);
+
+const agentInboxIndexRef = (orgId: string, jobId: string) =>
+  getDb().ref(`agent_inbox_pending/${safeRtdbKey(`${orgId}:${jobId}`)}`);
+
+export const enqueueAgentInboxJob = async (
+  input: Omit<AgentInboxJob, 'status' | 'attemptCount' | 'createdAt' | 'updatedAt'>
+): Promise<AgentInboxJob> => {
+  const now = Date.now();
+  const result = await agentInboxJobRef(input.orgId, input.id).transaction(current => current || {
+    ...JSON.parse(JSON.stringify(input)), status: 'pending', attemptCount: 0, createdAt: now, updatedAt: now
+  });
+  const job = result.snapshot.val() as AgentInboxJob;
+  if (job.status === 'pending' || job.status === 'failed') {
+    await agentInboxIndexRef(job.orgId, job.id).set({ orgId: job.orgId, jobId: job.id, availableAt: now, createdAt: job.createdAt });
+  }
+  return job;
+};
+
+export const claimAgentInboxJobs = async (limit = 10, now = Date.now()): Promise<AgentInboxJob[]> => {
+  const max = Math.min(Math.max(limit, 1), 25);
+  const pending = await getDb().ref('agent_inbox_pending')
+    .orderByChild('availableAt').endAt(now).limitToFirst(max * 3).get();
+  if (!pending.exists()) return [];
+  const candidates = Object.values<any>(pending.val() || {})
+    .sort((a, b) => Number(a.availableAt || 0) - Number(b.availableAt || 0))
+    .slice(0, max);
+  const claimed: AgentInboxJob[] = [];
+  for (const candidate of candidates) {
+    const orgId = String(candidate.orgId);
+    const jobId = String(candidate.jobId);
+    const result = await agentInboxJobRef(orgId, jobId).transaction(current => {
+      if (!current) return undefined;
+      const recoverable = current.status === 'pending' || current.status === 'failed' ||
+        (current.status === 'processing' && Number(current.leaseExpiresAt || 0) <= now);
+      if (!recoverable || Number(current.attemptCount || 0) >= 5) return undefined;
+      return {
+        ...current,
+        status: 'processing',
+        attemptCount: Number(current.attemptCount || 0) + 1,
+        claimedAt: now,
+        leaseExpiresAt: now + 2 * 60_000,
+        updatedAt: now,
+        error: null
+      };
+    });
+    if (result.committed) {
+      const job = result.snapshot.val() as AgentInboxJob;
+      claimed.push(job);
+      await agentInboxIndexRef(orgId, jobId).set({
+        orgId, jobId, availableAt: job.leaseExpiresAt, createdAt: job.createdAt
+      });
+    } else {
+      await agentInboxIndexRef(orgId, jobId).remove();
+    }
+  }
+  return claimed;
+};
+
+export const finishAgentInboxJob = async (
+  job: AgentInboxJob,
+  patch: Pick<AgentInboxJob, 'status'> & Partial<Pick<AgentInboxJob, 'routing' | 'responseCommunicationId' | 'responseDraftId' | 'error'>>
+): Promise<void> => {
+  const now = Date.now();
+  await agentInboxJobRef(job.orgId, job.id).update({
+    ...JSON.parse(JSON.stringify(patch)),
+    updatedAt: now,
+    leaseExpiresAt: null
+  });
+  if (patch.status === 'failed' && job.attemptCount < 5) {
+    const delay = Math.min(5 * 60_000, 15_000 * Math.max(job.attemptCount, 1));
+    await agentInboxIndexRef(job.orgId, job.id).set({
+      orgId: job.orgId, jobId: job.id, availableAt: now + delay, createdAt: job.createdAt
+    });
+  } else {
+    await agentInboxIndexRef(job.orgId, job.id).remove();
+  }
+};
+
+export const listAgentInboxJobs = async (orgId: string, limit = 100): Promise<AgentInboxJob[]> => {
+  const snap = await getDb().ref(`agent_inbox_jobs/${safeRtdbKey(orgId)}`).get();
+  if (!snap.exists()) return [];
+  return Object.values<AgentInboxJob>(snap.val() || {})
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, Math.min(Math.max(limit, 1), 250));
+};
+
+export const replayAgentInboxJob = async (orgId: string, jobId: string): Promise<AgentInboxJob> => {
+  const now = Date.now();
+  const result = await agentInboxJobRef(orgId, jobId).transaction(current => {
+    if (!current || current.orgId !== orgId) return undefined;
+    if (!['failed', 'needs_review'].includes(current.status)) return undefined;
+    return {
+      ...current,
+      status: 'pending',
+      attemptCount: 0,
+      updatedAt: now,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      error: null
+    };
+  });
+  if (!result.committed) throw new Error('Only failed or review-held agent jobs can be replayed');
+  const job = result.snapshot.val() as AgentInboxJob;
+  await agentInboxIndexRef(orgId, jobId).set({ orgId, jobId, availableAt: now, createdAt: job.createdAt });
+  return job;
+};
+
+export const listExternalActionReceipts = async (orgId: string, limit = 100): Promise<ExternalActionReceipt[]> => {
+  const snap = await getDb().ref(`external_action_receipts/${safeRtdbKey(orgId)}`).get();
+  if (!snap.exists()) return [];
+  return Object.values<ExternalActionReceipt>(snap.val() || {})
+    .sort((a, b) => Number(b.startedAt || 0) - Number(a.startedAt || 0))
+    .slice(0, Math.min(Math.max(limit, 1), 250));
+};
+
+export const listTenantCoachingSessions = async (orgId: string, limit = 100): Promise<CoachingSession[]> => {
+  const snap = await getDb().ref(`coaching_sessions/${safeRtdbKey(orgId)}`).get();
+  if (!snap.exists()) return [];
+  return Object.values<any>(snap.val() || {})
+    .flatMap(project => Object.values<CoachingSession>(project || {}))
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, Math.min(Math.max(limit, 1), 250));
+};
+
+const conversationContextRef = (orgId: string, threadId: string) =>
+  getDb().ref(`conversation_contexts/${safeRtdbKey(orgId)}/${safeRtdbKey(threadId)}`);
+
+export const readConversationContext = async (orgId: string, threadId: string): Promise<ConversationContext | null> => {
+  const snap = await conversationContextRef(orgId, threadId).get();
+  if (!snap.exists()) return null;
+  const context = snap.val() as ConversationContext;
+  return Number(context.expiresAt || 0) > Date.now() ? context : null;
+};
+
+export const saveConversationContext = async (context: ConversationContext): Promise<void> => {
+  if (context.orgId !== context.orgId.trim() || !context.threadId.trim()) throw new Error('Conversation context identity is invalid');
+  await conversationContextRef(context.orgId, context.threadId).set(JSON.parse(JSON.stringify(context)));
+};
+
+export const readVoiceContextResponse = async (
+  orgId: string,
+  requestId: string,
+  requestHash: string
+): Promise<Record<string, unknown> | null> => {
+  const ref = getDb().ref(`agent_voice_context_requests/${safeRtdbKey(orgId)}/${safeRtdbKey(requestId)}`);
+  const snap = await ref.get();
+  if (!snap.exists()) return null;
+  const value = snap.val();
+  if (value.requestHash !== requestHash) throw new Error('Voice context request id was reused with different content');
+  return value.response && typeof value.response === 'object' ? value.response : null;
+};
+
+export const saveVoiceContextResponse = async (
+  orgId: string,
+  requestId: string,
+  requestHash: string,
+  response: Record<string, unknown>
+): Promise<Record<string, unknown>> => {
+  const now = Date.now();
+  const ref = getDb().ref(`agent_voice_context_requests/${safeRtdbKey(orgId)}/${safeRtdbKey(requestId)}`);
+  const result = await ref.transaction(current => {
+    if (current?.requestHash && current.requestHash !== requestHash) return undefined;
+    if (current?.response) return current;
+    return { requestHash, response: JSON.parse(JSON.stringify(response)), createdAt: current?.createdAt || now, expiresAt: now + 10 * 60_000 };
+  });
+  if (!result.committed) throw new Error('Voice context request id was reused with different content');
+  return result.snapshot.val().response as Record<string, unknown>;
+};
+
+export const normalizeMailboxConnectionRef = (input: Partial<MailboxConnectionRef>): MailboxConnectionRef => {
+  const id = cleanOptionalString(input.id);
+  const mailboxAddress = cleanOptionalString(input.mailboxAddress)?.toLowerCase();
+  if (!id) throw new Error('Mailbox connection id is required');
+  if (!mailboxAddress || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mailboxAddress)) {
+    throw new Error('A valid mailbox address is required');
+  }
+  const provider = ['gmail', 'outlook', 'resend'].includes(String(input.provider))
+    ? input.provider as MailboxConnectionRef['provider']
+    : undefined;
+  if (!provider) throw new Error('Mailbox provider must be gmail, outlook, or resend');
+  const state = ['connected', 'degraded', 'expired', 'revoked', 'pending'].includes(String(input.state))
+    ? input.state as MailboxConnectionRef['state']
+    : 'pending';
+  return {
+    id, provider, mailboxAddress, state,
+    scopes: cleanStringList(input.scopes),
+    lastSuccessfulSyncAt: Number.isFinite(Number(input.lastSuccessfulSyncAt)) ? Number(input.lastSuccessfulSyncAt) : undefined,
+    updatedAt: Number(input.updatedAt || Date.now())
+  };
+};
+
+export const normalizeWorkspaceConnectionRef = (input: Partial<WorkspaceConnectionRef>): WorkspaceConnectionRef => {
+  const id = cleanOptionalString(input.id);
+  const accountEmail = cleanOptionalString(input.accountEmail)?.toLowerCase();
+  if (!id) throw new Error('Workspace connection id is required');
+  if (!accountEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accountEmail)) {
+    throw new Error('A valid Workspace account email is required');
+  }
+  const state = ['connected', 'degraded', 'expired', 'revoked', 'pending'].includes(String(input.state))
+    ? input.state as WorkspaceConnectionRef['state']
+    : 'pending';
+  return {
+    id, provider: 'google', accountEmail, state,
+    scopes: cleanStringList(input.scopes),
+    updatedAt: Number(input.updatedAt || Date.now())
+  };
+};
+
+export const listMailboxConnectionRefs = async (orgId: string): Promise<MailboxConnectionRef[]> => {
+  const snap = await getDb().ref(`integration_connections/${safeRtdbKey(orgId)}/mailbox`).get();
+  return snap.exists() ? Object.values(snap.val() || {}).map(value => normalizeMailboxConnectionRef(value as any)) : [];
+};
+
+export const saveMailboxConnectionRef = async (
+  orgId: string,
+  input: Partial<MailboxConnectionRef>
+): Promise<MailboxConnectionRef> => {
+  const connection = normalizeMailboxConnectionRef({ ...input, updatedAt: Date.now() });
+  await getDb().ref(`integration_connections/${safeRtdbKey(orgId)}/mailbox/${safeRtdbKey(connection.id)}`)
+    .set(JSON.parse(JSON.stringify(connection)));
+  return connection;
+};
+
+export const listWorkspaceConnectionRefs = async (orgId: string): Promise<WorkspaceConnectionRef[]> => {
+  const snap = await getDb().ref(`integration_connections/${safeRtdbKey(orgId)}/workspace`).get();
+  return snap.exists() ? Object.values(snap.val() || {}).map(value => normalizeWorkspaceConnectionRef(value as any)) : [];
+};
+
+export const saveWorkspaceConnectionRef = async (
+  orgId: string,
+  input: Partial<WorkspaceConnectionRef>
+): Promise<WorkspaceConnectionRef> => {
+  const connection = normalizeWorkspaceConnectionRef({ ...input, updatedAt: Date.now() });
+  await getDb().ref(`integration_connections/${safeRtdbKey(orgId)}/workspace/${safeRtdbKey(connection.id)}`)
+    .set(JSON.parse(JSON.stringify(connection)));
+  return connection;
+};
+
+export const writeWorkspaceCredential = async (
+  orgId: string,
+  connectionId: string,
+  sealedCredential: Record<string, unknown>
+): Promise<void> => {
+  await getDb().ref(`integration_credentials/${safeRtdbKey(orgId)}/workspace/${safeRtdbKey(connectionId)}`)
+    .set({ ...JSON.parse(JSON.stringify(sealedCredential)), updatedAt: Date.now() });
+};
+
+export const readWorkspaceCredential = async (
+  orgId: string,
+  connectionId: string
+): Promise<Record<string, unknown> | null> => {
+  const snap = await getDb().ref(
+    `integration_credentials/${safeRtdbKey(orgId)}/workspace/${safeRtdbKey(connectionId)}`
+  ).get();
+  if (!snap.exists()) return null;
+  const { updatedAt: _updatedAt, ...sealed } = snap.val() || {};
+  return sealed;
+};
+
+export const registerOAuthStateNonce = async (
+  orgId: string,
+  nonce: string,
+  uid: string,
+  expiresAt: number
+): Promise<void> => {
+  await getDb().ref(`oauth_states/${safeRtdbKey(orgId)}/${safeRtdbKey(nonce)}`)
+    .set({ uid, expiresAt, createdAt: Date.now() });
+};
+
+export const consumeOAuthStateNonce = async (
+  orgId: string,
+  nonce: string,
+  uid: string
+): Promise<boolean> => {
+  const now = Date.now();
+  const ref = getDb().ref(`oauth_states/${safeRtdbKey(orgId)}/${safeRtdbKey(nonce)}`);
+  const result = await ref.transaction(current => {
+    if (!current || current.uid !== uid || Number(current.expiresAt) <= now || current.consumedAt) return undefined;
+    return { ...current, consumedAt: now };
+  });
+  return result.committed;
+};
+
+const workspaceGrantRef = (orgId: string, projectId: string) =>
+  getDb().ref(`workspace_grants/${safeRtdbKey(orgId)}/${safeRtdbKey(projectId)}`);
+
+export const normalizeWorkspaceResourceGrant = (
+  projectId: string,
+  input: Partial<WorkspaceResourceGrant>
+): WorkspaceResourceGrant => {
+  const connectionId = cleanOptionalString(input.connectionId);
+  if (!projectId.trim()) throw new Error('projectId is required');
+  if (!connectionId) throw new Error('connectionId is required');
+  const documentId = cleanOptionalString(input.documentId);
+  const spreadsheetId = cleanOptionalString(input.spreadsheetId);
+  const validId = (value?: string) => !value || /^[A-Za-z0-9_-]{10,200}$/.test(value);
+  if (!validId(documentId) || !validId(spreadsheetId)) throw new Error('Invalid Google resource id');
+  const sheetRange = cleanOptionalString(input.sheetRange);
+  if (sheetRange && (sheetRange.length > 200 || /[\u0000-\u001f]/.test(sheetRange))) throw new Error('Invalid Google Sheet range');
+  return {
+    projectId: projectId.trim(), connectionId, documentId, spreadsheetId, sheetRange,
+    updatedAt: Number.isFinite(Number(input.updatedAt)) ? Number(input.updatedAt) : Date.now()
+  };
+};
+
+export const readWorkspaceResourceGrant = async (
+  orgId: string,
+  projectId: string
+): Promise<WorkspaceResourceGrant | null> => {
+  const snap = await workspaceGrantRef(orgId, projectId).get();
+  return snap.exists() ? normalizeWorkspaceResourceGrant(projectId, snap.val()) : null;
+};
+
+export const saveWorkspaceResourceGrant = async (
+  orgId: string,
+  projectId: string,
+  input: Partial<WorkspaceResourceGrant>
+): Promise<WorkspaceResourceGrant> => {
+  const grant = normalizeWorkspaceResourceGrant(projectId, input);
+  const connections = await listWorkspaceConnectionRefs(orgId);
+  if (!connections.some(connection => connection.id === grant.connectionId && connection.state === 'connected')) {
+    throw new Error('Workspace connection is not connected for this tenant');
+  }
+  await workspaceGrantRef(orgId, projectId).set(JSON.parse(JSON.stringify(grant)));
+  return grant;
+};
+
+export const claimExternalActionReceipt = async (
+  receipt: ExternalActionReceipt
+): Promise<{ receipt: ExternalActionReceipt; duplicate: boolean }> => {
+  const ref = getDb().ref(
+    `external_action_receipts/${safeRtdbKey(receipt.orgId)}/${safeRtdbKey(receipt.idempotencyKey)}`
+  );
+  let duplicate = false;
+  let conflict = false;
+  const now = Date.now();
+  const result = await ref.transaction(current => {
+    if (current?.requestHash && current.requestHash !== receipt.requestHash) {
+      conflict = true;
+      return undefined;
+    }
+    if (current?.status === 'completed') {
+      duplicate = true;
+      return undefined;
+    }
+    const active = current?.status === 'running' && now - Number(current.startedAt || 0) <= 10 * 60_000;
+    if (active) {
+      duplicate = true;
+      return undefined;
+    }
+    return { ...receipt, status: 'running', startedAt: now };
+  });
+  if (conflict) throw new Error('Idempotency key was already used with different action content');
+  if (result.committed) return { receipt: result.snapshot.val() as ExternalActionReceipt, duplicate: false };
+  const existing = (await ref.get()).val() as ExternalActionReceipt | null;
+  if (!existing) throw new Error('External action could not be claimed');
+  return { receipt: existing, duplicate };
+};
+
+export const finishExternalActionReceipt = async (
+  receipt: ExternalActionReceipt,
+  result: { status: 'completed' | 'failed'; response?: Record<string, unknown>; error?: string }
+): Promise<void> => {
+  const ref = getDb().ref(
+    `external_action_receipts/${safeRtdbKey(receipt.orgId)}/${safeRtdbKey(receipt.idempotencyKey)}`
+  );
+  await ref.transaction(current => {
+    if (!current || current.id !== receipt.id || current.requestHash !== receipt.requestHash) return undefined;
+    return { ...current, ...JSON.parse(JSON.stringify(result)), completedAt: Date.now() };
+  });
+};
+
+export const upsertCoachingSession = async (
+  session: Omit<CoachingSession, 'createdAt' | 'updatedAt'> & Partial<Pick<CoachingSession, 'createdAt' | 'updatedAt'>>
+): Promise<CoachingSession> => {
+  const ref = getDb().ref(
+    `coaching_sessions/${safeRtdbKey(session.orgId)}/${safeRtdbKey(session.projectId)}/${safeRtdbKey(session.id)}`
+  );
+  const now = Date.now();
+  const result = await ref.transaction(current => {
+    const next: any = {
+      ...(current || {}),
+      ...JSON.parse(JSON.stringify(session)),
+      createdAt: Number(current?.createdAt || session.createdAt || now),
+      updatedAt: now
+    };
+    if (session.retryStatus !== 'pending') {
+      next.nextRetryAt = null;
+      next.retryClaimedAt = null;
+      next.retryLeaseExpiresAt = null;
+    }
+    return next;
+  });
+  if (!result.committed) throw new Error('Coaching session could not be saved');
+  const saved = result.snapshot.val() as CoachingSession;
+  const index = getDb().ref(`coaching_retry_pending/${safeRtdbKey(`${saved.orgId}:${saved.projectId}:${saved.id}`)}`);
+  if (saved.retryStatus === 'pending' && Number(saved.nextRetryAt) > 0) {
+    await index.set({
+      orgId: saved.orgId, projectId: saved.projectId, sessionId: saved.id,
+      availableAt: Number(saved.nextRetryAt), createdAt: saved.createdAt
+    });
+  } else {
+    await index.remove();
+  }
+  return saved;
+};
+
+export const listCoachingSessions = async (
+  orgId: string,
+  projectId: string,
+  limit = 50
+): Promise<CoachingSession[]> => {
+  const snap = await getDb().ref(
+    `coaching_sessions/${safeRtdbKey(orgId)}/${safeRtdbKey(projectId)}`
+  ).get();
+  return snap.exists()
+    ? (Object.values(snap.val() || {}) as CoachingSession[])
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, Math.min(Math.max(limit, 1), 200))
+    : [];
+};
+
+export const claimDueCoachingRetries = async (now = Date.now(), limit = 10): Promise<CoachingSession[]> => {
+  const max = Math.min(Math.max(limit, 1), 25);
+  const snap = await getDb().ref('coaching_retry_pending')
+    .orderByChild('availableAt').endAt(now).limitToFirst(max * 3).get();
+  if (!snap.exists()) return [];
+  const candidates = Object.values<any>(snap.val() || {})
+    .sort((a, b) => Number(a.availableAt || 0) - Number(b.availableAt || 0))
+    .slice(0, max);
+  const claimed: CoachingSession[] = [];
+  for (const candidate of candidates) {
+    const orgId = String(candidate.orgId);
+    const projectId = String(candidate.projectId);
+    const sessionId = String(candidate.sessionId);
+    const index = getDb().ref(`coaching_retry_pending/${safeRtdbKey(`${orgId}:${projectId}:${sessionId}`)}`);
+    const ref = getDb().ref(
+      `coaching_sessions/${safeRtdbKey(orgId)}/${safeRtdbKey(projectId)}/${safeRtdbKey(sessionId)}`
+    );
+    const result = await ref.transaction(current => {
+      if (!current) return undefined;
+      const duePending = current.retryStatus === 'pending' && Number(current.nextRetryAt || 0) <= now;
+      const staleProcessing = current.retryStatus === 'processing' && Number(current.retryLeaseExpiresAt || 0) <= now;
+      if (!duePending && !staleProcessing) return undefined;
+      return {
+        ...current, retryStatus: 'processing', retryClaimedAt: now,
+        retryLeaseExpiresAt: now + 2 * 60_000, updatedAt: now
+      };
+    });
+    if (result.committed) {
+      const session = result.snapshot.val() as CoachingSession;
+      claimed.push(session);
+      await index.set({ orgId, projectId, sessionId, availableAt: session.retryLeaseExpiresAt, createdAt: session.createdAt });
+    } else {
+      await index.remove();
+    }
+  }
+  return claimed;
+};
+
+export const releaseCoachingRetry = async (session: CoachingSession, error: string): Promise<void> => {
+  const ref = getDb().ref(
+    `coaching_sessions/${safeRtdbKey(session.orgId)}/${safeRtdbKey(session.projectId)}/${safeRtdbKey(session.id)}`
+  );
+  const result = await ref.transaction(current => {
+    if (!current || current.retryStatus !== 'processing' || current.retryClaimedAt !== session.retryClaimedAt) return undefined;
+    return {
+      ...current, retryStatus: 'pending', nextRetryAt: Date.now() + 5 * 60_000,
+      retryClaimedAt: null, retryLeaseExpiresAt: null,
+      failureReason: String(error).slice(0, 1_000), updatedAt: Date.now()
+    };
+  });
+  if (result.committed) {
+    const saved = result.snapshot.val() as CoachingSession;
+    await getDb().ref(`coaching_retry_pending/${safeRtdbKey(`${saved.orgId}:${saved.projectId}:${saved.id}`)}`).set({
+      orgId: saved.orgId, projectId: saved.projectId, sessionId: saved.id,
+      availableAt: saved.nextRetryAt, createdAt: saved.createdAt
+    });
+  }
+};
+
+const cleanOptionalString = (value: unknown): string | undefined => {
+  const clean = typeof value === 'string' ? value.trim() : '';
+  return clean || undefined;
+};
+
+const normalizeScheduleInput = (value: unknown): Record<string, unknown> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+};
+
+const normalizeTimeZone = (value: unknown): string => {
+  const timezone = String(value || '').trim() || 'Australia/Brisbane';
+  try {
+    new Intl.DateTimeFormat('en-AU', { timeZone: timezone }).format(0);
+    return timezone;
+  } catch {
+    return 'Australia/Brisbane';
+  }
+};
+
+const normalizeScheduleRecurrence = (
+  recurrence: TenantScheduleInput['recurrence'],
+  intervalMinutes: number
+): TenantSchedule['recurrence'] => {
+  if (recurrence?.kind === 'daily') {
+    const localTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(recurrence.localTime)
+      ? recurrence.localTime
+      : '09:00';
+    return { kind: 'daily', localTime };
+  }
+  return { kind: 'interval', intervalMinutes };
+};
+
+const zonedParts = (at: number, timezone: string): Record<string, number> => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(at));
+  return Object.fromEntries(parts
+    .filter(part => part.type !== 'literal')
+    .map(part => [part.type, Number(part.value)]));
+};
+
+const zonedDateTimeToUtc = (
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timezone: string
+): number => {
+  const desired = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let candidate = desired;
+  for (let i = 0; i < 4; i++) {
+    const actual = zonedParts(candidate, timezone);
+    const represented = Date.UTC(actual.year, actual.month - 1, actual.day, actual.hour, actual.minute, actual.second);
+    const correction = desired - represented;
+    if (correction === 0) break;
+    candidate += correction;
+  }
+  return candidate;
+};
+
+/** Returns the first local daily occurrence strictly after `after`. */
+export const nextDailyScheduleOccurrence = (after: number, localTime: string, timezone: string): number => {
+  const safeTimezone = normalizeTimeZone(timezone);
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(localTime);
+  const hour = Number(match?.[1] ?? 9);
+  const minute = Number(match?.[2] ?? 0);
+  const local = zonedParts(after, safeTimezone);
+  let candidate = zonedDateTimeToUtc(local.year, local.month, local.day, hour, minute, safeTimezone);
+  if (candidate <= after) {
+    const nextDate = new Date(Date.UTC(local.year, local.month - 1, local.day + 1));
+    candidate = zonedDateTimeToUtc(
+      nextDate.getUTCFullYear(), nextDate.getUTCMonth() + 1, nextDate.getUTCDate(),
+      hour, minute, safeTimezone
+    );
+  }
+  return candidate;
 };
 
 export const deleteTenantSchedule = async (orgId: string, scheduleId: string): Promise<void> => {
@@ -791,6 +1630,11 @@ export const claimScheduleRun = async (
       id: `${schedule.id}:${scheduledFor}`,
       orgId: schedule.orgId,
       scheduleId: schedule.id,
+      activity: schedule.activity,
+      ...(schedule.activity === 'flow_start' ? {
+        projectId: schedule.projectId,
+        ...(schedule.flowId ? { flowId: schedule.flowId } : {})
+      } : {}),
       scheduledFor,
       status: 'running',
       claimId,
@@ -816,12 +1660,28 @@ export const finishScheduleRun = async (
   });
 };
 
-export const advanceTenantSchedule = async (schedule: TenantSchedule, from: number): Promise<void> => {
+export const advanceTenantSchedule = async (
+  schedule: TenantSchedule,
+  from: number,
+  now = Date.now()
+): Promise<void> => {
   await scheduleRef(schedule.orgId, schedule.id).transaction(current => {
     if (!current) return undefined;
-    const interval = Math.max(5, Number(current.intervalMinutes || schedule.intervalMinutes)) * 60_000;
-    let nextRunAt = Math.max(Number(current.nextRunAt || from), from) + interval;
-    while (nextRunAt <= Date.now()) nextRunAt += interval;
+    const recurrence = current.recurrence || schedule.recurrence || {
+      kind: 'interval', intervalMinutes: Math.max(5, Number(current.intervalMinutes || schedule.intervalMinutes))
+    };
+    const misfirePolicy = current.misfirePolicy || schedule.misfirePolicy || 'run_once';
+    let nextRunAt: number;
+    if (recurrence.kind === 'daily') {
+      nextRunAt = nextDailyScheduleOccurrence(from, recurrence.localTime, current.timezone || schedule.timezone);
+      if (misfirePolicy !== 'catch_up' && nextRunAt <= now) {
+        nextRunAt = nextDailyScheduleOccurrence(now, recurrence.localTime, current.timezone || schedule.timezone);
+      }
+    } else {
+      const interval = Math.max(5, Number(recurrence.intervalMinutes || schedule.intervalMinutes)) * 60_000;
+      nextRunAt = Math.max(Number(current.nextRunAt || from), from) + interval;
+      if (misfirePolicy !== 'catch_up') while (nextRunAt <= now) nextRunAt += interval;
+    }
     return { ...current, nextRunAt, updatedAt: Date.now() };
   });
 };

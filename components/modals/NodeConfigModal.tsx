@@ -11,7 +11,11 @@ const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.SMS]: '{"to": "{{contact_phone}}", "body": "Your project {{project_name}} has an update."}',
   [NodeType.PHONE_CALL]: '{"to": "{{contact_phone}}", "prompt": "You are calling to confirm the proposal..."}',
   [NodeType.WEBHOOK]: '{"url": "https://example.com/hook", "method": "POST", "payload": {"project": "{{project_name}}"}}',
-  [NodeType.REPORT]: '{"prompt": "Write a status report for {{project_name}}", "sop": "...", "template": "...", "eval_criteria": "..."}'
+  [NodeType.REPORT]: '{"prompt": "Write a status report for {{project_name}}", "sop": "...", "template": "...", "eval_criteria": "..."}',
+  [NodeType.GOOGLE_DOC]: '{}',
+  [NodeType.GOOGLE_SHEET_READ]: '{}',
+  [NodeType.GOOGLE_SHEET_APPEND]: '{"idempotency_key": "{{schedule_occurrence_id}}:coaching-sheet", "values": [["{{scheduled_for}}", "{{coaching_progress}}", "{{coaching_blockers}}", "{{coaching_commitments}}", "{{coaching_next_actions}}"]]}',
+  [NodeType.COACHING_EXTRACT]: '{"minimum_confidence": 0.8, "instruction": "Extract the coaching session outcome using only evidence from the verified call transcript."}'
 };
 
 interface NodeConfigModalProps {

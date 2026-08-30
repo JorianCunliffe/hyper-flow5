@@ -113,6 +113,21 @@ describe('review gating', () => {
     const { asksToOpen } = advanceFlow(project([m]));
     assert.deepEqual(asksToOpen, [], '...but no ask is raised until there is something to review');
   });
+
+  test('a conditional review gate opens only when project data matches', () => {
+    const n = reviewedAction({
+      reviewPolicy: { required: true, when: [{ variable: 'coaching_requires_review', equals: true }] }
+    });
+    assert.equal(isNodeComplete(n, { coaching_requires_review: false }), true);
+    assert.equal(needsApprovalAsk(n, { coaching_requires_review: false }), false);
+    assert.equal(isNodeComplete(n, { coaching_requires_review: true }), false);
+    assert.equal(needsApprovalAsk(n, { coaching_requires_review: true }), true);
+
+    const safe = advanceFlow(project([n], { coaching_requires_review: false } as any));
+    assert.deepEqual(safe.asksToOpen, []);
+    const held = advanceFlow(project([n], { coaching_requires_review: true } as any));
+    assert.deepEqual(held.asksToOpen, [n.id]);
+  });
 });
 
 describe('expiry policy', () => {
