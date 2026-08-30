@@ -1,12 +1,21 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { communicationsAfterCursor, cursorAfterCommunications, listInboundEmailSince, occurredMs } from '../lib/scheduler';
+import { communicationsAfterCursor, cursorAfterCommunications, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
 import { nextDailyScheduleOccurrence, normalizeTenantSchedule } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
 import { project } from './helpers';
 
 describe('durable communication cursor helpers', () => {
+  test('starts a new triage schedule at its creation time instead of replaying mailbox history', () => {
+    const createdAt = Date.parse('2026-08-30T12:00:00.000Z');
+    assert.equal(reconciliationCursor(undefined, createdAt), '2026-08-30T12:00:00.000Z');
+    assert.equal(
+      reconciliationCursor('2026-08-30T12:05:00.000Z', createdAt),
+      '2026-08-30T12:05:00.000Z'
+    );
+  });
+
   test('sorts only records strictly after the committed cursor', () => {
     const records = [
       { id: 'late', occurredAt: '2026-08-28T03:00:00Z' },

@@ -44,6 +44,16 @@ export const cursorAfterCommunications = <T extends { occurredAt?: string }>(
   previous
 );
 
+export const reconciliationCursor = (
+  committedCursor: string | undefined,
+  scheduleCreatedAt: number
+): string | undefined => {
+  if (committedCursor) return committedCursor;
+  return Number.isFinite(scheduleCreatedAt) && scheduleCreatedAt > 0
+    ? new Date(scheduleCreatedAt).toISOString()
+    : undefined;
+};
+
 export const listInboundEmailSince = async (
   client: CommunicationsClient,
   orgId: string,
@@ -179,7 +189,10 @@ export const runTenantSchedule = async (
     }
 
     const cursorKey = schedule.connectionId || 'default';
-    cursorBefore = await readCommunicationCursor(schedule.orgId, cursorKey);
+    cursorBefore = reconciliationCursor(
+      await readCommunicationCursor(schedule.orgId, cursorKey),
+      schedule.createdAt
+    );
     const client = createCommunicationsClient();
     if (schedule.connectionId) {
       const sync = await client.syncMailbox(schedule.orgId, schedule.connectionId, `schedule:${schedule.id}`);
