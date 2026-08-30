@@ -41,7 +41,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'google_callback') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
       const state = verifyGoogleOAuthState(String(req.query.state || ''));
-      await requireOrganizationMember(state.tenantId, state.uid);
+      await requireOrganizationMember(state.uid, state.tenantId);
       const claimed = await consumeOAuthStateNonce(state.tenantId, state.nonce, state.uid);
       if (!claimed) return res.status(400).json({ error: 'OAuth state was already used or expired' });
       const code = String(req.query.code || '');

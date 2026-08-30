@@ -1,5 +1,6 @@
 import { afterEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { openCredential, sealCredential } from '../lib/integrations/credentialCrypto';
 import {
   createGoogleOAuthState,
@@ -53,6 +54,14 @@ describe('Google OAuth state and authorization', () => {
     assert.match(scope, /documents\.readonly/);
     assert.match(scope, /spreadsheets/);
     assert.match(scope, /drive\.metadata\.readonly/);
+  });
+
+  test('checks callback membership with user ID before tenant ID in both runtimes', () => {
+    for (const path of ['../api/communications/status.ts', '../server.ts']) {
+      const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+      assert.match(source, /requireOrganizationMember\(state\.uid, state\.tenantId\)/);
+      assert.doesNotMatch(source, /requireOrganizationMember\(state\.tenantId, state\.uid\)/);
+    }
   });
 });
 

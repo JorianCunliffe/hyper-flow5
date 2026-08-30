@@ -291,7 +291,7 @@ async function startServer() {
   app.get('/api/integrations/google/callback', async (req, res) => {
     try {
       const state = verifyGoogleOAuthState(String(req.query.state || ''));
-      await requireOrganizationMember(state.tenantId, state.uid);
+      await requireOrganizationMember(state.uid, state.tenantId);
       if (!await consumeOAuthStateNonce(state.tenantId, state.nonce, state.uid)) {
         return res.status(400).json({ error: 'OAuth state was already used or expired' });
       }
