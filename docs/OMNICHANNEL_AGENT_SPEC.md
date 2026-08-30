@@ -1,7 +1,7 @@
 # HyperFlow Omnichannel Agent Service
 
-Status: implementation specification  
-Date: 2026-08-30  
+Status: implementation specification
+Date: 2026-08-30
 Scope: HyperFlow 5 and Communications Service
 
 ## 1. Decision and current readiness
