@@ -8,13 +8,13 @@ HyperFlow is a visual workflow engine for projects that combine human milestones
 |---|---|
 | Milestones | Human-managed work with subtasks and dependencies. |
 | Decisions and loops | Branch from Project Data and repeat sections until an exit condition or iteration limit is reached. |
-| Email | Send and receive through the tenant-scoped Communications Service; triage inbound mail and correlate later replies to workflows. |
-| SMS and voice | Start work through the provider-neutral Communications Service and wait for signed terminal events. |
+| Email | Send through the tenant-scoped Communications Service; receive and triage replies through signed canonical communication events. |
+| SMS and voice | Dispatch through the provider-neutral Communications Service, wait for signed terminal outcomes, and triage eligible inbound replies. |
 | Webhooks | Call public HTTPS/443 endpoints with DNS, redirect, timeout, and response-size protections. |
 | Reports | Generate, evaluate, and revise reports with Gemini. |
 | Human Asks | Pause a run for approval, rejection, revision, information, or an upload; collect responses by web form, email, SMS, or voice. |
-| Communications triage | Review human inbound email, linked Ask responses, automatic-message exclusions, and delivery failures in one tenant-scoped inbox. |
-| Durable schedules | Reconcile inbound communications from a committed cursor without relying on an open browser. |
+| Communications triage | Review human inbound email and SMS, linked Ask responses, automatic-message exclusions, and delivery failures in one tenant-scoped inbox. |
+| Durable schedules | Reconcile inbound email from a committed cursor without relying on an open browser. |
 
 Action templates can use `{{variable}}` placeholders from Project Data. Successful synchronous output is merged back into Project Data for later decisions and loops.
 
@@ -39,7 +39,7 @@ The Express development server reads process environment variables; it does not 
 |---|---|
 | Firebase server access | `FIREBASE_SERVICE_ACCOUNT`; `FIREBASE_DATABASE_URL` when overriding the default database. |
 | Gemini | `GEMINI_API_KEY` for generation, reports, and optional ambiguous-response interpretation. |
-| Communications Service | `COMMUNICATIONS_API_URL`, `COMMUNICATIONS_API_KEY`, `COMMUNICATIONS_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`; optional `COMMUNICATIONS_FROM_NUMBER` and `COMMUNICATIONS_INTENT_MODEL`. |
+| Communications Service | `COMMUNICATIONS_API_URL`, `COMMUNICATIONS_API_KEY`, `COMMUNICATIONS_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`; optional `COMMUNICATIONS_FROM_NUMBER`, `COMMUNICATIONS_EMAIL_IDENTITY`, `COMMUNICATIONS_CONNECTION_ID`, and `COMMUNICATIONS_INTENT_MODEL`. |
 | Durable schedule timer | `CRON_SECRET` for Vercel Cron; optional `SCHEDULER_SECRET` for another timer caller. |
 | Server-triggered flow advancement | `WEBHOOK_SECRET`. |
 | Webhook action allowlist | Optional comma-separated `WEBHOOK_ALLOWED_HOSTS`. |
@@ -48,12 +48,24 @@ Settings > Communications stores non-secret tenant routing and policy: the E.164
 
 For ordinary SMS and call actions, the sending number is selected from the action template, Project Data `communications_from_number`, tenant Settings, then `COMMUNICATIONS_FROM_NUMBER`. Ask delivery uses the tenant email identity/connection or sending number, with the documented environment fallbacks when applicable.
 
+The two deployments must agree on these values:
+
+| HyperFlow | Communications Service | Requirement |
+|---|---|---|
+| `COMMUNICATIONS_API_URL` | Public service origin | For the current deployment, `https://communications-service.replit.app` with no `/v1` suffix. |
+| `COMMUNICATIONS_API_KEY` | `API_KEY`, or a tenant-scoped API credential | The value used by HyperFlow's backend must authenticate the same tenant sent in `X-Tenant-Id`. |
+| `COMMUNICATIONS_WEBHOOK_SECRET` | `COMMUNICATIONS_WEBHOOK_SECRET` | Identical HMAC secret in both deployments. |
+| `{PUBLIC_BASE_URL}/api/events` | `HYPERFLOW_EVENT_URL` | Exact fallback event URL; `/api/communications/events` is not a HyperFlow route. Per-request `callback_url` takes precedence. |
+
+`PUBLIC_BASE_URL` must be the externally reachable HTTPS origin, not localhost and not the Communications Service URL. The current code does not append a Vercel protection-bypass token. If deployment protection intercepts `/api/events`, use an unprotected custom domain or explicitly exempt the webhook route; otherwise Communications will retry and eventually fail without the handler running.
+
 ## Flow execution
 
 - **Run Now** executes one action directly.
 - **Advance Flow** evaluates ready work, decisions, and loops; runs auto-execute actions; and raises required Asks.
-- Email actions are accepted by Communications and finish the delivery action synchronously; inbound replies are separate durable events. Webhook and report actions also finish synchronously.
+- Email actions finish in HyperFlow when Communications accepts the outbound email. Provider delivery, failure, and a later reply are separate durable events. Webhook and report actions also finish synchronously.
 - SMS and voice actions normally return `202`, remain waiting, and release downstream work only after a signed terminal event reaches `POST /api/events`.
+- `sms.delivered` confirms carrier delivery and completes the SMS action; it does not mean the recipient replied. A later inbound SMS is a separate `communication.received` event.
 
 For voice, Twilio's provider status `completed` is not success. Communications sends `call.completed` only after verifying a meaningful response from the intended human. Voicemail, wrong number, no answer, busy, fax, automated systems, provider failure, and non-meaningful responses arrive as `call.failed`. HyperFlow records the disposition and memory-eligibility flag on the action run, displays a specific failure label, keeps downstream work blocked, and never merges failed-call output into Project Data. Pending actions display as **Waiting**, not failed.
 
@@ -69,6 +81,12 @@ Every outbound SMS or call carries:
 HyperFlow maintains one canonical Ask and creates recipient/channel-specific delivery IDs and tokens. All accepted responses pass through the same `respondToAsk` service, which validates the response, records it, applies the result, advances the flow, delivers any newly raised Asks, and saves the project.
 
 Email, SMS, and voice Asks are delivered through Communications with a `human_ask` purpose and tenant correlation. Failed voice calls, voicemail, wrong numbers, bounces, spam, and automatic email replies never count as human responses or enter workflow memory.
+
+The event type determines what HyperFlow may do:
+
+- `communication.received` is the canonical event for an ordinary inbound email or SMS. HyperFlow records tenant-scoped triage evidence; it does not resolve an Ask, complete a waiting action, or merge reply text into Project Data. `sms.received` remains accepted as a legacy alias.
+- `ask.response.received` is emitted only for a response correlated to a `human_ask`. It enters `respondToAsk`, which may resolve the Ask immediately or hold an uncertain interpretation for review.
+- Eligible communication text is enriched into Communications Service memory asynchronously. HyperFlow's triage `memoryEligible` flag describes eligibility; it is not itself proof that the service-side enrichment job completed.
 
 The public form URL is:
 
@@ -112,13 +130,15 @@ When changing Firebase projects, configure the browser variables as one set and 
 
 1. Configure the backend variables required by the enabled integrations.
 2. Set `PUBLIC_BASE_URL` to the public HTTPS origin.
-3. Configure Communications to send durable events to `POST {PUBLIC_BASE_URL}/api/events` and use the same `COMMUNICATIONS_WEBHOOK_SECRET` in both services.
+3. Set Communications `HYPERFLOW_EVENT_URL` to exactly `{PUBLIC_BASE_URL}/api/events` as the fallback destination, and use the same `COMMUNICATIONS_WEBHOOK_SECRET` in both services. HyperFlow also sends this URL per request as `callback_url`.
 4. In Settings > Communications, select the tenant's email service identity and provider connection; set the phone number when SMS or voice is enabled.
 5. Configure `CRON_SECRET` for the daily Vercel Hobby-compatible tick. For sub-daily schedules, use a Vercel plan that supports the required frequency or call `POST /api/schedules/tick` from an external timer with `SCHEDULER_SECRET`.
 6. Run and review the membership migration before deploying updated Firebase rules to a legacy database.
 7. Deploy [`database.rules.json`](./database.rules.json); operational event, triage, schedule, cursor, delivery, and resolution trees are backend-only.
 
 External services cannot call localhost. Use a secure public tunnel for local callback testing. If deployment protection redirects webhook requests to login, expose an unprotected webhook origin or configure the host's supported protection bypass.
+
+For a full channel check, verify each boundary independently: the outbound create returns a canonical `comm_*` ID; the provider reaches a terminal status; Communications delivers the matching `evt_*` callback to HyperFlow; and any human reply creates a new inbound communication. An ordinary SMS/email reply should appear in triage when admitted by the tenant's triage policy and, when eligible, complete Communications memory enrichment. Only a reply carrying `human_ask` correlation should progress an Ask through `respondToAsk`.
 
 ## Verification
 

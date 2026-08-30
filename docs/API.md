@@ -194,7 +194,7 @@ Synchronous success: `200`
 }
 ```
 
-Accepted Communications work: `202`
+Accepted SMS or voice work: `202`
 
 ```json
 {
@@ -212,12 +212,12 @@ Accepted Communications work: `202`
 }
 ```
 
-The action remains waiting until a mapped terminal event arrives. A Communications response explicitly marked `failed` returns `502`; validation, configuration, provider HTTP, timeout, and other execution failures currently return `500`. Unknown task types return `400`.
+An accepted SMS or voice action remains waiting until a mapped terminal event arrives. A `send_email` action is different: it returns `200` when Communications accepts the email, and later provider delivery/failure and reply events do not reopen that completed action. A Communications response explicitly marked `failed` returns `502`; validation, configuration, provider HTTP, timeout, and other execution failures currently return `500`. Unknown task types return `400`.
 
 | Status | Meaning |
 |---|---|
-| `200` | Action completed synchronously. |
-| `202` | Communication accepted and the action is waiting for an event. |
+| `200` | Action completed synchronously, including an email accepted by Communications. |
+| `202` | SMS or voice communication accepted and the action is waiting for a terminal event. |
 | `400` | Unknown task type or invalid request understood by the task handler. |
 | `500` | Execution or configuration failure. |
 | `502` | A successful Communications HTTP response explicitly contained normalized status `failed`. Communications HTTP errors currently pass through the task catch path as `500`. |
@@ -234,7 +234,36 @@ X-Communications-Event-Id: evt_...
 X-Communications-Signature: sha256=<HMAC-SHA256 of the exact raw JSON body>
 ```
 
-The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits the signature when that secret is configured, while HyperFlow requires it; therefore the secret must be enabled in both deployments. HyperFlow verifies the signature before parsing JSON or defaulting a missing `source` to `communications`, then persists the complete event before applying it. `event_id` in the body is the idempotency key. `X-Communications-Event-Id` is emitted for observability but HyperFlow does not currently compare it with the body.
+The HMAC key is `COMMUNICATIONS_WEBHOOK_SECRET`. Communications only emits the signature when that secret is configured, while HyperFlow requires it; therefore the secret must be enabled in both deployments. HyperFlow verifies the legacy raw-body `X-Communications-Signature` before parsing JSON or defaulting a missing `source` to `communications`, then persists the complete event before applying it. Communications may also send its timestamped V2 signature headers, but this handler does not currently validate them. `event_id` in the body is the idempotency key. `X-Communications-Event-Id` is emitted for observability but HyperFlow does not currently compare it with the body.
+
+### Canonical inbound communication event
+
+`communication.received` is the canonical event for an ordinary inbound email or SMS. `sms.received` is accepted as a legacy alias. These events create or update tenant-scoped triage evidence; they do not resolve a Human Ask, complete a waiting task run, or merge reply text into Project Data.
+
+```json
+{
+  "contract_version": "2.0",
+  "tenant_id": "org_1",
+  "event_id": "evt_inbound_123",
+  "communication_id": "comm_inbound_123",
+  "type": "communication.received",
+  "occurred_at": "2026-08-30T03:57:42.294Z",
+  "correlation": {
+    "tenant_id": "org_1",
+    "external_project_id": "project_1",
+    "run_id": "run_1",
+    "task_id": "SMS_1"
+  },
+  "payload": {
+    "channel": "sms",
+    "content": "SMS TEST OK",
+    "memory_eligible": true,
+    "thread_id": "thread_123"
+  }
+}
+```
+
+For email, HyperFlow retrieves the authoritative tenant-scoped communication before projecting the triage item. For SMS, response text is taken from the signed event payload. If tenant triage policy is `correlated_only`, an inbound event with neither an Ask nor project link is acknowledged and ignored. Eligible text may be enriched asynchronously into Communications Service memory; HyperFlow's triage `memoryEligible` field records eligibility, not enrichment completion.
 
 ### Ask response event
 
@@ -242,6 +271,8 @@ An `ask.response.received` event carrying an explicit `ask_id` is routed to the 
 
 ```json
 {
+  "contract_version": "2.0",
+  "tenant_id": "org_1",
   "event_id": "evt_ask_123",
   "type": "ask.response.received",
   "occurred_at": "2026-08-11T02:30:00.000Z",
@@ -252,7 +283,7 @@ An `ask.response.received` event carrying an explicit `ask_id` is routed to the 
   },
   "correlation": {
     "tenant_id": "org_1",
-    "project_id": "project_1",
+    "external_project_id": "project_1",
     "person_id": "person_1"
   },
   "payload": {
@@ -285,7 +316,7 @@ HyperFlow also retains compatibility with adapters that supply `response.structu
 
 ### Terminal communication event
 
-Only `call.completed` and `sms.delivered` are successful terminal events. `call.failed` and `sms.failed` map to failure. A contradictory `call.completed` payload that explicitly has `successful: false`, `memory_eligible: false`, or a non-`human_completed` disposition also fails closed. Every other current or future event defaults to non-terminal. Terminal events require `tenant_id`, `project_id`, `run_id`, and `task_id`; `communication_id` adds an additional exact-run match when present.
+Only `call.completed` and `sms.delivered` are successful terminal events. `call.failed` and `sms.failed` map to failure. A contradictory `call.completed` payload that explicitly has `successful: false`, `memory_eligible: false`, or a non-`human_completed` disposition also fails closed. Every other current or future event defaults to non-terminal, apart from defensive normalization of a legacy `sms.sent` payload whose status is already terminal. Terminal events require `tenant_id`, `external_project_id` (or the transitional `project_id` alias), `run_id`, and `task_id`; `communication_id` adds an additional exact-run match when present.
 
 ```json
 {
@@ -363,15 +394,17 @@ Status codes:
 
 | Status | Meaning |
 |---|---|
-| `200` | Event accepted, ignored, duplicated, processed, or recorded with a non-retryable application result. Inspect `ok`, `ignored`, and `reason`. |
+| `200` | Event accepted, ignored, duplicated, or processed with `ok: true`. Inspect `ignored` and `reason`. |
 | `400` | Invalid JSON or envelope, such as a missing `event_id` or `type`. |
 | `401` | HMAC signature is missing or incorrect. |
 | `405` | Method is not `POST`. |
-| `409` | Correlation did not match a waiting run, or the outbound Ask-resolution acknowledgement failed; Communications should retry the same `event_id`. |
+| `422` | The signed event was understood but could not be applied and was not marked retryable, such as incomplete terminal correlation. |
 | `500` | Unexpected handler failure. |
-| `503` | Webhook HMAC secret or server-side Firebase persistence is not configured. |
+| `503` | Webhook HMAC secret or server-side Firebase persistence is not configured, or an otherwise valid event reached a retryable application failure. Communications should retry the same `event_id`. |
 
-Unsupported sources and non-terminal task events return `200` with `ignored: true`. In particular, `sms.sent` is non-terminal: an SMS action remains waiting until `sms.delivered` or `sms.failed`. There is currently no HyperFlow delivery timeout, so a missing terminal carrier event leaves the action waiting.
+Unsupported sources and non-terminal task events return `200` with `ignored: true`. Canonical inbound communication events also return `200` after triage projection. In particular, a normal `sms.sent` event is non-terminal: an SMS action remains waiting until `sms.delivered` or `sms.failed`. There is currently no HyperFlow delivery timeout, so a missing terminal carrier event leaves the action waiting.
+
+The local Express compatibility handler returns `409` for a retryable application result and `200` for a non-retryable one. The deployed Vercel handler uses `503` and `422` respectively. Durable senders must retry `409` or `503` with the same `event_id`.
 
 ## Advance a flow
 
@@ -465,82 +498,6 @@ Success: `200`
 
 Invalid responses return `400`, an invalid optional Firebase token returns `401`, missing authenticated membership returns `403`, unknown routing returns `404`, an already answered Ask returns `409`, and an overlong comment returns `413`.
 
-## Receive Communications events
-
-### `POST /api/events`
-
-```http
-Content-Type: application/json
-X-Communications-Event-Id: evt_...
-X-Communications-Signature: sha256=<HMAC-SHA256 of the exact raw JSON body>
-```
-
-HyperFlow verifies the signature with `COMMUNICATIONS_WEBHOOK_SECRET` before parsing JSON, then defaults the verified event source to `communications`. `event_id` in the body is the processing idempotency key; delivery is at least once.
-
-Ask response example:
-
-```json
-{
-  "event_id": "evt_ask_123",
-  "communication_id": "comm_123",
-  "type": "ask.response.received",
-  "occurred_at": "2026-08-11T02:30:00.000Z",
-  "purpose": {
-    "type": "human_ask",
-    "ask_id": "ask_delivery_123"
-  },
-  "correlation": {
-    "tenant_id": "org_1",
-    "external_project_id": "project_1",
-    "person_id": "person_1"
-  },
-  "payload": {
-    "ask_id": "ask_delivery_123",
-    "channel": "voice",
-    "transcript": "Approved"
-  }
-}
-```
-
-SMS response text is read from `payload.content`; voice response evidence is read from `payload.transcript`. HyperFlow maps the delivery Ask ID to its canonical Ask, validates and persists the response, advances the project, and then uses a durable outbox to call Communications `POST /v1/asks/{deliveryAskId}/resolve` with the accepted `communication_id`.
-
-Task terminal event example:
-
-```json
-{
-  "event_id": "evt_123",
-  "communication_id": "comm_123",
-  "type": "sms.delivered",
-  "occurred_at": "2026-08-11T02:35:00.000Z",
-  "correlation": {
-    "tenant_id": "org_1",
-    "external_project_id": "project_1",
-    "run_id": "run_1",
-    "task_id": "SMS_1"
-  },
-  "payload": {
-    "status": "delivered"
-  }
-}
-```
-
-Terminal mapping:
-
-| Event | Result |
-|---|---|
-| `sms.delivered` | Success. |
-| `sms.failed` | Failure. |
-| `call.completed` | Success. |
-| `call.failed` | Failure. |
-| `sms.sent` | Nonterminal, except defensive handling of `payload.status: delivered`, `failed`, or `undelivered`. |
-| Other event types | Nonterminal and recorded as ignored. |
-
-New events should use `correlation.external_project_id`. HyperFlow also accepts the transitional `correlation.project_id` alias and normalizes either value to its internal project ID.
-
-Events are persisted before processing under `external_events/{tenant_id}/{event_id}`. Processing states are `received`, `processing`, `processed`, and `processing_failed`; expiring leases allow safe retry after interrupted work. A processed duplicate returns `200`. A concurrent or retryable event returns `409`, prompting Communications to retry. Invalid signatures return `401`, invalid envelopes return `400`, handler failures return `500`, and missing webhook secret or server persistence returns `503`.
-
-For email events HyperFlow retrieves the authoritative communication using the signed event's tenant and `communication_id`. Human inbound messages become tenant triage items. Bounce, spam, automatic replies, voicemail, wrong-number, and other ineligible responses are recorded as excluded and never passed into `respondToAsk` or workflow memory. Uncertain Ask interpretations remain open with `needs_review` until an authenticated reviewer accepts them.
-
 ## Send an email
 
 ### `POST /api/send-email`
@@ -563,7 +520,7 @@ Content-Type: application/json
 
 The tenant must have `settings.communications.defaultEmailIdentity`; `connectionId` is passed when configured. Success returns `202` with `{ "communication": { ... } }`. The request is idempotent for the same tenant/project/task/run correlation. Configuration, validation, and Communications errors return an error response.
 
-This endpoint, the `send_email` action, organization invitations, and email Human Asks all use Communications. Email Ask messages include the secure form as a fallback, while a later correlated email reply can be interpreted and progress the same Ask.
+This endpoint, the `send_email` action, organization invitations, and email Human Asks all use Communications. A reply to an ordinary workflow email arrives as `communication.received` and becomes triage evidence. An email sent with `purpose.type: human_ask` may also produce `ask.response.received`; only that Ask-specific event can enter `respondToAsk` and progress the workflow. Email Ask messages include the secure form as a fallback.
 
 ## Communications triage
 
@@ -573,7 +530,9 @@ Returns `connected`, `emailReady`, the selected non-secret connection and email 
 
 ### `GET /api/triage?limit=100`
 
-Returns `{ "data": TriageItem[] }`, newest first, for the authenticated organization only. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, and audit entries.
+Returns `{ "data": TriageItem[] }`, newest first, for the authenticated organization only. Canonical inbound email and SMS events can both appear here. Each item includes channel, direction, sender/subject/preview where available, workflow and Ask links, memory eligibility, disposition, proposed action, interpretation evidence/confidence, and audit entries.
+
+An ordinary inbound item is not an Ask answer merely because it shares project, run, task, or thread correlation. `ask.response.received` plus an explicit Ask ID is required for automatic Ask handling. `memoryEligible` means the communication is permitted to enter Communications Service memory; this endpoint does not report the asynchronous enrichment job's completion state.
 
 ### `PATCH /api/triage`
 
@@ -615,7 +574,7 @@ Intervals are clamped to 5-1440 minutes. `DELETE /api/schedules?id={scheduleId}`
 
 `POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
 
-Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The per-tenant/per-connection cursor advances only after all new communications were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged.
+Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. The current reconciliation worker lists inbound email only. Its per-tenant/per-connection cursor advances only after all new inbound emails were read, their threads loaded, and triage projections stored. A failed occurrence leaves both schedule time and cursor unchanged. SMS relies on signed event delivery rather than this cursor scan.
 
 ## Gemini helpers
 
@@ -661,6 +620,8 @@ Idempotency-Key: hyperflow:{tenant_id}:{external_project_id}:{run_id}:{task_id}:
 
 The client times out after 15 seconds. It reads the canonical `communication_id` and accepts a legacy `id` alias or `communication` response wrapper for adapter compatibility. A successful create response without `status` is normalized to `accepted`.
 
+`COMMUNICATIONS_API_URL` is the service origin, with no `/v1` suffix. The current production shape is `https://communications-service.replit.app`; the client appends routes such as `/v1/messages`. HyperFlow sends `{PUBLIC_BASE_URL}/api/events` as each request's `callback_url`, so `PUBLIC_BASE_URL` must be a public HTTPS HyperFlow origin whose webhook route is not intercepted by deployment login protection.
+
 ### Send SMS
 
 ```http
@@ -683,6 +644,8 @@ POST {COMMUNICATIONS_API_URL}/v1/messages
 ```
 
 Communications requires `to` and `from` in E.164 format, a body of 1-1600 characters, and a stable idempotency key. HyperFlow validates the numbers and relies on Communications for the body-length limit.
+
+A successful `sms.delivered` callback completes the waiting action but proves carrier delivery only. A recipient reply creates a separate inbound communication and `communication.received` event. If the SMS was delivered as a Human Ask, Communications additionally emits `ask.response.received` with the response text in `payload.content`.
 
 ### Start a voice call
 
@@ -788,6 +751,17 @@ HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /
 | `WEBHOOK_SECRET` | Shared secret for machine calls to `/api/flow/advance`. |
 | `FIREBASE_SERVICE_ACCOUNT` | Privileged server-side Firebase credentials, as JSON or base64. |
 | `FIREBASE_DATABASE_URL` | Server-side Realtime Database URL; must match the browser database. |
+
+Cross-service values must be paired as follows:
+
+| HyperFlow value | Communications Service value |
+|---|---|
+| `COMMUNICATIONS_API_URL=https://communications-service.replit.app` | The deployed service origin; do not include `/v1`. |
+| `COMMUNICATIONS_API_KEY=<secret>` | `API_KEY=<same secret>` for the compatibility credential, or the corresponding tenant-scoped API credential. |
+| `COMMUNICATIONS_WEBHOOK_SECRET=<secret>` | `COMMUNICATIONS_WEBHOOK_SECRET=<same secret>`. |
+| `PUBLIC_BASE_URL=https://<public-hyperflow-origin>` | `HYPERFLOW_EVENT_URL=https://<same-origin>/api/events` as the default durable destination. |
+
+Per-request `callback_url` wins over `HYPERFLOW_EVENT_URL`. The HyperFlow callback route is `/api/events`; `/api/communications/events` does not exist. The current HyperFlow client does not add a Vercel automation-bypass query parameter, so the chosen public origin must permit service-to-service POST requests to `/api/events` without an interactive login redirect.
 
 Browser Firebase overrides are public application configuration, not server credentials:
 
