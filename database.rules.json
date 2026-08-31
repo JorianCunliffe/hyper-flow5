@@ -72,7 +72,12 @@
 
     "schedule_runs": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        "$scheduleId": {
+          ".indexOn": "scheduledFor"
+        }
+      }
     },
 
     "scheduler_health": {

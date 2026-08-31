@@ -20,6 +20,12 @@ describe('Firebase production rules configuration', () => {
     assert.equal(rules.triage_digests['.write'], false);
   });
 
+  test('indexes schedule run history at the queried schedule path', () => {
+    assert.equal(rules.schedule_runs.$orgId.$scheduleId['.indexOn'], 'scheduledFor');
+    assert.equal(rules.schedule_runs['.read'], false);
+    assert.equal(rules.schedule_runs['.write'], false);
+  });
+
   test('keeps agent profiles and integration references backend-only', () => {
     assert.deepEqual(rules.agent_profiles, { '.read': false, '.write': false });
     assert.deepEqual(rules.integration_connections, { '.read': false, '.write': false });
