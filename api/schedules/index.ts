@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, bearerToken, hasSharedSecret, requireAppMember } from '../../lib/apiAuth.js';
-import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, saveTenantSchedule } from '../../lib/serverStore.js';
+import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
 import { runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -12,8 +12,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       || hasSharedSecret(bearerToken(req), process.env.CRON_SECRET);
     if (!authorized) return res.status(configured ? 401 : 503).json({ error: configured ? 'Invalid scheduler authentication' : 'Scheduler secret is not configured' });
     try {
-      return res.status(200).json({ ok: true, results: await tickSchedules() });
+      await recordSchedulerTick('started');
+      const results = await tickSchedules();
+      await recordSchedulerTick('success');
+      return res.status(200).json({ ok: true, results });
     } catch (error: any) {
+      await recordSchedulerTick('failed', error?.message || String(error)).catch(() => undefined);
       console.error('Scheduled tick failed', {
         name: error?.name || 'Error',
         message: error?.message || String(error)
@@ -29,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const id = String(req.body?.id || '');
       const schedule = (await listTenantSchedules(member.orgId)).find(item => item.id === id);
       if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
-      return res.status(200).json({ result: await runTenantSchedule(schedule, Date.now()) });
+      return res.status(200).json({ result: await runTenantSchedule(schedule, Date.now(), { advanceSchedule: false }) });
     }
     if (req.method === 'GET') return res.status(200).json({ data: await listTenantSchedules(member.orgId) });
     if (req.method === 'POST' || req.method === 'PATCH') {

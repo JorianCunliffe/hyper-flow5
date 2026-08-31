@@ -193,13 +193,28 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     })) : [];
   }
 
-  async startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string> {
+  async startMailboxOAuth(
+    tenantId: string,
+    initiatorId: string,
+    returnUrl: string,
+    provider: 'gmail' | 'outlook',
+    setupDraftId?: string
+  ): Promise<string> {
     this.requireTenant(tenantId);
-    const body = await this.rawRequest('/v1/mailboxes/oauth/google/start', {
-      method: 'POST', tenantId, body: { initiator_id: initiatorId, return_url: returnUrl }
+    const routeProvider = provider === 'outlook' ? 'microsoft' : 'google';
+    const body = await this.rawRequest(`/v1/mailboxes/oauth/${routeProvider}/start`, {
+      method: 'POST', tenantId, body: {
+        initiator_id: initiatorId,
+        return_url: returnUrl,
+        ...(setupDraftId ? { setup_draft_id: setupDraftId } : {})
+      }
     });
-    if (typeof body?.authorization_url !== 'string') throw new CommunicationsApiError('Communications API did not return a Gmail authorization URL');
+    if (typeof body?.authorization_url !== 'string') throw new CommunicationsApiError(`Communications API did not return a ${provider} authorization URL`);
     return body.authorization_url;
+  }
+
+  async startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string> {
+    return this.startMailboxOAuth(tenantId, initiatorId, returnUrl, 'gmail');
   }
 
   async syncMailbox(tenantId: string, connectionId: string, initiatorId?: string): Promise<Record<string, unknown>> {
@@ -313,6 +328,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       direction: result?.direction,
       occurredAt: result?.occurred_at,
       personId: result?.person_id,
+      connectionId: result?.provider_connection_id || result?.connection_id,
       content: result?.content,
       summary: result?.summary,
       subject: result?.email?.subject || result?.subject,

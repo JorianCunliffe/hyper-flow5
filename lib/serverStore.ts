@@ -10,12 +10,16 @@ import {
   Attachment,
   AppSettings,
   CommunicationsSettings,
+  CommunicationsTriageSchedule,
   ConversationContext,
   CoachingSession,
   ExternalActionReceipt,
   MailboxConnectionRef,
   Project,
   ScheduleRun,
+  SchedulerHealth,
+  ServiceSetupDraft,
+  ServiceProjectTemplate,
   TeamMemberDetails,
   TenantAgentProfile,
   TenantSchedule,
@@ -334,6 +338,11 @@ export const migrateLegacyMemberships = async (apply = false): Promise<LegacyMem
 const toArray = <T>(value: any): T[] =>
   Array.isArray(value) ? value : value && typeof value === 'object' ? (Object.values(value) as T[]) : [];
 
+export const normalizeServiceTemplate = (project: Project): Project => {
+  if (project.projectData?.project_template !== 'daily_email_triage') return project;
+  return { ...project, projectData: { ...project.projectData, project_template: 'email_triage' } };
+};
+
 export interface LocatedProject {
   project: Project;
   /** Index within `projects/{orgId}/projects`, which is the RTDB write path. */
@@ -358,7 +367,7 @@ export const findProject = async (orgId: string, projectId: string): Promise<Loc
   const index = list.findIndex(p => p && projectIdsMatch(p.id, projectId));
   if (index === -1) return null;
 
-  const project = list[index];
+  const project = normalizeServiceTemplate(list[index]);
   return {
     index,
     project: {
@@ -533,7 +542,71 @@ export const validateAskUpload = (input: AskUploadInput, allowedFields: string[]
 export const listTenantProjects = async (orgId: string): Promise<Project[]> => {
   const snap = await getDb().ref(`projects/${orgId}/projects`).get();
   if (!snap.exists()) return [];
-  return toArray<Project>(snap.val()).filter(project => Boolean(project?.id));
+  return toArray<Project>(snap.val()).filter(project => Boolean(project?.id)).map(normalizeServiceTemplate);
+};
+
+const serviceSetupDraftRef = (orgId: string, uid: string, draftId: string) =>
+  getDb().ref(`service_setup_drafts/${safeRtdbKey(orgId)}/${safeRtdbKey(uid)}/${safeRtdbKey(draftId)}`);
+
+export const saveServiceSetupDraft = async (
+  orgId: string,
+  uid: string,
+  input: { id?: string; template: ServiceProjectTemplate; data?: Record<string, unknown> }
+): Promise<ServiceSetupDraft> => {
+  const now = Date.now();
+  const id = String(input.id || `setup_${randomUUID().replace(/-/g, '')}`);
+  const ref = serviceSetupDraftRef(orgId, uid, id);
+  const existing = (await ref.get()).val() as ServiceSetupDraft | null;
+  if (existing && existing.expiresAt <= now) await ref.remove();
+  const draft: ServiceSetupDraft = {
+    id, orgId, uid,
+    template: input.template,
+    data: input.data && typeof input.data === 'object' ? JSON.parse(JSON.stringify(input.data)) : {},
+    createdAt: existing?.expiresAt && existing.expiresAt > now ? existing.createdAt : now,
+    updatedAt: now,
+    expiresAt: now + 24 * 60 * 60 * 1000
+  };
+  await ref.set(draft);
+  return draft;
+};
+
+export const readServiceSetupDraft = async (orgId: string, uid: string, draftId: string): Promise<ServiceSetupDraft | null> => {
+  const ref = serviceSetupDraftRef(orgId, uid, draftId);
+  const snap = await ref.get();
+  if (!snap.exists()) return null;
+  const draft = snap.val() as ServiceSetupDraft;
+  if (draft.orgId !== orgId || draft.uid !== uid || draft.expiresAt <= Date.now()) {
+    await ref.remove();
+    return null;
+  }
+  return draft;
+};
+
+export const deleteServiceSetupDraft = async (orgId: string, uid: string, draftId: string): Promise<void> => {
+  await serviceSetupDraftRef(orgId, uid, draftId).remove();
+};
+
+export const recordSchedulerTick = async (status: 'started' | 'success' | 'failed', error?: string): Promise<void> => {
+  const now = Date.now();
+  await getDb().ref('scheduler_health/global').transaction(current => ({
+    ...(current || {}),
+    lastTickAt: now,
+    ...(status === 'success' ? { lastSuccessfulTickAt: now, lastError: null } : {}),
+    ...(status === 'failed' ? { lastError: String(error || 'Scheduler tick failed').slice(0, 1000) } : {}),
+    updatedAt: now
+  }));
+};
+
+export const readSchedulerHealth = async (): Promise<SchedulerHealth> => {
+  const snap = await getDb().ref('scheduler_health/global').get();
+  return snap.exists() ? snap.val() as SchedulerHealth : { updatedAt: 0 };
+};
+
+export const listScheduleRuns = async (orgId: string, scheduleId: string, limit = 20): Promise<ScheduleRun[]> => {
+  const snap = await getDb().ref(`schedule_runs/${safeRtdbKey(orgId)}/${safeRtdbKey(scheduleId)}`)
+    .orderByChild('scheduledFor').limitToLast(Math.min(Math.max(limit, 1), 100)).get();
+  if (!snap.exists()) return [];
+  return (Object.values(snap.val() || {}) as ScheduleRun[]).sort((a, b) => b.scheduledFor - a.scheduledFor);
 };
 
 export const storeAskUploads = async (input: {
@@ -904,7 +977,12 @@ export const normalizeTenantSchedule = (
   return {
     ...base,
     activity: 'communications_triage',
+    projectId: cleanOptionalString(input.projectId ?? prior?.projectId),
     connectionId: cleanOptionalString(input.connectionId ?? prior?.connectionId),
+    triagePolicy: ['all_inbound', 'human_only', 'correlated_only'].includes(String(input.triagePolicy ?? prior?.triagePolicy))
+      ? (input.triagePolicy ?? prior?.triagePolicy) as CommunicationsTriageSchedule['triagePolicy']
+      : 'human_only',
+    createDrafts: input.createDrafts ?? prior?.createDrafts ?? true,
     policy: ['draft_only', 'allow_approved_send', 'automatic'].includes(policy) ? policy : 'draft_only',
     digestChannel: ['web', 'email', 'sms'].includes(String(input.digestChannel ?? prior?.digestChannel))
       ? (input.digestChannel ?? prior?.digestChannel) as 'web' | 'email' | 'sms'

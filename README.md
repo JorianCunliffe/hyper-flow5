@@ -8,12 +8,12 @@ HyperFlow is a visual workflow engine for projects that combine human milestones
 |---|---|
 | Milestones | Human-managed work with subtasks and dependencies. |
 | Decisions and loops | Branch from Project Data and repeat sections until an exit condition or iteration limit is reached. |
-| Email | Connect Gmail for cursor-safe sync and provider-native drafts, or send through a separately provisioned Communications service identity. Connected Gmail never exposes a send operation. Outlook is not implemented. |
+| Email | Connect Gmail or Outlook for cursor-safe sync and provider-native drafts, or send through a separately provisioned Communications service identity. Connected mailboxes never expose a send operation. |
 | SMS and voice | Dispatch through the provider-neutral Communications Service, wait for signed terminal outcomes, and triage eligible inbound replies. |
 | Webhooks | Call public HTTPS/443 endpoints with DNS, redirect, timeout, and response-size protections. |
 | Reports | Generate, evaluate, and revise reports with Gemini. |
 | Human Asks | Pause a run for approval, rejection, revision, information, or an upload; collect responses by web form, email, SMS, or voice. |
-| Communications triage | Classify connected-mailbox email, prepare safe Gmail drafts, publish an idempotent daily digest, and review inbound email/SMS/voice or proposed coaching actions in one tenant-scoped inbox. |
+| Communications triage | Run a project-scoped action against one connected mailbox, prepare safe provider-native drafts, publish an idempotent daily digest, and review inbound email/SMS/voice or proposed coaching actions in one tenant-scoped inbox. |
 | Daily Coaching | Read an allowlisted Google Doc and Sheet, place a correlated coaching call, exclude failed/voicemail outcomes, extract a typed result, and append one idempotent tracker row. |
 | Omnichannel project agent | Route trusted inbound email, SMS, and completed voice conversations to an allowed project; answer bounded read-only questions, ask for project clarification, or hold typed mutations for authenticated approval. |
 | Durable schedules | Run tenant-local `communications_triage` or `flow_start` occurrences with leases, occurrence idempotency, retry windows, and misfire policy. |
@@ -54,9 +54,9 @@ Settings stores only non-secret tenant routing, resource grants, and policy: ser
 ## Configure the two daily services
 
 1. In **Settings > Agent & Connections**, select the stable primary Communications person, grant that person only the projects they may use, then save the default project, channel identities, and action permissions. Inbound people fail closed until a primary person or explicit grants are configured; once any person grants exist, unlisted people are denied.
-2. Connect Gmail. Communications Service owns the encrypted mailbox credential; HyperFlow saves only the returned mailbox reference. Gmail replies and agent responses are drafts by default and cannot be sent through the connected-mailbox API.
-3. Create a **Daily Email Triage** project, select **Email triage reconciliation**, choose the local time/timezone and digest channel, then create the schedule. Web digests appear at the top of Communications triage. Connected Gmail email digests become drafts; automatic SMS or transactional email requires `automatic` send policy plus `send_reply` permission.
-4. Connect Google Workspace, create a **Daily Coaching** project, allowlist its source Doc and tracker Sheet/range, set `contact_phone`, then create a `flow_start` schedule with the required local time/timezone.
+2. Open **New Project → Daily Email Triage** or **Settings → Service Projects**. The shared wizard selects the Communications people permitted to use the project, connects or selects Gmail/Outlook, runs an authoritative health check, configures policy/drafts/digest and schedule, and creates the project only after every readiness check passes. Each triage project owns exactly one mailbox and an independent cursor.
+3. Open the same wizard for **Daily Coaching**. Select the Communications person and phone/voice identity, Google Workspace connection, Doc, Sheet/range, retry policy, reviewer and review channels. The wizard verifies Doc/Sheet read access and Sheet edit capability before it creates the project.
+4. Use the project **Service Configuration** panel for health, prior/next run, last digest, pause/resume, **Run now**, and configuration changes. **Advance Flow**, **Run now**, and the daily schedule execute the same project flow; no raw action JSON is required.
 5. Call `POST /api/schedules/tick` at least every five minutes. The checked-in Hobby cron is only a daily fallback and cannot reliably honor arbitrary local times, agent inbox work, or 30-minute call retries.
 
 Inbound messages are persisted before routing. Trusted correlation wins, then an explicit project name, active thread, configured default, or the sole visible project; ambiguity produces a clarification. Read-only replies can be delivered automatically only under channel policy and a durable per-thread limit of one every 15 seconds and six per hour. Coaching commitments, next actions, and requested calls appear as typed proposals in Communications triage and execute only after an authenticated reviewer clicks **Approve action**. Sheet updates use an idempotent action receipt; requested calls use a stable one-off schedule occurrence.
@@ -126,7 +126,8 @@ Email, SMS, and voice response events are evidence, not automatic resolution. `r
 | Ask services | [`lib/asks`](./lib/asks) | Creates, delivers, expires, and responds to asks. |
 | Communications client | [`lib/communications`](./lib/communications) | Tenant-scoped email, SMS, voice, thread, triage, Ask-resolution, and signed-event contracts. |
 | Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, tenant-scoped event processing, delivery state, triage projection, and fail-closed outcomes. |
-| Scheduler | [`lib/scheduler.ts`](./lib/scheduler.ts) | Leased typed occurrences, cursor-safe mailbox reconciliation, daily digests, sparse agent work, and coaching retry claims. |
+| Scheduler | [`lib/scheduler.ts`](./lib/scheduler.ts) | Leased typed occurrences, project-flow starts, legacy triage compatibility, sparse agent work, coaching retry claims, and visible tick health. |
+| Email triage executor | [`lib/triage/runEmailTriage.ts`](./lib/triage/runEmailTriage.ts) | One project/mailbox cursor and policy path shared by manual action runs and scheduled flows. |
 | Agent router | [`lib/agentRouter.ts`](./lib/agentRouter.ts) | Tenant/person/project selection, bounded read-only answers, connected-mailbox drafts, and reviewed coaching proposals. |
 | Google integration | [`lib/integrations`](./lib/integrations) | Encrypted OAuth credentials plus allowlisted Doc read and idempotent Sheet read/append/upsert operations. |
 | Run outcome UI | [`lib/actionRunPresentation.ts`](./lib/actionRunPresentation.ts) | Human-readable waiting/success/failure labels and durable voice outcome fields. |

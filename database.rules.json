@@ -75,6 +75,16 @@
       ".write": false
     },
 
+    "scheduler_health": {
+      ".read": false,
+      ".write": false
+    },
+
+    "service_setup_drafts": {
+      ".read": false,
+      ".write": false
+    },
+
     "agent_profiles": {
       ".read": false,
       ".write": false

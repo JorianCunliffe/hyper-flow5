@@ -71,13 +71,15 @@ export const dailyCoachingTemplate = (options: {
 });
 
 export const emailTriageTemplate = (): { milestones: Milestone[]; projectData: ProjectData } => ({
-  milestones: [{
-    id: 'TRIAGE_INBOX', name: 'Daily mailbox triage', dependsOn: [], estimatedDuration: 1,
-    subtasks: [{
-      id: 'TRIAGE_REVIEW', name: 'Review prioritized communications', assignedTo: '',
-      description: 'Review the tenant-scoped triage inbox. Replies remain draft-only unless explicitly approved.',
-      status: 'Not started'
-    }]
-  }],
-  projectData: { project_template: 'email_triage', email_send_policy: 'draft_only' }
+  milestones: [action('TRIAGE_INBOX', 'Daily mailbox triage', NodeType.EMAIL_TRIAGE, [], {
+    connection_id: '{{triage_connection_id}}',
+    triage_policy: '{{triage_policy}}',
+    create_drafts: '{{triage_create_drafts}}',
+    digest_channel: '{{triage_digest_channel}}',
+    digest_recipient: '{{triage_digest_recipient}}'
+  })],
+  projectData: {
+    project_template: 'email_triage', email_send_policy: 'draft_only',
+    triage_policy: 'human_only', triage_create_drafts: true, triage_digest_channel: 'web'
+  }
 });

@@ -83,7 +83,10 @@ export const triageItemFromCommunication = (orgId: string, communication: Commun
     },
     payload: { channel: communication.channel, thread_id: communication.threadId }
   };
-  return triageItemFromEvent(event, communication);
+  return {
+    ...triageItemFromEvent(event, communication),
+    connectionId: communication.connectionId
+  };
 };
 
 const priorityRank: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -91,6 +94,7 @@ const priorityRank: Record<string, number> = { urgent: 0, high: 1, normal: 2, lo
 export const buildTriageDigest = (input: {
   orgId: string;
   scheduleId: string;
+  projectId?: string;
   scheduledFor: number;
   timezone: string;
   items: TriageItem[];
@@ -122,6 +126,7 @@ export const buildTriageDigest = (input: {
     id: `${input.scheduleId}:${input.scheduledFor}`,
     orgId: input.orgId,
     scheduleId: input.scheduleId,
+    projectId: input.projectId,
     scheduledFor: input.scheduledFor,
     timezone: input.timezone,
     itemIds: items.map(item => item.id),

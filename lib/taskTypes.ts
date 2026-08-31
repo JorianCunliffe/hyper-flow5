@@ -1,6 +1,7 @@
 export const TASK_TYPES = [
   'send_email', 'send_sms', 'outgoing_call', 'webhook', 'write_report',
-  'read_google_doc', 'read_google_sheet', 'append_google_sheet', 'upsert_google_sheet', 'extract_coaching_result'
+  'read_google_doc', 'read_google_sheet', 'append_google_sheet', 'upsert_google_sheet', 'extract_coaching_result',
+  'run_email_triage'
 ] as const;
 
 const TASK_TYPE_ALIASES: Record<string, string> = {
@@ -14,7 +15,8 @@ const TASK_TYPE_ALIASES: Record<string, string> = {
   googlesheet: 'read_google_sheet', readgooglesheet: 'read_google_sheet',
   appendgooglesheet: 'append_google_sheet', sheetappend: 'append_google_sheet',
   upsertgooglesheet: 'upsert_google_sheet', sheetupsert: 'upsert_google_sheet',
-  coachingextract: 'extract_coaching_result', extractcoachingresult: 'extract_coaching_result'
+  coachingextract: 'extract_coaching_result', extractcoachingresult: 'extract_coaching_result',
+  emailtriage: 'run_email_triage', runemailtriage: 'run_email_triage'
 };
 
 export const normalizeTaskType = (raw: string | undefined): string | undefined => {

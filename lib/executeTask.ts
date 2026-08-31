@@ -5,6 +5,7 @@ import { safeWebhookFetch } from './safeWebhook.js';
 import { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 import { appendGrantedGoogleSheet, readGrantedGoogleDoc, readGrantedGoogleSheet, upsertGrantedGoogleSheet } from './integrations/googleWorkspace.js';
 import { readTenantAgentProfile } from './serverStore.js';
+import { runEmailTriage } from './triage/runEmailTriage.js';
 export { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 
 // Shared task execution logic used by the local Express server (server.ts)
@@ -168,7 +169,61 @@ export async function executeTask(
   const { parsedContent, templateData } = substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
-  if (taskType === 'send_email') {
+  if (taskType === 'run_email_triage') {
+    try {
+      const correlation = ctx?.correlation;
+      if (!correlation?.orgId || !correlation.projectId || !correlation.runId) {
+        throw new Error('Email triage requires trusted orgId, projectId and runId correlation');
+      }
+      const connectionId = String(templateData.connection_id || projectData?.triage_connection_id || '').trim();
+      if (!connectionId) throw new Error('Email triage requires a selected mailbox connection');
+      const booleanValue = (value: unknown, fallback: boolean) => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'string' && ['true', 'false'].includes(value.toLowerCase())) return value.toLowerCase() === 'true';
+        return fallback;
+      };
+      const scheduledFor = Date.parse(String(projectData?.scheduled_for || ''));
+      logs.push('--- RUNNING PROJECT-SCOPED EMAIL TRIAGE ---');
+      const result = await runEmailTriage({
+        orgId: correlation.orgId,
+        projectId: correlation.projectId,
+        connectionId,
+        triagePolicy: ['all_inbound', 'human_only', 'correlated_only'].includes(String(templateData.triage_policy))
+          ? templateData.triage_policy : 'human_only',
+        createDrafts: booleanValue(templateData.create_drafts, true),
+        sendPolicy: ['draft_only', 'allow_approved_send', 'automatic'].includes(String(projectData?.email_send_policy))
+          ? projectData?.email_send_policy : 'draft_only',
+        digestChannel: ['web', 'email', 'sms'].includes(String(templateData.digest_channel))
+          ? templateData.digest_channel : 'web',
+        digestRecipient: String(templateData.digest_recipient || '').trim() || undefined,
+        scheduleId: String(projectData?.schedule_id || `project:${correlation.projectId}`),
+        scheduledFor: Number.isFinite(scheduledFor) ? scheduledFor : Date.now(),
+        timezone: String(projectData?.triage_timezone || projectData?.timezone || 'Australia/Brisbane'),
+        runId: correlation.runId,
+        actor: `flow:${correlation.projectId}:${correlation.nodeId || 'TRIAGE_INBOX'}`,
+        createdAt: Number(projectData?.service_configured_at || Date.now())
+      });
+      return {
+        httpStatus: 200,
+        body: {
+          status: 'success',
+          output: {
+            triage_processed_count: result.processedCount,
+            triage_skipped_count: result.skippedCount,
+            triage_cursor_before: result.cursorBefore,
+            triage_cursor_after: result.cursorAfter,
+            triage_digest_id: result.digest.id,
+            triage_digest_summary: result.digest.summary,
+            triage_last_run_at: new Date().toISOString()
+          },
+          logs: [...logs, `Processed ${result.processedCount} message(s); skipped ${result.skippedCount}`]
+        }
+      };
+    } catch (error: any) {
+      logs.push(`Email triage error: ${error.message}`);
+      return { httpStatus: 500, body: { status: 'error', error: error.message, logs } };
+    }
+  } else if (taskType === 'send_email') {
     logs.push('--- DISPATCHING EMAIL VIA COMMUNICATIONS API ---');
     const emailBody = templateData.body || parsedContent;
 
@@ -438,6 +493,12 @@ export async function executeTask(
 
       if (!toPhone) throw new Error('No destination number ("to" in template or contact_phone/phone_number in project data)');
       if (!E164.test(String(toPhone))) throw new Error('Call destination number must use E.164 format');
+      if (projectData?.project_template === 'daily_coaching') {
+        const orgId = String(ctx?.correlation?.orgId || '').trim();
+        if (!orgId) throw new Error('Daily coaching calls require tenant correlation');
+        const profile = await readTenantAgentProfile(orgId);
+        if (!profile?.automaticActions?.includes('call')) throw new Error('Calls are disabled by the tenant agent policy');
+      }
       const instruction = templateData.instruction || templateData.prompt || templateData.body || parsedContent;
       if (!instruction) throw new Error('Outgoing call requires an instruction, prompt or body');
 

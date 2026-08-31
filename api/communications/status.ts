@@ -4,21 +4,28 @@ import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { createCommunicationsClient } from '../../lib/communications/client.js';
 import {
   listMailboxConnectionRefs,
+  listScheduleRuns,
   listCoachingSessions,
   listTenantCoachingSessions,
   listAgentInboxJobs,
   listExternalActionReceipts,
   listTenantSchedules,
+  listTenantProjects,
+  listTenantTriageDigests,
   listWorkspaceConnectionRefs,
   consumeOAuthStateNonce,
   readTenantAgentProfile,
   readTenantCommunicationsSettings,
+  readSchedulerHealth,
+  readServiceSetupDraft,
   readWorkspaceResourceGrant,
   registerOAuthStateNonce,
   replayAgentInboxJob,
   requireOrganizationMember,
   saveWorkspaceResourceGrant,
   saveMailboxConnectionRef,
+  saveServiceSetupDraft,
+  saveTenantSchedule,
   saveTenantAgentProfile
 } from '../../lib/serverStore.js';
 import {
@@ -34,6 +41,7 @@ import {
   readGrantedGoogleSheet,
   storeGoogleWorkspaceCredential
 } from '../../lib/integrations/googleWorkspace.js';
+import { validateServiceSetup, type ServiceSetupInput } from '../../lib/serviceSetup.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -71,6 +79,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const member = await requireAppMember(req);
+    if (action === 'service_setup_draft') {
+      const id = String(req.query.id || req.body?.id || '').trim();
+      if (req.method === 'GET') {
+        if (!id) return res.status(400).json({ error: 'id is required' });
+        const draft = await readServiceSetupDraft(member.orgId, member.uid, id);
+        return draft ? res.status(200).json({ draft }) : res.status(404).json({ error: 'Setup draft was not found or has expired' });
+      }
+      if (req.method === 'POST' || req.method === 'PUT') {
+        const template = req.body?.template === 'daily_coaching' ? 'daily_coaching' : req.body?.template === 'email_triage' ? 'email_triage' : null;
+        if (!template) return res.status(400).json({ error: 'template must be email_triage or daily_coaching' });
+        const draft = await saveServiceSetupDraft(member.orgId, member.uid, { id: id || undefined, template, data: req.body?.data || {} });
+        return res.status(req.method === 'POST' ? 201 : 200).json({ draft });
+      }
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+    if (action === 'service_setup_validate') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      const input = req.body?.setup as ServiceSetupInput;
+      if (!input || !['email_triage', 'daily_coaching'].includes(input.template)) return res.status(400).json({ error: 'A valid service setup is required' });
+      const validation = await validateServiceSetup(member.orgId, input);
+      return res.status(validation.ready ? 200 : 422).json({ validation });
+    }
+    if (action === 'service_setup_status') {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+      const projectId = String(req.query.projectId || '').trim();
+      const [projects, schedules, mailboxes, workspaces, scheduler] = await Promise.all([
+        listTenantProjects(member.orgId), listTenantSchedules(member.orgId),
+        createCommunicationsClient().listMailboxes(member.orgId).catch(() => []),
+        listWorkspaceConnectionRefs(member.orgId), readSchedulerHealth()
+      ]);
+      const project = projects.find(item => String(item.id) === projectId);
+      if (projectId && !project) return res.status(404).json({ error: 'Project not found' });
+      const triageProjects = projects.filter(item => ['email_triage', 'daily_email_triage'].includes(String(item.projectData?.project_template)));
+      const unbound = schedules.filter(item => item.activity === 'communications_triage' && !item.projectId);
+      const canAutoAttach = triageProjects.length === 1 && unbound.length === 1;
+      if (canAutoAttach) {
+        const schedule = unbound[0];
+        await saveTenantSchedule(member.orgId, { id: schedule.id, projectId: String(triageProjects[0].id) });
+        schedule.projectId = String(triageProjects[0].id);
+      } else if (unbound.length) {
+        await Promise.all(unbound.filter(schedule => schedule.enabled).map(async schedule => {
+          await saveTenantSchedule(member.orgId, { id: schedule.id, enabled: false });
+          schedule.enabled = false;
+        }));
+      }
+      const projectSchedules = projectId ? schedules.filter(item => item.projectId === projectId) : schedules;
+      const runs = projectSchedules.length ? await listScheduleRuns(member.orgId, projectSchedules[0].id, 20) : [];
+      const digests = projectId ? (await listTenantTriageDigests(member.orgId, 30)).filter(item => item.projectId === projectId) : [];
+      const overdue = projectSchedules.some(item => item.enabled && item.nextRunAt < Date.now() - 10 * 60_000);
+      return res.status(200).json({
+        project: project || null,
+        schedules: projectSchedules,
+        mailboxes,
+        workspaces,
+        lastRun: runs[0] || null,
+        lastDigest: digests[0] || null,
+        scheduler: { ...scheduler, overdue, warning: overdue ? 'A project schedule is overdue. Check the five-minute scheduler helper.' : null },
+        upgradeRequired: unbound.length > 0 && !canAutoAttach,
+        validationFailures: project?.projectData?.service_validation_failures || []
+      });
+    }
     if (action === 'google_start') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
       const state = createGoogleOAuthState(member.orgId, member.uid, String(req.body?.returnTo || '/'));
@@ -127,7 +196,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!base) return res.status(503).json({ error: 'PUBLIC_BASE_URL is required for mailbox OAuth' });
       const destination = new URL(String(req.body?.returnTo || '/'), `${base}/`);
       if (destination.origin !== new URL(base).origin) return res.status(400).json({ error: 'Mailbox OAuth return path must stay on HyperFlow' });
-      const authorizationUrl = await createCommunicationsClient().startGmailOAuth(member.orgId, member.uid, destination.toString());
+      const provider = req.body?.provider === 'outlook' ? 'outlook' : req.body?.provider === 'gmail' || !req.body?.provider ? 'gmail' : null;
+      if (!provider) return res.status(400).json({ error: 'provider must be gmail or outlook' });
+      const setupDraftId = typeof req.body?.setupDraftId === 'string' ? req.body.setupDraftId.trim() : undefined;
+      const authorizationUrl = await createCommunicationsClient().startMailboxOAuth(member.orgId, member.uid, destination.toString(), provider, setupDraftId);
       return res.status(200).json({ authorizationUrl });
     }
     if (action === 'mailbox_sync') {

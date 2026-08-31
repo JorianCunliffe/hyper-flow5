@@ -54,7 +54,10 @@ Common authentication responses are `401` for a missing, invalid, or expired Fir
 | `POST`, `GET` | `/api/integrations/google/start`, `/api/integrations/google/callback` | Start/complete protected Google Workspace OAuth. |
 | `GET`, `PUT` | `/api/integrations/google/resources`, `/api/integrations/google/grant` | List Google files and save a project resource allowlist. |
 | `GET` | `/api/integrations/google/document`, `/api/integrations/google/sheet` | Read the project-allowlisted Doc or Sheet. |
-| `POST` | `/api/integrations/mailbox/start`, `/api/integrations/mailbox/sync` | Start Gmail OAuth through Communications or reconcile the selected mailbox. |
+| `POST` | `/api/integrations/mailbox/start`, `/api/integrations/mailbox/sync` | Start Gmail/Outlook OAuth through Communications or reconcile the selected mailbox. |
+| `GET`, `POST`, `PUT` | `/api/service-projects/setup-draft` | Resume or save a tenant-and-user-scoped setup draft that expires after 24 hours. |
+| `POST` | `/api/service-projects/validate` | Authoritatively validate the selected mailbox or coaching resources before project creation. |
+| `GET` | `/api/service-projects/status` | Aggregate project readiness, connections/resources, schedule, last run/digest, and scheduler health. |
 | `GET` | `/api/coaching/sessions` | List tenant/project coaching session projections. |
 | `GET`, `POST` | `/api/operations`, `/api/operations/agent-jobs/replay` | Inspect tenant operations and replay a failed/review-held agent job. |
 | `GET`, `PATCH` | `/api/triage` | List and review tenant communications triage. |
@@ -564,7 +567,7 @@ Returns `connected`, `emailReady`, the selected non-secret connection and email 
 The following public paths are rewrites into the consolidated Communications status handler so the Vercel Hobby deployment stays under its function limit. Every browser route below requires Firebase membership except the signed Google callback.
 
 - `GET /api/integrations` returns the tenant agent profile, safe Communications person references, and non-secret mailbox/Workspace connection references. `PATCH` with `{ "agent": { ... } }` updates display name, timezone, stable primary Communications person, tenant-wide allowed/default projects, `personProjectAccess` grants, service identities, clarification policy, and action policy. Inbound people fail closed until a primary person or explicit grant exists; when person grants exist, an unlisted person is denied.
-- `POST /api/integrations/mailbox/start` starts Communications-owned Gmail OAuth. `POST /api/integrations/mailbox/sync?connectionId=...` runs authoritative reconciliation. HyperFlow stores only the returned opaque connection reference.
+- `POST /api/integrations/mailbox/start` accepts `provider: "gmail" | "outlook"`, an optional expiring `setupDraftId`, and an allowlisted HyperFlow `returnTo`. Communications owns OAuth credentials; HyperFlow stores only the returned opaque connection reference. `POST /api/integrations/mailbox/sync?connectionId=...` runs authoritative provider-cursor reconciliation.
 - `POST /api/integrations/google/start` starts HyperFlow-owned Google Workspace OAuth. `GET /api/integrations/google/callback` verifies a ten-minute, single-use state bound to tenant and user, exchanges the code, and stores encrypted credentials.
 - `GET /api/integrations/google/resources?connectionId=...&kind=document|spreadsheet` lists selectable Drive metadata.
 - `GET|PUT /api/integrations/google/grant?projectId=...` reads or writes the project's allowlisted connection, Doc ID, Sheet ID, and Sheet range.
@@ -593,7 +596,15 @@ The tenant, person, thread, communication, and service identity are resolved by 
 
 `GET /api/operations` returns the authenticated tenant's recent agent inbox jobs, coaching call/session outcomes, Google/external action receipts, and schedules. `POST /api/operations/agent-jobs/replay` accepts `{ "jobId": "..." }` and requeues only a `failed` or `needs_review` agent job, resetting its bounded attempt counter. The Communications triage screen exposes the same snapshot and replay action. Completed jobs cannot be replayed.
 
-Google credentials are sealed with AES-256-GCM under `INTEGRATION_ENCRYPTION_KEY`. Connected Gmail credentials stay in Communications Service under its independent encryption key. Neither API returns OAuth tokens. Outlook mailbox OAuth is not implemented.
+Google credentials are sealed with AES-256-GCM under `INTEGRATION_ENCRYPTION_KEY`. Connected Gmail and Outlook credentials stay in Communications Service under its independent encryption key. Neither API returns OAuth tokens.
+
+### Service-project setup
+
+The frontend uses one wizard from **Create Project** and **Settings → Service Projects**. It saves non-secret progress with `POST|PUT /api/service-projects/setup-draft`; `GET ...?id=` resumes only for the same authenticated tenant and user before the 24-hour expiry. OAuth state carries the opaque draft ID, never its contents.
+
+`POST /api/service-projects/validate` accepts `{ "setup": ... }`. Email triage validation performs a live mailbox sync/health check, verifies provider/draft capabilities, tenant classification/draft ceilings, digest recipient, time, and timezone. Coaching validation verifies the person and E.164 phone/voice identity, Google connection, Doc read, Sheet read/edit capability, range, retry policy, reviewer reachability, schedule, and the tenant `sheet_write` ceiling. A `422` response includes all readiness checks; a project must not be created until `validation.ready=true`.
+
+`GET /api/service-projects/status?projectId=...` returns the project schedules, safe connection references, latest run and digest, global scheduler `lastTickAt`/`lastSuccessfulTickAt`, overdue warning, and upgrade state. When a tenant has exactly one triage project and one legacy unbound triage schedule, the status path attaches them automatically; ambiguous legacy schedules remain unbound for the Upgrade setup wizard.
 
 ### `GET /api/triage?limit=100`
 
@@ -637,7 +648,7 @@ Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `d
 
 ### `/api/schedules`
 
-`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a typed schedule. A daily communications-triage occurrence can publish a web digest, create a connected-Gmail digest draft, or send an explicitly authorized SMS/transactional-email digest:
+`GET` lists the authenticated tenant's schedules. `POST` creates and `PATCH` updates a typed schedule. New service projects use a project-bound daily `flow_start` schedule with `resetPolicy: "flow"`; the generated Email Triage action is therefore the same implementation used by **Advance Flow** and **Run now**. Legacy `communications_triage` records remain accepted during migration and support these project-specific fields:
 
 ```json
 {
@@ -645,6 +656,10 @@ Allowed dispositions are `new`, `linked_workflow`, `awaiting_interpretation`, `d
   "name": "Inbox triage",
   "enabled": true,
   "activity": "communications_triage",
+  "projectId": "project-id-required-for-new-records",
+  "connectionId": "opaque-mailbox-connection-id",
+  "triagePolicy": "human_only",
+  "createDrafts": true,
   "recurrence": { "kind": "daily", "localTime": "08:00" },
   "misfirePolicy": "run_once",
   "timezone": "Australia/Brisbane",
@@ -670,11 +685,11 @@ A daily project occurrence uses `flow_start`:
 }
 ```
 
-Recurrence may instead be `{ "kind": "interval", "intervalMinutes": 15 }`; intervals are clamped to 5-1440 minutes. Misfire policy is `run_once`, `catch_up`, or `skip`. Non-web digests require `digestRecipient`. Connected Gmail creates a draft when `create_draft` is allowed. SMS or transactional email sends require schedule `policy: "automatic"` and tenant `send_reply` permission. Digest delivery failure is recorded on the digest but does not roll back a completed mailbox reconciliation. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
+Recurrence may instead be `{ "kind": "interval", "intervalMinutes": 15 }`; intervals are clamped to 5-1440 minutes. Misfire policy is `run_once`, `catch_up`, or `skip`. Non-web digests require `digestRecipient`. Connected Gmail or Outlook creates a provider-native draft when both the project and tenant permit `create_draft`. SMS or transactional email sends require schedule `policy: "automatic"` and tenant `send_reply` permission. Digest delivery failure is recorded on the digest but does not roll back a completed mailbox reconciliation. `DELETE /api/schedules?id={scheduleId}` removes only a schedule in the authenticated tenant.
 
-`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
+`POST /api/schedules/run` with `{ "id": "scheduleId" }` triggers one authenticated manual occurrence without moving the schedule's next daily occurrence. `GET /api/schedules/tick` is the platform-timer route; Vercel Cron supplies `Authorization: Bearer $CRON_SECRET`. The checked-in Vercel schedule runs daily so it can deploy on Hobby. Sub-daily operation requires a Vercel plan supporting that frequency or an external timer calling `POST` with `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`.
 
-Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. `flow_start` resets only configured transient flow state and writes authoritative occurrence correlation before advancing the persisted project. Communications reconciliation invokes provider sync, reads complete inbound email threads, classifies tenant-scoped items, optionally creates provider-native Gmail drafts, stores one digest, and advances its per-connection cursor only after every item is persisted. A failed occurrence leaves both schedule time and cursor unchanged. SMS and voice rely on signed event delivery rather than mailbox cursor scanning.
+Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId}/{scheduledFor}`. Completed occurrences cannot run twice; stale claims and failed occurrences can retry. `flow_start` resets only configured transient flow state and writes authoritative occurrence correlation before advancing the persisted project. Email triage synchronizes only the selected mailbox, applies the project's inbound policy, reads complete threads, classifies tenant-scoped items, optionally creates provider-native drafts, stores one project digest, and advances the `projectId + connectionId` cursor only after every included item is persisted. A failed occurrence leaves both schedule time and cursor unchanged. SMS and voice rely on signed event delivery rather than mailbox cursor scanning.
 
 The same tick claims sparse `agent_inbox_pending` and `coaching_retry_pending` indexes. Jobs carry two-minute leases and remain recoverable after a worker crash; completed/held work is removed from the index. Coaching retries are bounded by the project attempt/window settings and never redispatch from the same terminal callback.
 
@@ -790,6 +805,8 @@ Connected Gmail is a different adapter and is never passed to `/v1/emails`. Hype
 ```http
 GET  {COMMUNICATIONS_API_URL}/v1/mailboxes
 POST {COMMUNICATIONS_API_URL}/v1/mailboxes/oauth/google/start
+POST {COMMUNICATIONS_API_URL}/v1/mailboxes/oauth/microsoft/start
+POST {COMMUNICATIONS_API_URL}/v1/mailboxes/oauth/{gmail|outlook}/start
 POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/sync
 POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts
 GET  {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts/{draftId}

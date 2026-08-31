@@ -1,12 +1,28 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { communicationsAfterCursor, cursorAfterCommunications, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
+import { matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
 import { nextDailyScheduleOccurrence, normalizeTenantSchedule } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
 import { project } from './helpers';
 
 describe('durable communication cursor helpers', () => {
+  test('isolates cursors by project and mailbox', () => {
+    assert.notEqual(projectTriageCursorKey('personal', 'gmail_1'), projectTriageCursorKey('work', 'gmail_1'));
+    assert.notEqual(projectTriageCursorKey('personal', 'gmail_1'), projectTriageCursorKey('personal', 'outlook_1'));
+    assert.equal(projectTriageCursorKey(undefined, 'gmail_1'), 'gmail_1');
+  });
+
+  test('applies human and correlated project policies without crossing projects', () => {
+    const communication: any = { correlation: { external_project_id: 'project_1' } };
+    const human: any = { memoryEligible: true };
+    const automated: any = { memoryEligible: false };
+    assert.equal(matchesProjectTriagePolicy(communication, human, 'human_only', 'project_1'), true);
+    assert.equal(matchesProjectTriagePolicy(communication, automated, 'human_only', 'project_1'), false);
+    assert.equal(matchesProjectTriagePolicy(communication, human, 'correlated_only', 'project_1'), true);
+    assert.equal(matchesProjectTriagePolicy(communication, human, 'correlated_only', 'project_2'), false);
+  });
   test('starts a new triage schedule at its creation time instead of replaying mailbox history', () => {
     const createdAt = Date.parse('2026-08-30T12:00:00.000Z');
     assert.equal(reconciliationCursor(undefined, createdAt), '2026-08-30T12:00:00.000Z');
@@ -98,12 +114,17 @@ describe('tenant schedule normalization', () => {
   test('normalizes and preserves digest delivery settings', () => {
     const schedule = normalizeTenantSchedule('org_1', 'schedule_1', {
       name: 'Daily digest', activity: 'communications_triage',
+      projectId: 'project_1', connectionId: 'mailbox_1', triagePolicy: 'correlated_only', createDrafts: false,
       digestChannel: 'sms', digestRecipient: '+61411111111'
     }, null, 1000);
     assert.equal(schedule.activity, 'communications_triage');
     if (schedule.activity !== 'communications_triage') assert.fail('expected communications triage schedule');
     assert.equal(schedule.digestChannel, 'sms');
     assert.equal(schedule.digestRecipient, '+61411111111');
+    assert.equal(schedule.projectId, 'project_1');
+    assert.equal(schedule.connectionId, 'mailbox_1');
+    assert.equal(schedule.triagePolicy, 'correlated_only');
+    assert.equal(schedule.createDrafts, false);
   });
 
   test('normalizes a flow start schedule without communications-only fields', () => {

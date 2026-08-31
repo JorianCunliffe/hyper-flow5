@@ -77,6 +77,7 @@ export interface CommunicationResult {
   direction?: 'inbound' | 'outbound';
   occurredAt?: string;
   personId?: string;
+  connectionId?: string;
   content?: string;
   summary?: string;
   subject?: string;
@@ -178,6 +179,7 @@ export interface CommunicationsClient {
   resolveAsk(tenantId: string, askId: string, communicationId: string): Promise<ResolveAskResult>;
   listMailboxes(tenantId: string): Promise<CommunicationsMailboxRef[]>;
   listPeople(tenantId: string): Promise<CommunicationsPersonRef[]>;
+  startMailboxOAuth(tenantId: string, initiatorId: string, returnUrl: string, provider: 'gmail' | 'outlook', setupDraftId?: string): Promise<string>;
   startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string>;
   syncMailbox(tenantId: string, connectionId: string, initiatorId?: string): Promise<Record<string, unknown>>;
   createMailboxDraft(tenantId: string, connectionId: string, request: MailboxDraftRequest, idempotencyKey: string): Promise<Record<string, unknown>>;

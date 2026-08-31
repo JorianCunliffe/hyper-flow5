@@ -23,6 +23,7 @@ export interface GoogleResource {
   name: string;
   kind: 'document' | 'spreadsheet';
   modifiedTime?: string;
+  canEdit?: boolean;
 }
 
 export const googleWorkspaceConnectionId = (accountEmail: string): string =>
@@ -95,17 +96,47 @@ export const listGoogleWorkspaceResources = async (
     q: `trashed = false and (${mimeTypes.map(mime => `mimeType = '${mime}'`).join(' or ')})`,
     pageSize: '100',
     orderBy: 'modifiedTime desc',
-    fields: 'files(id,name,mimeType,modifiedTime)'
+    fields: 'files(id,name,mimeType,modifiedTime,capabilities(canEdit))'
   });
-  const result = await googleJson<{ files?: Array<{ id: string; name: string; mimeType: string; modifiedTime?: string }> }>(
+  const result = await googleJson<{ files?: Array<{ id: string; name: string; mimeType: string; modifiedTime?: string; capabilities?: { canEdit?: boolean } }> }>(
     `https://www.googleapis.com/drive/v3/files?${query}`, accessToken
   );
   return (result.files || []).map(file => ({
     id: file.id,
     name: file.name,
     kind: file.mimeType.endsWith('.document') ? 'document' : 'spreadsheet',
-    modifiedTime: file.modifiedTime
+    modifiedTime: file.modifiedTime,
+    canEdit: file.capabilities?.canEdit === true
   }));
+};
+
+/** Read-only preflight used before a coaching project exists. */
+export const validateGoogleWorkspaceSelection = async (input: {
+  orgId: string;
+  connectionId: string;
+  documentId: string;
+  spreadsheetId: string;
+  sheetRange: string;
+}): Promise<{ documentTitle?: string; sheetRange: string; canAppend: boolean }> => {
+  if (!input.connectionId || !input.documentId || !input.spreadsheetId || !input.sheetRange) {
+    throw new Error('Google connection, Doc, Sheet and allowed range are required');
+  }
+  const accessToken = await googleAccessToken(input.orgId, input.connectionId);
+  const [document, sheet, resources] = await Promise.all([
+    googleJson<any>(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(input.documentId)}`, accessToken),
+    googleJson<{ range?: string }>(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.spreadsheetId)}/values/${encodeURIComponent(input.sheetRange)}`,
+      accessToken
+    ),
+    listGoogleWorkspaceResources(input.orgId, input.connectionId, 'spreadsheet')
+  ]);
+  const selectedSheet = resources.find(resource => resource.id === input.spreadsheetId);
+  if (!selectedSheet) throw new Error('Selected Google Sheet is not available to this connection');
+  return {
+    documentTitle: typeof document.title === 'string' ? document.title : undefined,
+    sheetRange: sheet.range || input.sheetRange,
+    canAppend: selectedSheet.canEdit === true
+  };
 };
 
 const documentText = (document: any): string => (document.body?.content || [])

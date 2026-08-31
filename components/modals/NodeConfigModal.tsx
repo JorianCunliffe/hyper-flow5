@@ -15,7 +15,8 @@ const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.GOOGLE_DOC]: '{}',
   [NodeType.GOOGLE_SHEET_READ]: '{}',
   [NodeType.GOOGLE_SHEET_APPEND]: '{"idempotency_key": "{{schedule_occurrence_id}}:coaching-sheet", "values": [["{{scheduled_for}}", "{{coaching_progress}}", "{{coaching_blockers}}", "{{coaching_commitments}}", "{{coaching_next_actions}}"]]}',
-  [NodeType.COACHING_EXTRACT]: '{"minimum_confidence": 0.8, "instruction": "Extract the coaching session outcome using only evidence from the verified call transcript."}'
+  [NodeType.COACHING_EXTRACT]: '{"minimum_confidence": 0.8, "instruction": "Extract the coaching session outcome using only evidence from the verified call transcript."}',
+  [NodeType.EMAIL_TRIAGE]: '{"connection_id": "{{triage_connection_id}}", "triage_policy": "{{triage_policy}}", "create_drafts": "{{triage_create_drafts}}", "digest_channel": "{{triage_digest_channel}}", "digest_recipient": "{{triage_digest_recipient}}"}'
 };
 
 interface NodeConfigModalProps {

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { GitBranch, RefreshCw, Mail, MessageSquare, Phone, Webhook, FileText, Circle, LucideIcon, BookOpen, TableProperties, BrainCircuit } from 'lucide-react';
+import { GitBranch, RefreshCw, Mail, MessageSquare, Phone, Webhook, FileText, Circle, LucideIcon, BookOpen, TableProperties, BrainCircuit, Inbox } from 'lucide-react';
 import { NodeType } from './types';
 
 export interface NodeTypeMeta {
@@ -23,7 +23,8 @@ export const NODE_TYPE_META: Record<NodeType, NodeTypeMeta> = {
   [NodeType.GOOGLE_DOC]: { label: 'Read Doc', icon: BookOpen, color: '#4285f4', ringClass: 'ring-blue-200', description: 'Reads the Google Doc allowlisted for this project' },
   [NodeType.GOOGLE_SHEET_READ]: { label: 'Read Sheet', icon: TableProperties, color: '#0f9d58', ringClass: 'ring-emerald-200', description: 'Reads the Google Sheet range allowlisted for this project' },
   [NodeType.GOOGLE_SHEET_APPEND]: { label: 'Append Sheet', icon: TableProperties, color: '#188038', ringClass: 'ring-emerald-300', description: 'Appends rows idempotently to the allowlisted Google Sheet range' },
-  [NodeType.COACHING_EXTRACT]: { label: 'Coach Result', icon: BrainCircuit, color: '#7c3aed', ringClass: 'ring-violet-300', description: 'Extracts a typed coaching result from a verified human call' }
+  [NodeType.COACHING_EXTRACT]: { label: 'Coach Result', icon: BrainCircuit, color: '#7c3aed', ringClass: 'ring-violet-300', description: 'Extracts a typed coaching result from a verified human call' },
+  [NodeType.EMAIL_TRIAGE]: { label: 'Email Triage', icon: Inbox, color: '#4f46e5', ringClass: 'ring-indigo-300', description: 'Synchronizes and classifies the mailbox selected for this project' }
 };
 
 // Default mappings for the initial statuses

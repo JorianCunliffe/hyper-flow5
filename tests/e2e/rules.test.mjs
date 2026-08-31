@@ -110,7 +110,7 @@ const run = async () => {
     ok(!result.ok, 'the event inbox is backend-only', result.detail);
     result = await request('mallory', 'PUT', 'external_events/org_a/event_2', { event_id: 'event_2' });
     ok(!result.ok, 'clients cannot forge event inbox records', result.detail);
-    for (const root of ['triage_items', 'schedules', 'schedule_runs', 'communication_cursors', 'ask_resolutions', 'communication_delivery']) {
+    for (const root of ['triage_items', 'schedules', 'schedule_runs', 'scheduler_health', 'service_setup_drafts', 'communication_cursors', 'ask_resolutions', 'communication_delivery']) {
       result = await request('alice', 'GET', `${root}/org_a`);
       ok(!result.ok, `${root} reads are API-only, even for tenant members`, result.detail);
       result = await request('mallory', 'PUT', `${root}/org_a/forged`, { forged: true });

@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideType, Download, Upload, AlertTriangle, Mail, Phone, Briefcase, RefreshCw, Cloud, CloudOff, Bot, Link2 } from 'lucide-react';
 import { AppSettings, CommunicationsPersonRef, MailboxConnectionRef, Project, TeamMemberDetails, TenantAgentProfile, TenantSchedule, WorkspaceConnectionRef } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { COACHING_TRANSIENT_KEYS } from '../../lib/projectTemplates';
+import type { ServiceSetupInput } from '../../lib/serviceSetup';
+import { ServiceProjectWizard } from '../ServiceProjectWizard';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,6 +19,8 @@ interface SettingsModalProps {
   cloudStatus: 'disconnected' | 'connected' | 'syncing' | 'error';
   onOpenCloudSetup: () => void;
   projects: Project[];
+  onConfigureService: (setup: ServiceSetupInput, projectId?: string) => Promise<void>;
+  configureProjectId?: string;
 }
 
 const TeamMemberSection: React.FC<{ 
@@ -212,7 +216,7 @@ const SettingsSection: React.FC<{
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup, projects
+  isOpen, onClose, settings, onUpdateSettings, onExportBackup, onImportBackup, onBulkReplaceNameGlobal, currentOrgId, isCloudConfigured, cloudStatus, onOpenCloudSetup, projects, onConfigureService, configureProjectId
 }) => {
   const [communicationsDraft, setCommunicationsDraft] = useState(settings.communications?.fromNumber || '');
   const [communicationsStatus, setCommunicationsStatus] = useState<{ loading: boolean; connected?: boolean; emailReady?: boolean; error?: string }>({ loading: false });
@@ -240,11 +244,62 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
   const [googleResources, setGoogleResources] = useState<Array<{ id: string; name: string; kind: 'document' | 'spreadsheet' }>>([]);
   const [automationStatus, setAutomationStatus] = useState<{ working?: boolean; message?: string; error?: string }>({});
+  const [serviceWizard, setServiceWizard] = useState<{ template: 'email_triage' | 'daily_coaching'; project?: Project } | null>(null);
+  const handledConfigureProject = useRef<string>();
+  const [serviceStatuses, setServiceStatuses] = useState<Record<string, any>>({});
   const communicationsNumberValid = !communicationsDraft || /^\+[1-9]\d{7,14}$/.test(communicationsDraft.trim());
   const [replaceOldName, setReplaceOldName] = useState('');
   const [replaceNewName, setReplaceNewName] = useState('');
   const [isReplacing, setIsReplacing] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const serviceProjects = projects.filter(project => ['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(project.projectData?.project_template)));
+
+  const setupFromProject = (project: Project): Partial<ServiceSetupInput> => {
+    const data = project.projectData || {};
+    if (['email_triage', 'daily_email_triage'].includes(String(data.project_template))) return {
+      template: 'email_triage', serviceProjectId: String(project.id), projectName: project.name, accessPersonIds: Array.isArray(data.service_allowed_person_ids) ? data.service_allowed_person_ids : [], provider: data.triage_provider || 'gmail',
+      connectionId: data.triage_connection_id || '', localTime: '09:00', timezone: data.triage_timezone || settings.communications?.timezone || 'Australia/Brisbane',
+      triagePolicy: data.triage_policy || 'human_only', createDrafts: data.triage_create_drafts !== false,
+      digestChannel: data.triage_digest_channel || 'web', digestRecipient: data.triage_digest_recipient || '', authoritativeSync: true
+    } as Partial<ServiceSetupInput>;
+    return {
+      template: 'daily_coaching', serviceProjectId: String(project.id), projectName: project.name, accessPersonIds: Array.isArray(data.service_allowed_person_ids) ? data.service_allowed_person_ids : [data.coaching_person_id].filter(Boolean), personId: data.coaching_person_id || '', phone: data.contact_phone || '',
+      voiceIdentity: settings.communications?.fromNumber || '', workspaceConnectionId: data.coaching_workspace_connection_id || '',
+      documentId: data.coaching_document_id || '', spreadsheetId: data.coaching_spreadsheet_id || '', sheetRange: data.coaching_sheet_range || 'Coaching!A:G',
+      localTime: '09:00', timezone: data.coaching_timezone || settings.communications?.timezone || 'Australia/Brisbane',
+      retryAttempts: Number(data.coaching_max_attempts ?? 2), retryDelayMinutes: Number(data.coaching_retry_delay_minutes ?? 30), retryWindowMinutes: Number(data.coaching_retry_window_minutes ?? 180),
+      reviewRecipient: data.coaching_review_recipient || '', reviewChannels: Array.isArray(data.coaching_review_channels) ? data.coaching_review_channels : ['web']
+    } as Partial<ServiceSetupInput>;
+  };
+
+  useEffect(() => {
+    if (!isOpen) handledConfigureProject.current = undefined;
+    if (!isOpen || serviceWizard) return;
+    if (configureProjectId && handledConfigureProject.current !== configureProjectId) {
+      const project = serviceProjects.find(item => String(item.id) === configureProjectId);
+      if (project) {
+        handledConfigureProject.current = configureProjectId;
+        const template = project.projectData?.project_template === 'daily_coaching' ? 'daily_coaching' : 'email_triage';
+        setServiceWizard({ template, project });
+        return;
+      }
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('service_setup') || params.has('setup_draft_id')) {
+      setServiceWizard({ template: 'email_triage' });
+    }
+  }, [isOpen, serviceWizard, configureProjectId, serviceProjects]);
+
+  const refreshServiceStatuses = async () => {
+    const pairs = await Promise.all(serviceProjects.map(async project => {
+      try {
+        const response = await firebaseService.authorizedFetch(`/api/service-projects/status?projectId=${encodeURIComponent(String(project.id))}`);
+        const body = await response.json().catch(() => ({}));
+        return [String(project.id), response.ok ? body : { error: body.error || `Status failed (${response.status})` }] as const;
+      } catch (error: any) { return [String(project.id), { error: error?.message || String(error) }] as const; }
+    }));
+    setServiceStatuses(Object.fromEntries(pairs));
+  };
 
   useEffect(() => {
     setCommunicationsDraft(settings.communications?.fromNumber || '');
@@ -300,6 +355,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       });
     return () => { active = false; };
   }, [currentOrgId, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !currentOrgId || !firebaseService.isConfigured()) return;
+    void refreshServiceStatuses();
+  }, [currentOrgId, isOpen, projects.length]);
 
   if (!isOpen) return null;
 
@@ -479,6 +539,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const toggleServiceSchedule = async (schedule: TenantSchedule) => {
+    setAutomationStatus({ working: true });
+    try {
+      const response = await firebaseService.authorizedFetch('/api/schedules', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: schedule.id, enabled: !schedule.enabled })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Schedule could not be updated');
+      setScheduleStatus(current => ({ ...current, items: current.items.map(item => item.id === schedule.id ? body.schedule : item) }));
+      await refreshServiceStatuses();
+      setAutomationStatus({ message: body.schedule.enabled ? 'Service resumed.' : 'Service paused.' });
+    } catch (error: any) { setAutomationStatus({ error: error?.message || String(error) }); }
+    finally { setAutomationStatus(current => ({ ...current, working: false })); }
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col border border-white/20">
@@ -541,6 +617,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-10 mb-16">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-slate-800 font-black text-lg flex items-center gap-3"><Briefcase size={24} className="text-violet-600" /> Service Projects</h4>
+              <div className="flex gap-2"><button type="button" onClick={() => setServiceWizard({ template: 'email_triage' })} className="rounded-xl border border-violet-200 px-4 py-2 text-sm font-bold text-violet-700">New email triage</button><button type="button" onClick={() => setServiceWizard({ template: 'daily_coaching' })} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white">New daily coaching</button></div>
+            </div>
+            <div className="space-y-3">
+              {!serviceProjects.length && <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">No service projects yet. Use the guided setup above; raw JSON is not required.</div>}
+              {serviceProjects.map(project => {
+                const status = serviceStatuses[String(project.id)] || {};
+                const schedule = status.schedules?.[0] as TenantSchedule | undefined;
+                const mailboxId = project.projectData?.triage_connection_id;
+                const mailbox = status.mailboxes?.find((item: any) => item.id === mailboxId);
+                const workspaceId = project.projectData?.coaching_workspace_connection_id;
+                const workspace = status.workspaces?.find((item: any) => item.id === workspaceId);
+                return <div key={project.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3"><div><h5 className="font-black text-slate-900">{project.name}</h5><p className="text-xs text-slate-500">{project.projectData?.project_template === 'daily_coaching' ? 'Daily Coaching' : 'Email Triage'} · {mailbox?.mailboxAddress || workspace?.accountEmail || 'connection pending'}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${schedule?.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{schedule?.enabled ? 'Active' : 'Paused'}</span></div>
+                  {status.error ? <p className="mt-3 text-sm text-red-600">{status.error}</p> : <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-3"><div><b>Previous run:</b> {status.lastRun ? `${status.lastRun.status} · ${status.lastRun.processedCount ?? 0} processed` : 'none'}</div><div><b>Next run:</b> {schedule ? new Date(schedule.nextRunAt).toLocaleString() : 'not scheduled'}</div><div><b>Scheduler:</b> {status.scheduler?.lastTickAt ? new Date(status.scheduler.lastTickAt).toLocaleString() : 'no tick recorded'}{status.scheduler?.overdue ? ' · OVERDUE' : ''}</div></div>}
+                  {status.lastDigest?.summary && <p className="mt-3 line-clamp-2 rounded-lg bg-white p-2 text-xs text-slate-600"><b>Last digest:</b> {status.lastDigest.summary}</p>}
+                  {status.scheduler?.warning && <p className="mt-3 text-xs font-bold text-amber-700">{status.scheduler.warning}</p>}
+                  <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setServiceWizard({ template: project.projectData?.project_template === 'daily_coaching' ? 'daily_coaching' : 'email_triage', project })} className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-bold text-indigo-700">Edit / reconnect / validate</button>{schedule && <><button type="button" onClick={() => void runScheduleNow(schedule.id)} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700">Run now</button><button type="button" onClick={() => void toggleServiceSchedule(schedule)} className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">{schedule.enabled ? 'Pause' : 'Resume'}</button></>}</div>
+                </div>;
+              })}
             </div>
           </div>
 
@@ -867,6 +968,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
       </div>
+      <ServiceProjectWizard
+        isOpen={Boolean(serviceWizard)}
+        template={serviceWizard?.template}
+        settings={settings}
+        initial={serviceWizard?.project ? setupFromProject(serviceWizard.project) : undefined}
+        onClose={() => setServiceWizard(null)}
+        onComplete={async setup => {
+          await onConfigureService(setup, serviceWizard?.project ? String(serviceWizard.project.id) : setup.serviceProjectId);
+          await refreshServiceStatuses();
+        }}
+      />
     </div>
   );
 };

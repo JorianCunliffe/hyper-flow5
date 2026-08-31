@@ -59,6 +59,7 @@ import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrc
 import { applyAskToProject, normalizeNodeAsks, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
 import { buildResponse, validateResponse } from './lib/askResponses';
 import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
+import { ServiceConfigurationPanel } from './components/ServiceConfigurationPanel';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
@@ -75,7 +76,8 @@ import { CreateProjectModal } from './components/modals/CreateProjectModal';
 import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
 import { NodeConfigModal } from './components/modals/NodeConfigModal';
-import { dailyCoachingTemplate, emailTriageTemplate } from './lib/projectTemplates';
+import { COACHING_TRANSIENT_KEYS, dailyCoachingTemplate, emailTriageTemplate } from './lib/projectTemplates';
+import type { ServiceSetupInput } from './lib/serviceSetup';
 
 const STORAGE_KEY = 'hyperflow_data_v1';
 const LEGACY_STORAGE_KEY = 'projectflow_data_v6';
@@ -254,12 +256,18 @@ export const App: React.FC = () => {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isEditingSubtask, setIsEditingSubtask] = useState<{ mId: string, sIdx: number | null } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [serviceConfigurationProjectId, setServiceConfigurationProjectId] = useState<string>();
   const [isCloudSetupOpen, setIsCloudSetupOpen] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [milestoneToDelete, setMilestoneToDelete] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('service_setup') || params.has('setup_draft_id')) setIsSettingsOpen(true);
+  }, []);
   
   // Linking State
   const [linkingSourceId, setLinkingSourceId] = useState<string | null>(null);
@@ -1020,8 +1028,38 @@ export const App: React.FC = () => {
     setSelectedProjectId(projectId);
   };
 
+  const updateServiceProjectAccess = async (projectId: string, accessPersonIds: string[]) => {
+    const response = await firebaseService.authorizedFetch('/api/integrations');
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Agent access configuration could not be loaded');
+    const agent = body.agent || {};
+    const allowedProjectIds = [...new Set([...(agent.allowedProjectIds || []).map(String), String(projectId)])];
+    const selected = new Set(accessPersonIds.map(String));
+    const existingAccess = Array.isArray(agent.personProjectAccess) ? agent.personProjectAccess : [];
+    const byPerson = new Map<string, string[]>();
+    for (const grant of existingAccess) {
+      const personId = String(grant?.personId || '').trim();
+      if (!personId) continue;
+      byPerson.set(personId, (Array.isArray(grant.projectIds) ? grant.projectIds : [])
+        .map(String).filter((id: string) => id !== String(projectId)));
+    }
+    for (const personId of selected) {
+      byPerson.set(personId, [...new Set([...(byPerson.get(personId) || []), String(projectId)])]);
+    }
+    const personProjectAccess = [...byPerson.entries()]
+      .filter(([, projectIds]) => projectIds.length > 0)
+      .map(([personId, projectIds]) => ({ personId, projectIds }));
+    const saveResponse = await firebaseService.authorizedFetch('/api/integrations', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: { ...agent, allowedProjectIds, personProjectAccess } })
+    });
+    const saveBody = await saveResponse.json().catch(() => ({}));
+    if (!saveResponse.ok) throw new Error(saveBody.error || 'Project access permissions could not be saved');
+  };
+
   const handleCreateProject = async (newProjectData: any, useAI: boolean) => {
     setIsGenerating(true);
+    try {
     let milestones: Milestone[] = [];
     let markers: TimelineMarkerType[] | undefined = undefined;
     let templateProjectData: Record<string, any> | undefined;
@@ -1049,15 +1087,50 @@ export const App: React.FC = () => {
     }];
 
     if (newProjectData.template === 'daily_coaching') {
-      const reviewer = String(newProjectData.coachPerson || '');
-      const details = settings.teamMemberDetails?.[reviewer];
-      const generated = dailyCoachingTemplate({ reviewer, phone: details?.phone, email: details?.email });
+      const serviceSetup = newProjectData.serviceSetup as ServiceSetupInput | undefined;
+      if (!serviceSetup || serviceSetup.template !== 'daily_coaching') throw new Error('Validated Daily Coaching setup is required');
+      const reviewer = serviceSetup.personId;
+      const generated = dailyCoachingTemplate({ reviewer, phone: serviceSetup.phone, email: serviceSetup.reviewChannels.includes('email') ? serviceSetup.reviewRecipient : undefined });
       milestones = generated.milestones;
-      templateProjectData = generated.projectData;
+      milestones = milestones.map(node => node.id === 'COACH_EXTRACT' ? {
+        ...node,
+        reviewPolicy: { ...node.reviewPolicy!, reviewers: [reviewer], channels: serviceSetup.reviewChannels, onExpiry: 'block' }
+      } : node);
+      templateProjectData = {
+        ...generated.projectData,
+        contact_phone: serviceSetup.phone,
+        coaching_person_id: serviceSetup.personId,
+        coaching_max_attempts: serviceSetup.retryAttempts,
+        coaching_retry_delay_minutes: serviceSetup.retryDelayMinutes,
+        coaching_retry_window_minutes: serviceSetup.retryWindowMinutes,
+        coaching_review_recipient: serviceSetup.reviewRecipient,
+        coaching_review_channels: serviceSetup.reviewChannels,
+        coaching_workspace_connection_id: serviceSetup.workspaceConnectionId,
+        coaching_document_id: serviceSetup.documentId,
+        coaching_spreadsheet_id: serviceSetup.spreadsheetId,
+        coaching_sheet_range: serviceSetup.sheetRange,
+        coaching_timezone: serviceSetup.timezone,
+        service_allowed_person_ids: serviceSetup.accessPersonIds,
+        service_configured_at: Date.now()
+      };
     } else if (newProjectData.template === 'email_triage') {
+      const serviceSetup = newProjectData.serviceSetup as ServiceSetupInput | undefined;
+      if (!serviceSetup || serviceSetup.template !== 'email_triage') throw new Error('Validated Email Triage setup is required');
       const generated = emailTriageTemplate();
       milestones = generated.milestones;
-      templateProjectData = generated.projectData;
+      templateProjectData = {
+        ...generated.projectData,
+        email_send_policy: serviceSetup.digestChannel === 'sms' ? 'automatic' : 'draft_only',
+        triage_connection_id: serviceSetup.connectionId,
+        triage_provider: serviceSetup.provider,
+        triage_policy: serviceSetup.triagePolicy,
+        triage_create_drafts: serviceSetup.createDrafts,
+        triage_digest_channel: serviceSetup.digestChannel,
+        triage_digest_recipient: serviceSetup.digestRecipient || '',
+        triage_timezone: serviceSetup.timezone,
+        service_allowed_person_ids: serviceSetup.accessPersonIds,
+        service_configured_at: Date.now()
+      };
     } else if (newProjectData.cloneFromId) {
       const parentProject = [...projects, ...archivedProjects].find(p => p.id === newProjectData.cloneFromId);
       if (parentProject) {
@@ -1126,11 +1199,126 @@ export const App: React.FC = () => {
       updatedAt: now
     };
 
+    const serviceSetup = newProjectData.serviceSetup as ServiceSetupInput | undefined;
+    if (serviceSetup) {
+      if (serviceSetup.template === 'daily_coaching') {
+        const grantResponse = await firebaseService.authorizedFetch('/api/integrations/google/grant', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: project.id, connectionId: serviceSetup.workspaceConnectionId, documentId: serviceSetup.documentId, spreadsheetId: serviceSetup.spreadsheetId, sheetRange: serviceSetup.sheetRange })
+        });
+        const grantBody = await grantResponse.json().catch(() => ({}));
+        if (!grantResponse.ok) throw new Error(grantBody.error || 'Google Workspace project grant could not be saved');
+      }
+      const scheduleResponse = await firebaseService.authorizedFetch('/api/schedules', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${serviceSetup.projectName} daily run`, activity: 'flow_start', projectId: project.id,
+          recurrence: { kind: 'daily', localTime: serviceSetup.localTime }, timezone: serviceSetup.timezone,
+          misfirePolicy: 'run_once', resetPolicy: 'flow',
+          clearProjectDataKeys: serviceSetup.template === 'daily_coaching' ? COACHING_TRANSIENT_KEYS : [
+            'triage_processed_count', 'triage_skipped_count', 'triage_cursor_before', 'triage_cursor_after',
+            'triage_digest_id', 'triage_digest_summary', 'triage_last_run_at'
+          ]
+        })
+      });
+      const scheduleBody = await scheduleResponse.json().catch(() => ({}));
+      if (!scheduleResponse.ok) throw new Error(scheduleBody.error || 'Daily schedule could not be created');
+      project.projectData = { ...(project.projectData || {}), schedule_id: scheduleBody.schedule?.id, service_ready: true };
+      await updateServiceProjectAccess(project.id, serviceSetup.accessPersonIds);
+    }
+
     setSettings(prev => ({ ...prev, nextProjectId: projectIdNum + 1, nextTaskId: currentTaskId }));
     setProjects([...projects, project]);
     setSelectedProjectId(project.id);
     setIsCreatingProject(false);
-    setIsGenerating(false);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleConfigureServiceProject = async (setup: ServiceSetupInput, projectId?: string) => {
+    if (!projectId) {
+      await handleCreateProject({
+        name: setup.projectName,
+        company: settings.companies[0],
+        type: settings.projectTypes[0],
+        template: setup.template,
+        startDate: new Date().toISOString().split('T')[0],
+        timeUnit: 'days', timeBuffer: 0,
+        cashRequirement: 0, debtRequirement: 0, valueAtCompletion: 0, profit: 0,
+        serviceSetup: setup
+      }, false);
+      return;
+    }
+    const existing = projectsRef.current.find(project => String(project.id) === String(projectId));
+    if (!existing) throw new Error('Service project was not found');
+    const generated = setup.template === 'email_triage'
+      ? emailTriageTemplate()
+      : dailyCoachingTemplate({ reviewer: setup.personId, phone: setup.phone, email: setup.reviewChannels.includes('email') ? setup.reviewRecipient : undefined });
+    const preservedRuns = new Map<string, Milestone['actionConfig']>(existing.milestones.map(node => [node.id, node.actionConfig]));
+    let milestones = generated.milestones.map(node => ({
+      ...node,
+      actionConfig: node.actionConfig && preservedRuns.get(node.id)
+        ? { ...node.actionConfig, lastRun: preservedRuns.get(node.id)?.lastRun, runHistory: preservedRuns.get(node.id)?.runHistory }
+        : node.actionConfig
+    }));
+    let projectData: Record<string, any>;
+    if (setup.template === 'email_triage') {
+      projectData = {
+        ...(existing.projectData || {}), ...generated.projectData, project_template: 'email_triage',
+        email_send_policy: setup.digestChannel === 'sms' ? 'automatic' : 'draft_only',
+        triage_connection_id: setup.connectionId, triage_provider: setup.provider,
+        triage_policy: setup.triagePolicy, triage_create_drafts: setup.createDrafts,
+        triage_digest_channel: setup.digestChannel, triage_digest_recipient: setup.digestRecipient || '',
+        triage_timezone: setup.timezone, service_allowed_person_ids: setup.accessPersonIds,
+        service_configured_at: Date.now(), service_ready: true
+      };
+    } else {
+      milestones = milestones.map(node => node.id === 'COACH_EXTRACT' ? {
+        ...node, reviewPolicy: { ...node.reviewPolicy!, reviewers: [setup.personId], channels: setup.reviewChannels, onExpiry: 'block' }
+      } : node);
+      projectData = {
+        ...(existing.projectData || {}), ...generated.projectData,
+        contact_phone: setup.phone, coaching_person_id: setup.personId,
+        coaching_max_attempts: setup.retryAttempts, coaching_retry_delay_minutes: setup.retryDelayMinutes,
+        coaching_retry_window_minutes: setup.retryWindowMinutes, coaching_review_recipient: setup.reviewRecipient,
+        coaching_review_channels: setup.reviewChannels, coaching_workspace_connection_id: setup.workspaceConnectionId,
+        coaching_document_id: setup.documentId, coaching_spreadsheet_id: setup.spreadsheetId,
+        coaching_sheet_range: setup.sheetRange, coaching_timezone: setup.timezone,
+        service_allowed_person_ids: setup.accessPersonIds,
+        service_configured_at: Date.now(), service_ready: true
+      };
+      const grantResponse = await firebaseService.authorizedFetch('/api/integrations/google/grant', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, connectionId: setup.workspaceConnectionId, documentId: setup.documentId, spreadsheetId: setup.spreadsheetId, sheetRange: setup.sheetRange })
+      });
+      const grantBody = await grantResponse.json().catch(() => ({}));
+      if (!grantResponse.ok) throw new Error(grantBody.error || 'Google Workspace project grant could not be updated');
+    }
+    const schedulesResponse = await firebaseService.authorizedFetch('/api/schedules');
+    const schedulesBody = await schedulesResponse.json().catch(() => ({}));
+    if (!schedulesResponse.ok) throw new Error(schedulesBody.error || 'Schedules could not be loaded');
+    const existingSchedule = (schedulesBody.data || []).find((item: any) => item.projectId === projectId);
+    const scheduleResponse = await firebaseService.authorizedFetch('/api/schedules', {
+      method: existingSchedule ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(existingSchedule ? { id: existingSchedule.id } : {}),
+        name: `${setup.projectName} daily run`, activity: 'flow_start', projectId,
+        recurrence: { kind: 'daily', localTime: setup.localTime }, timezone: setup.timezone,
+        misfirePolicy: 'run_once', resetPolicy: 'flow',
+        clearProjectDataKeys: setup.template === 'daily_coaching' ? COACHING_TRANSIENT_KEYS : [
+          'triage_processed_count', 'triage_skipped_count', 'triage_cursor_before', 'triage_cursor_after',
+          'triage_digest_id', 'triage_digest_summary', 'triage_last_run_at'
+        ]
+      })
+    });
+    const scheduleBody = await scheduleResponse.json().catch(() => ({}));
+    if (!scheduleResponse.ok) throw new Error(scheduleBody.error || 'Daily schedule could not be updated');
+    projectData.schedule_id = scheduleBody.schedule?.id;
+    await updateServiceProjectAccess(projectId, setup.accessPersonIds);
+    setProjects(current => current.map(project => String(project.id) === String(projectId)
+      ? { ...project, name: setup.projectName, milestones, projectData, updatedAt: Date.now() }
+      : project));
   };
 
   const handleSaveProjectEdit = (updatedProject: Project) => {
@@ -2420,6 +2608,8 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
+                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} /></div>}
+
                   {/* MAP CANVAS */}
                   <div 
                     ref={containerRef}
@@ -2671,7 +2861,7 @@ export const App: React.FC = () => {
       {/* Modals */}
       <SettingsModal 
         isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+        onClose={() => { setIsSettingsOpen(false); setServiceConfigurationProjectId(undefined); }}
         settings={settings} 
         onUpdateSettings={setSettings} 
         onExportBackup={handleExportBackup} 
@@ -2682,6 +2872,8 @@ export const App: React.FC = () => {
         cloudStatus={cloudStatus}
         onOpenCloudSetup={() => setIsCloudSetupOpen(true)}
         projects={projects}
+        onConfigureService={handleConfigureServiceProject}
+        configureProjectId={serviceConfigurationProjectId}
       />
       <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup} />
       <CreateProjectModal 

@@ -72,6 +72,40 @@ export interface WorkspaceResourceGrant {
   updatedAt: number;
 }
 
+export type ServiceProjectTemplate = 'email_triage' | 'daily_coaching';
+
+/** Temporary, non-secret setup state. It is scoped to one tenant and user and expires after 24 hours. */
+export interface ServiceSetupDraft {
+  id: string;
+  orgId: string;
+  uid: string;
+  template: ServiceProjectTemplate;
+  data: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+}
+
+export interface ServiceValidationCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface ServiceSetupValidation {
+  ready: boolean;
+  checks: ServiceValidationCheck[];
+  validatedAt: number;
+}
+
+export interface SchedulerHealth {
+  lastTickAt?: number;
+  lastSuccessfulTickAt?: number;
+  lastError?: string;
+  updatedAt: number;
+}
+
 export interface ExternalActionReceipt {
   id: string;
   orgId: string;
@@ -235,6 +269,8 @@ export interface TriageItem {
   id: string;
   orgId: string;
   communicationId: string;
+  /** Mailbox connection that produced this item. Used to isolate service projects. */
+  connectionId?: string;
   threadId?: string;
   channel: 'email' | 'sms' | 'voice' | 'web' | string;
   direction: 'inbound' | 'outbound';
@@ -298,6 +334,7 @@ export interface TriageDigest {
   id: string;
   orgId: string;
   scheduleId: string;
+  projectId?: string;
   scheduledFor: number;
   timezone: string;
   itemIds: string[];
@@ -320,7 +357,11 @@ export interface TriageDigest {
 
 export interface CommunicationsTriageSchedule extends TenantScheduleBase {
   activity: 'communications_triage';
+  /** Required for new schedules; omitted only on legacy tenant-wide records. */
+  projectId?: string;
   connectionId?: string;
+  triagePolicy?: 'all_inbound' | 'human_only' | 'correlated_only';
+  createDrafts?: boolean;
   policy: 'draft_only' | 'allow_approved_send' | 'automatic';
   digestChannel?: 'web' | 'email' | 'sms';
   digestRecipient?: string;
@@ -345,6 +386,8 @@ export type TenantScheduleInput = Partial<Omit<TenantScheduleBase, 'id' | 'orgId
   policy?: CommunicationsTriageSchedule['policy'];
   digestChannel?: CommunicationsTriageSchedule['digestChannel'];
   digestRecipient?: string;
+  triagePolicy?: CommunicationsTriageSchedule['triagePolicy'];
+  createDrafts?: boolean;
   projectId?: string;
   flowId?: string;
   input?: Record<string, unknown>;
@@ -406,7 +449,8 @@ export enum NodeType {
   GOOGLE_DOC = 'google_doc',
   GOOGLE_SHEET_READ = 'google_sheet_read',
   GOOGLE_SHEET_APPEND = 'google_sheet_append',
-  COACHING_EXTRACT = 'coaching_extract'
+  COACHING_EXTRACT = 'coaching_extract',
+  EMAIL_TRIAGE = 'email_triage'
 }
 
 export interface DecisionBranch {

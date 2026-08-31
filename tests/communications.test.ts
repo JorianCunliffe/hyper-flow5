@@ -167,6 +167,20 @@ describe('HttpCommunicationsClient current Communications Service contract', () 
     assert.equal(result.sender, 'sender@example.com');
     assert.deepEqual(result.recipients, ['team@example.com']);
   });
+
+  test('starts provider-neutral mailbox OAuth while preserving the Gmail alias', async () => {
+    const calls: Array<{ url: string; body: any }> = [];
+    const fetchImpl: typeof fetch = async (url: any, init?: any) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ authorization_url: 'https://login.example/authorize' }), { status: 200 });
+    };
+    const client = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl });
+    await client.startMailboxOAuth('org_1', 'user_1', 'https://hyperflow.example/settings', 'outlook', 'setup_1');
+    await client.startGmailOAuth('org_1', 'user_1', 'https://hyperflow.example/settings');
+    assert.equal(calls[0].url, 'https://communications.example/v1/mailboxes/oauth/microsoft/start');
+    assert.deepEqual(calls[0].body, { initiator_id: 'user_1', return_url: 'https://hyperflow.example/settings', setup_draft_id: 'setup_1' });
+    assert.equal(calls[1].url, 'https://communications.example/v1/mailboxes/oauth/google/start');
+  });
 });
 
 describe('executeTask communications routing', () => {

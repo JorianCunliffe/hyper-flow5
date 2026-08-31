@@ -4,6 +4,7 @@ import { dailyCoachingTemplate, emailTriageTemplate } from '../lib/projectTempla
 import { ACTION_TASK_TYPE } from '../lib/nodeTypes';
 import { NodeType } from '../types';
 import { coachingSessionFromProject, syncCoachingSessionFromProject } from '../lib/serverFlow';
+import { normalizeServiceTemplate } from '../lib/serverStore';
 
 describe('Daily Coaching project template', () => {
   test('builds the complete read, call, extract, review, and write dependency chain', () => {
@@ -106,10 +107,25 @@ describe('Daily Coaching project template', () => {
 });
 
 describe('Daily Email Triage project template', () => {
-  test('starts in draft-only mode with a visible triage review task', () => {
+  test('starts in draft-only mode with one executable triage action', () => {
     const template = emailTriageTemplate();
     assert.equal(template.projectData.project_template, 'email_triage');
     assert.equal(template.projectData.email_send_policy, 'draft_only');
-    assert.equal(template.milestones[0].subtasks[0].name, 'Review prioritized communications');
+    assert.equal(template.milestones[0].nodeType, NodeType.EMAIL_TRIAGE);
+    assert.equal(template.milestones[0].actionConfig?.autoExecute, true);
+    assert.equal(ACTION_TASK_TYPE[NodeType.EMAIL_TRIAGE], 'run_email_triage');
+    assert.match(template.milestones[0].actionConfig?.template || '', /triage_connection_id/);
+  });
+
+  test('canonicalizes the legacy daily_email_triage template key without changing project identity', () => {
+    const legacy = {
+      id: 'legacy-triage', name: 'Inbox', company: 'Acme', type: 'Other' as const,
+      startDate: 0, milestones: [], createdAt: 1, updatedAt: 1,
+      projectData: { project_template: 'daily_email_triage', retained: true }
+    };
+    const migrated = normalizeServiceTemplate(legacy);
+    assert.equal(migrated.id, legacy.id);
+    assert.equal(migrated.projectData?.project_template, 'email_triage');
+    assert.equal(migrated.projectData?.retained, true);
   });
 });

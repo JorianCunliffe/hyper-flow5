@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Wand2, Banknote, Copy } from 'lucide-react';
 import { AppSettings, ProjectType, Project } from '../../types';
+import type { ServiceSetupInput } from '../../lib/serviceSetup';
+import { ServiceProjectWizard } from '../ServiceProjectWizard';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   settings: AppSettings;
   isGenerating: boolean;
-  onCreate: (projectData: any, useAI: boolean) => void;
+  onCreate: (projectData: any, useAI: boolean) => Promise<void> | void;
   archivedProjects: Project[];
   activeProjects: Project[];
   onReinstate: (projectId: string) => void;
@@ -16,6 +18,7 @@ interface CreateProjectModalProps {
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ 
   isOpen, onClose, settings, isGenerating, onCreate, archivedProjects, activeProjects, onReinstate 
 }) => {
+  const [serviceWizardOpen, setServiceWizardOpen] = useState(false);
   const [newProject, setNewProject] = useState({ 
     name: '', 
     company: '', 
@@ -81,13 +84,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               <option value="email_triage">Daily Email Triage</option>
             </select>
           </div>
-          {newProject.template === 'daily_coaching' && <div className="col-span-2">
-            <label className="block text-xs font-black text-violet-500 uppercase tracking-widest mb-2">Person receiving coaching</label>
-            <select className="w-full bg-violet-50/50 border-2 border-violet-100 rounded-2xl px-5 py-3 outline-none focus:border-violet-500 text-violet-900 font-bold shadow-sm transition-all" value={newProject.coachPerson} onChange={(e) => setNewProject({ ...newProject, coachPerson: e.target.value })}>
-              <option value="">Select person...</option>
-              {(settings.people || []).map(person => <option key={person} value={person}>{person}</option>)}
-            </select>
-          </div>}
+          {['daily_coaching', 'email_triage'].includes(newProject.template) && <div className="col-span-2 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">Service projects use a guided setup that verifies connections, resources, recipients, permissions, and schedule before creating anything.</div>}
           <div className="col-span-2">
             <label className="block text-xs font-black text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-1"><Copy size={12}/> Clone From Existing Project (Optional)</label>
             <select className="w-full bg-indigo-50/50 border-2 border-indigo-100 rounded-2xl px-5 py-3 outline-none focus:border-indigo-500 text-indigo-900 font-bold shadow-sm transition-all" value={newProject.cloneFromId} onChange={(e) => setNewProject({ ...newProject, cloneFromId: e.target.value })}>
@@ -208,11 +205,11 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
         <div className="grid grid-cols-2 gap-4">
           <button onClick={onClose} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
           <div className="flex flex-col gap-2">
-            {!newProject.cloneFromId ? (
+            {!newProject.cloneFromId && !['daily_coaching', 'email_triage'].includes(newProject.template) ? (
               <>
                 <button 
                   onClick={() => onCreate(newProject, false)} 
-                  disabled={!newProject.name || (newProject.template === 'daily_coaching' && !newProject.coachPerson)}
+                  disabled={!newProject.name}
                   className="bg-white border-2 border-indigo-100 hover:border-indigo-600 text-indigo-700 font-bold py-3 rounded-2xl transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {newProject.template === 'blank' ? 'Create Blank' : 'Create from Template'}
@@ -225,7 +222,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
                   <Wand2 size={18} /> AI Generate
                 </button>}
               </>
-            ) : (
+            ) : newProject.cloneFromId ? (
               <button 
                 onClick={() => onCreate(newProject, false)} 
                 disabled={!newProject.name}
@@ -233,10 +230,23 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
               >
                 <Copy size={18} /> Clone Project
               </button>
-            )}
+            ) : <button
+              type="button"
+              onClick={() => setServiceWizardOpen(true)}
+              className="bg-violet-600 hover:bg-violet-700 text-white font-black py-4 h-full rounded-2xl shadow-lg shadow-violet-200 transition-all active:scale-95"
+            >Configure service</button>}
           </div>
         </div>
       </div>
+      <ServiceProjectWizard
+        isOpen={serviceWizardOpen}
+        template={newProject.template === 'daily_coaching' ? 'daily_coaching' : 'email_triage'}
+        settings={settings}
+        onClose={() => setServiceWizardOpen(false)}
+        onComplete={async (serviceSetup: ServiceSetupInput) => {
+          await onCreate({ ...newProject, name: serviceSetup.projectName, serviceSetup }, false);
+        }}
+      />
     </div>
   );
 };
