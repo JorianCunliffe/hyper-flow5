@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { ApiAuthError, bearerToken, hasSharedSecret, requireAppMember } from '../../lib/apiAuth.js';
+import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
+import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
 import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
 import { runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
 
@@ -7,9 +8,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const action = typeof req.query.action === 'string' ? req.query.action : undefined;
   if (action === 'tick') {
     if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-    const configured = Boolean(process.env.SCHEDULER_SECRET || process.env.CRON_SECRET);
-    const authorized = hasSharedSecret(req.headers['x-hyperflow-scheduler-secret'], process.env.SCHEDULER_SECRET)
-      || hasSharedSecret(bearerToken(req), process.env.CRON_SECRET);
+    const secrets = {
+      schedulerSecret: process.env.SCHEDULER_SECRET,
+      cronSecret: process.env.CRON_SECRET,
+      communicationsWebhookSecret: process.env.COMMUNICATIONS_WEBHOOK_SECRET
+    };
+    const configured = schedulerAuthenticationConfigured(secrets);
+    const authorized = isSchedulerTickAuthorized(req, secrets);
     if (!authorized) return res.status(configured ? 401 : 503).json({ error: configured ? 'Invalid scheduler authentication' : 'Scheduler secret is not configured' });
     try {
       await recordSchedulerTick('started');

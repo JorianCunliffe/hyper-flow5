@@ -45,7 +45,7 @@ The Express development server reads process environment variables; it does not 
 | Gemini | `GEMINI_API_KEY` for generation, reports, and optional ambiguous-response interpretation. |
 | Communications Service | `COMMUNICATIONS_API_URL`, `COMMUNICATIONS_API_KEY`, `COMMUNICATIONS_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`; set `COMMUNICATIONS_REQUIRE_SIGNATURE_V2=true` explicitly in production; optional `COMMUNICATIONS_FROM_NUMBER`, `COMMUNICATIONS_EMAIL_IDENTITY`, `COMMUNICATIONS_CONNECTION_ID`, and `COMMUNICATIONS_INTENT_MODEL`. |
 | Google Workspace | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_OAUTH_STATE_SECRET`, `INTEGRATION_ENCRYPTION_KEY`; optional `GOOGLE_OAUTH_REDIRECT_URI` (defaults from `PUBLIC_BASE_URL`). |
-| Durable schedule timer | `CRON_SECRET` for Vercel Cron; optional `SCHEDULER_SECRET` for another timer caller. |
+| Durable schedule timer | `CRON_SECRET` for Vercel Cron; optional `SCHEDULER_SECRET` for another timer caller. The Communications VM may also call the tick route with the existing timestamped `COMMUNICATIONS_WEBHOOK_SECRET` HMAC. |
 | Server-triggered flow advancement | `WEBHOOK_SECRET`. |
 | Webhook action allowlist | Optional comma-separated `WEBHOOK_ALLOWED_HOSTS`. |
 
@@ -153,7 +153,7 @@ When changing Firebase projects, configure the browser variables as one set and 
 2. Set `PUBLIC_BASE_URL` to the public HTTPS origin.
 3. Set Communications `HYPERFLOW_EVENT_URL` to exactly `{PUBLIC_BASE_URL}/api/events`, set `HYPERFLOW_AGENT_CONTEXT_URL` to `{PUBLIC_BASE_URL}/api/agent/voice-context`, and use the same `COMMUNICATIONS_WEBHOOK_SECRET` in both services. HyperFlow also sends the event URL per request as `callback_url`.
 4. In Settings > Communications, select the tenant's email service identity and provider connection; set the phone number when SMS or voice is enabled.
-5. Configure `CRON_SECRET` for the daily Vercel Hobby-compatible fallback. Production uses `.github/workflows/scheduler.yml` every five minutes: store the same generated value as Vercel `SCHEDULER_SECRET` and GitHub Actions secret `HYPERFLOW_SCHEDULER_SECRET`. A Vercel plan with a five-minute cron or another trusted external timer may replace it.
+5. Configure `CRON_SECRET` for the daily Vercel Hobby-compatible fallback. Production retains `.github/workflows/scheduler.yml` as a fallback. The always-on Communications VM provides the frequent tick when `HYPERFLOW_EVENT_URL` and the shared `COMMUNICATIONS_WEBHOOK_SECRET` are present; it signs an empty `POST` with the same replay-safe V2 HMAC contract used by callbacks. A Vercel plan with a five-minute cron or another trusted external timer may replace it.
 6. Run and review the membership migration before deploying updated Firebase rules to a legacy database.
 7. Deploy [`database.rules.json`](./database.rules.json); operational event, triage/digest, sparse worker indexes, schedule, cursor, delivery, integration, coaching, and resolution trees are backend-only.
 

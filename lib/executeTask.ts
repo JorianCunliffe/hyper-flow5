@@ -343,8 +343,17 @@ export async function executeTask(
   } else if (taskType === 'extract_coaching_result') {
     try {
       if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY missing');
-      const transcriptSource = projectData?.transcript_text || projectData?.transcript || projectData?.call_transcript ||
+      let transcriptSource = projectData?.transcript_text || projectData?.transcript || projectData?.call_transcript ||
         projectData?.content || projectData?.summary || '';
+      if (!String(typeof transcriptSource === 'string' ? transcriptSource : JSON.stringify(transcriptSource)).trim()
+        && projectData?.communication_id && ctx.correlation?.orgId) {
+        const communication = await createCommunicationsClient().getCommunication(
+          ctx.correlation.orgId,
+          String(projectData.communication_id)
+        );
+        transcriptSource = communication.content || '';
+        if (transcriptSource) logs.push('Recovered the verified transcript from the canonical communication record');
+      }
       const transcript = (typeof transcriptSource === 'string'
         ? transcriptSource
         : JSON.stringify(transcriptSource)).slice(0, 40_000);

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createExternalEventRecord, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
+import { createExternalEventRecord, hydrateCompletedCallPayload, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
 
 const fixture = (name: string): any => JSON.parse(readFileSync(
   new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
@@ -106,6 +106,26 @@ describe('external event inbox envelope', () => {
       payload: { disposition: 'wrong_number', successful: false, memory_eligible: false }
     });
     assert.equal(terminalExternalEventResult(contradictory)?.status, 'error');
+  });
+
+  test('hydrates a completed workflow call from the canonical communication detail', () => {
+    const payload = hydrateCompletedCallPayload({
+      disposition: 'human_completed', successful: true, memory_eligible: true
+    }, {
+      id: 'comm_1', status: 'completed', channel: 'voice', content: 'Caller: I will finish the test today.',
+      outcome: { disposition: 'human_completed', memory_eligible: true }
+    });
+    assert.equal(payload.transcript_text, 'Caller: I will finish the test today.');
+    assert.throws(() => hydrateCompletedCallPayload({}, {
+      id: 'comm_empty', status: 'completed', channel: 'voice'
+    }), /verified transcript/);
+  });
+
+  test('never overwrites transcript evidence already carried by the terminal event', () => {
+    const original = { transcript_text: 'Original verified transcript' };
+    assert.equal(hydrateCompletedCallPayload(original, {
+      id: 'comm_1', status: 'completed', content: 'Different detail content'
+    }), original);
   });
 
   test('creates a persist-first inbox record with audit fields', () => {

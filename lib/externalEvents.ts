@@ -56,6 +56,29 @@ const transcriptText = (value: unknown): string | undefined => {
   try { return JSON.stringify(value); } catch { return undefined; }
 };
 
+const payloadTranscriptText = (payload: Record<string, unknown>): string | undefined => {
+  for (const value of [payload.transcript_text, payload.call_transcript, payload.transcript]) {
+    const text = transcriptText(value)?.trim();
+    if (text) return text;
+  }
+  return undefined;
+};
+
+export const hydrateCompletedCallPayload = (
+  payload: Record<string, unknown>,
+  communication: CommunicationResult
+): Record<string, unknown> => {
+  if (payloadTranscriptText(payload)) return payload;
+  const transcript = communication.content?.trim();
+  if (!transcript) throw new Error('Completed call detail did not include a verified transcript');
+  return {
+    ...payload,
+    transcript_text: transcript,
+    disposition: payload.disposition || communication.outcome?.disposition,
+    memory_eligible: payload.memory_eligible ?? communication.outcome?.memory_eligible
+  };
+};
+
 export interface ExternalEventRecord {
   id: string;
   event_id: string;
@@ -398,6 +421,11 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         log: outcome.log,
         pending: outcome.pending
       };
+    }
+
+    if (event.type === 'call.completed' && event.communication_id && !payloadTranscriptText(event.payload)) {
+      communication = communication || await createCommunicationsClient().getCommunication(orgId, event.communication_id);
+      event.payload = hydrateCompletedCallPayload(event.payload, communication);
     }
 
     const terminal = terminalExternalEventResult(event);
