@@ -2287,10 +2287,10 @@ export const App: React.FC = () => {
           <button
             onClick={() => { setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            title="Email activity"
+            title="Communications activity"
           >
             <Inbox size={16} />
-            <span className="hidden lg:inline">Email activity</span>
+            <span className="hidden lg:inline">Activity</span>
           </button>
         </div>
 
@@ -2614,7 +2614,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={() => { setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }} /></div>}
+                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={view => { const url = new URL(window.location.href); if (view === 'coaching') url.searchParams.set('activity', 'coaching'); else url.searchParams.delete('activity'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }} /></div>}
 
                   {/* MAP CANVAS */}
                   <div 
