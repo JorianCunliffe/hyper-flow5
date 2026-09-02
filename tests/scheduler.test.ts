@@ -1,8 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { communicationsAfterCursor, cursorAfterCommunications, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
+import { communicationsAfterCursor, cursorAfterCommunications, failedScheduleResults, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
 import { matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
-import { nextDailyScheduleOccurrence, normalizeTenantSchedule } from '../lib/serverStore';
+import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
 import { project } from './helpers';
@@ -83,6 +83,16 @@ describe('durable communication cursor helpers', () => {
 });
 
 describe('tenant schedule normalization', () => {
+  test('reports failed schedule jobs without treating duplicates or skips as failures', () => {
+    const failed = failedScheduleResults([
+      { scheduleId: 'completed', status: 'completed' },
+      { scheduleId: 'duplicate', status: 'duplicate' },
+      { scheduleId: 'skipped', status: 'skipped' },
+      { scheduleId: 'failed', status: 'failed', error: 'boom' }
+    ]);
+    assert.deepEqual(failed, [{ scheduleId: 'failed', status: 'failed', error: 'boom' }]);
+  });
+
   test('preserves omitted fields during a partial update', () => {
     const existing = normalizeTenantSchedule('org_1', 'schedule_1', {
       name: 'Inbox triage', intervalMinutes: 60, timezone: 'Australia/Brisbane',
@@ -151,6 +161,44 @@ describe('tenant schedule normalization', () => {
         Date.parse('2026-08-30T00:00:00Z'), '09:00', 'Australia/Brisbane'
       )).toISOString(),
       '2026-08-30T23:00:00.000Z'
+    );
+  });
+
+  test('builds one atomic completion that closes the run and advances the daily schedule', () => {
+    const scheduledFor = Date.parse('2026-09-02T23:00:00.000Z');
+    const now = Date.parse('2026-09-02T23:05:00.000Z');
+    const schedule = normalizeTenantSchedule('org_1', 'daily', {
+      name: 'Daily coaching', activity: 'flow_start', projectId: 'project_1',
+      recurrence: { kind: 'daily', localTime: '09:00' }, timezone: 'Australia/Brisbane',
+      nextRunAt: scheduledFor
+    }, null, scheduledFor - 1000);
+    const run = {
+      id: `daily:${scheduledFor}`, orgId: 'org_1', scheduleId: 'daily', activity: 'flow_start' as const,
+      projectId: 'project_1', scheduledFor, status: 'running' as const, claimId: 'claim_1', startedAt: now - 1000
+    };
+    const completion = buildScheduleCompletionUpdates(
+      run, schedule, run, schedule, { status: 'completed', processedCount: 1 }, scheduledFor, now
+    );
+    assert.deepEqual(completion.updates[completion.runPath], {
+      ...run, status: 'completed', processedCount: 1, completedAt: now
+    });
+    assert.equal(
+      (completion.updates[completion.schedulePath] as any).nextRunAt,
+      Date.parse('2026-09-03T23:00:00.000Z')
+    );
+  });
+
+  test('refuses to finalize an occurrence after its claim has changed', () => {
+    const schedule = normalizeTenantSchedule('org_1', 'daily', {
+      name: 'Daily coaching', activity: 'flow_start', projectId: 'project_1', nextRunAt: 1000
+    }, null, 1);
+    const run = {
+      id: 'daily:1000', orgId: 'org_1', scheduleId: 'daily', activity: 'flow_start' as const,
+      projectId: 'project_1', scheduledFor: 1000, status: 'running' as const, claimId: 'claim_1', startedAt: 1000
+    };
+    assert.throws(
+      () => buildScheduleCompletionUpdates(run, schedule, { ...run, claimId: 'claim_2' }, schedule, { status: 'completed' }, 1000, 2000),
+      /lost occurrence/
     );
   });
 });

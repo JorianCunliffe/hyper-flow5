@@ -48,7 +48,7 @@ import {
 } from "./lib/serverStore";
 import { ApiAuthError, bearerToken, hasSharedSecret, requireAppMember, requireFirebaseIdentity } from './lib/apiAuth';
 import { renderAskForm } from './lib/askForm';
-import { runTenantSchedule, tickSchedules } from './lib/scheduler';
+import { failedScheduleResults, runTenantSchedule, tickSchedules } from './lib/scheduler';
 import type { TriageDisposition } from './types';
 import type { CommunicationsPersonRef } from './lib/communications/types';
 import { createGoogleOAuthState, exchangeGoogleCode, googleAccountEmail, googleAuthorizationUrl, verifyGoogleOAuthState } from './lib/integrations/googleOAuth';
@@ -503,7 +503,13 @@ async function startServer() {
       || hasSharedSecret(bearerToken(req as any), process.env.CRON_SECRET);
     if (!authorized) return res.status(configured ? 401 : 503).json({ error: configured ? 'Invalid scheduler authentication' : 'Scheduler secret is not configured' });
     try {
-      return res.status(200).json({ ok: true, results: await tickSchedules() });
+      const results = await tickSchedules();
+      const failures = failedScheduleResults(results);
+      return res.status(failures.length ? 500 : 200).json({
+        ok: failures.length === 0,
+        ...(failures.length ? { error: `${failures.length} scheduler job${failures.length === 1 ? '' : 's'} failed` } : {}),
+        results
+      });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || String(error) });
     }

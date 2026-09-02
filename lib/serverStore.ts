@@ -1719,12 +1719,13 @@ export const claimScheduleRun = async (
     `schedule_runs/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}/${runKey}`
   );
   const startedAt = Date.now();
+  let claimed: ScheduleRun | null = null;
   const result = await ref.transaction(current => {
     const stale = current?.status === 'running' && startedAt - Number(current.startedAt || 0) > 10 * 60 * 1000;
     // Completed occurrences are immutable. Failed occurrences and expired
     // leases may be claimed again without advancing the schedule or cursor.
     if (current && current.status !== 'failed' && !stale) return undefined;
-    return {
+    claimed = {
       ...(current || {}),
       id: `${schedule.id}:${scheduledFor}`,
       orgId: schedule.orgId,
@@ -1742,8 +1743,14 @@ export const claimScheduleRun = async (
       error: null,
       attempt: Number(current?.attempt || 0) + 1
     } satisfies ScheduleRun;
+    return claimed;
   });
-  return result.committed ? result.snapshot.val() as ScheduleRun : null;
+  if (!result.committed || !claimed) return null;
+  const persisted = result.snapshot.val() as ScheduleRun | null;
+  if (!persisted || persisted.claimId !== claimId) {
+    throw new Error(`Schedule ${schedule.id} committed an invalid claim for occurrence ${scheduledFor}`);
+  }
+  return { ...persisted, claimId };
 };
 
 export const finishScheduleRun = async (
@@ -1753,10 +1760,101 @@ export const finishScheduleRun = async (
   const ref = getDb().ref(
     `schedule_runs/${safeRtdbKey(run.orgId)}/${safeRtdbKey(run.scheduleId)}/${run.scheduledFor}`
   );
-  await ref.transaction(current => {
+  const result = await ref.transaction(current => {
     if (!current || current.claimId !== run.claimId) return undefined;
     return { ...current, ...JSON.parse(JSON.stringify(patch)), completedAt: Date.now() };
   });
+  if (!result.committed) {
+    const current = (await ref.get()).val() as ScheduleRun | null;
+    const state = current
+      ? `current status=${current.status}, claim=${current.claimId === run.claimId ? 'matching' : 'different'}`
+      : 'occurrence missing';
+    throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion (${state})`);
+  }
+};
+
+const advancedTenantScheduleValue = (
+  current: TenantSchedule,
+  schedule: TenantSchedule,
+  from: number,
+  now: number
+): TenantSchedule => {
+  const recurrence = current.recurrence || schedule.recurrence || {
+    kind: 'interval' as const,
+    intervalMinutes: Math.max(5, Number(current.intervalMinutes || schedule.intervalMinutes))
+  };
+  const misfirePolicy = current.misfirePolicy || schedule.misfirePolicy || 'run_once';
+  let nextRunAt: number;
+  if (recurrence.kind === 'daily') {
+    nextRunAt = nextDailyScheduleOccurrence(from, recurrence.localTime, current.timezone || schedule.timezone);
+    if (misfirePolicy !== 'catch_up' && nextRunAt <= now) {
+      nextRunAt = nextDailyScheduleOccurrence(now, recurrence.localTime, current.timezone || schedule.timezone);
+    }
+  } else {
+    const interval = Math.max(5, Number(recurrence.intervalMinutes || schedule.intervalMinutes)) * 60_000;
+    nextRunAt = Math.max(Number(current.nextRunAt || from), from) + interval;
+    if (misfirePolicy !== 'catch_up') while (nextRunAt <= now) nextRunAt += interval;
+  }
+  return { ...current, nextRunAt, updatedAt: now };
+};
+
+export const buildScheduleCompletionUpdates = (
+  run: ScheduleRun,
+  schedule: TenantSchedule,
+  currentRun: ScheduleRun | null,
+  currentSchedule: TenantSchedule | null,
+  patch: Partial<ScheduleRun> & Pick<ScheduleRun, 'status'>,
+  from: number,
+  now: number
+): { runPath: string; schedulePath: string; updates: Record<string, unknown> } => {
+  const runPath = `schedule_runs/${safeRtdbKey(run.orgId)}/${safeRtdbKey(run.scheduleId)}/${run.scheduledFor}`;
+  const schedulePath = `schedules/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}`;
+  if (!currentRun || currentRun.claimId !== run.claimId) {
+    throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion`);
+  }
+  if (!currentSchedule) throw new Error(`Schedule ${schedule.id} could not advance after occurrence ${from}`);
+  const completed = { ...currentRun, ...JSON.parse(JSON.stringify(patch)), completedAt: now };
+  const advanced = advancedTenantScheduleValue(currentSchedule, schedule, from, now);
+  return {
+    runPath,
+    schedulePath,
+    updates: {
+      [runPath]: JSON.parse(JSON.stringify(completed)),
+      [schedulePath]: JSON.parse(JSON.stringify(advanced))
+    }
+  };
+};
+
+export const completeScheduleRunAndAdvance = async (
+  run: ScheduleRun,
+  schedule: TenantSchedule,
+  patch: Partial<ScheduleRun> & Pick<ScheduleRun, 'status'>,
+  from: number,
+  now = Date.now()
+): Promise<void> => {
+  const runPath = `schedule_runs/${safeRtdbKey(run.orgId)}/${safeRtdbKey(run.scheduleId)}/${run.scheduledFor}`;
+  const schedulePath = `schedules/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}`;
+  const [runSnapshot, scheduleSnapshot] = await Promise.all([
+    getDb().ref(runPath).get(),
+    getDb().ref(schedulePath).get()
+  ]);
+  const currentRun = runSnapshot.val() as ScheduleRun | null;
+  const currentSchedule = scheduleSnapshot.val() as TenantSchedule | null;
+  const completion = buildScheduleCompletionUpdates(
+    run, schedule, currentRun, currentSchedule, patch, from, now
+  );
+  await getDb().ref().update(completion.updates);
+
+  const [completedCheck, advancedCheck] = await Promise.all([
+    getDb().ref(runPath).get(),
+    getDb().ref(schedulePath).get()
+  ]);
+  if (completedCheck.val()?.claimId !== run.claimId || completedCheck.val()?.status !== patch.status) {
+    throw new Error(`Schedule ${run.scheduleId} did not persist ${patch.status} completion for occurrence ${run.scheduledFor}`);
+  }
+  if (Number(advancedCheck.val()?.nextRunAt) <= from) {
+    throw new Error(`Schedule ${schedule.id} did not move beyond occurrence ${from}`);
+  }
 };
 
 export const advanceTenantSchedule = async (
@@ -1764,25 +1862,17 @@ export const advanceTenantSchedule = async (
   from: number,
   now = Date.now()
 ): Promise<void> => {
-  await scheduleRef(schedule.orgId, schedule.id).transaction(current => {
+  const result = await scheduleRef(schedule.orgId, schedule.id).transaction(current => {
     if (!current) return undefined;
-    const recurrence = current.recurrence || schedule.recurrence || {
-      kind: 'interval', intervalMinutes: Math.max(5, Number(current.intervalMinutes || schedule.intervalMinutes))
-    };
-    const misfirePolicy = current.misfirePolicy || schedule.misfirePolicy || 'run_once';
-    let nextRunAt: number;
-    if (recurrence.kind === 'daily') {
-      nextRunAt = nextDailyScheduleOccurrence(from, recurrence.localTime, current.timezone || schedule.timezone);
-      if (misfirePolicy !== 'catch_up' && nextRunAt <= now) {
-        nextRunAt = nextDailyScheduleOccurrence(now, recurrence.localTime, current.timezone || schedule.timezone);
-      }
-    } else {
-      const interval = Math.max(5, Number(recurrence.intervalMinutes || schedule.intervalMinutes)) * 60_000;
-      nextRunAt = Math.max(Number(current.nextRunAt || from), from) + interval;
-      if (misfirePolicy !== 'catch_up') while (nextRunAt <= now) nextRunAt += interval;
-    }
-    return { ...current, nextRunAt, updatedAt: Date.now() };
+    return advancedTenantScheduleValue(current as TenantSchedule, schedule, from, now);
   });
+  if (!result.committed) {
+    throw new Error(`Schedule ${schedule.id} could not advance after occurrence ${from}`);
+  }
+  const advanced = result.snapshot.val() as TenantSchedule | null;
+  if (!advanced || Number(advanced.nextRunAt) <= from) {
+    throw new Error(`Schedule ${schedule.id} did not move beyond occurrence ${from}`);
+  }
 };
 
 export const readCommunicationCursor = async (orgId: string, connectionId: string): Promise<string | undefined> => {

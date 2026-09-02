@@ -61,13 +61,13 @@ The fixture is a non-terminal `communication.created` event. It writes one idemp
 
 The checked-in Vercel Hobby cron is a daily fallback only. Production omnichannel operation needs a trusted invocation at least every five minutes.
 
-The production repository includes `.github/workflows/scheduler.yml` as a fallback. GitHub scheduled workflows may be delayed. The preferred Hobby-compatible five-minute timer is the always-on Communications VM: when `HYPERFLOW_EVENT_URL` and `COMMUNICATIONS_WEBHOOK_SECRET` are configured, it derives `/api/schedules?action=tick`, preserves any scoped Vercel bypass query parameter, and sends a replay-safe timestamped HMAC `POST` every five minutes.
+The single Hobby-compatible five-minute production timer is the always-on Communications VM: when `HYPERFLOW_EVENT_URL` and `COMMUNICATIONS_WEBHOOK_SECRET` are configured, it derives `/api/schedules?action=tick`, preserves any scoped Vercel bypass query parameter, and sends a replay-safe timestamped HMAC `POST` every five minutes. Do not run an overlapping GitHub or external ticker.
 
 Alternative options are:
 
 - upgrade the HyperFlow Vercel project and change the cron to `*/5 * * * *`; or
 - configure another external scheduler to `POST https://<hyperflow-origin>/api/schedules/tick` with `x-hyperflow-scheduler-secret: <SCHEDULER_SECRET>`.
-- retain the GitHub workflow and daily Vercel cron as lower-frequency fallbacks; schedule leases and occurrence IDs prevent duplicate work.
+- retain the daily Vercel cron as a lower-frequency platform fallback; schedule leases and occurrence IDs remain the idempotency boundary.
 
 Do not put `SCHEDULER_SECRET` in the URL. Verify two consecutive invocations and confirm the operations panel shows successful schedule claims without duplicate occurrences.
 

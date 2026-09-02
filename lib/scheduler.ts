@@ -14,6 +14,7 @@ import {
   advanceTenantSchedule,
   claimDueCoachingRetries,
   claimScheduleRun,
+  completeScheduleRunAndAdvance,
   finishScheduleRun,
   listDueSchedules,
   releaseCoachingRetry
@@ -28,6 +29,23 @@ export interface ScheduleExecutionResult {
   error?: string;
 }
 
+export const failedScheduleResults = (results: ScheduleExecutionResult[]): ScheduleExecutionResult[] =>
+  results.filter(result => result.status === 'failed');
+
+const completeScheduleOccurrence = async (
+  schedule: TenantSchedule,
+  run: Awaited<ReturnType<typeof claimScheduleRun>> & {},
+  scheduledFor: number,
+  patch: Parameters<typeof finishScheduleRun>[1],
+  advanceSchedule: boolean
+): Promise<void> => {
+  if (advanceSchedule) {
+    await completeScheduleRunAndAdvance(run, schedule, patch, scheduledFor);
+  } else {
+    await finishScheduleRun(run, patch);
+  }
+};
+
 export const runTenantSchedule = async (
   schedule: TenantSchedule,
   scheduledFor = schedule.nextRunAt,
@@ -37,8 +55,9 @@ export const runTenantSchedule = async (
   if (!run) return { scheduleId: schedule.id, status: 'duplicate' };
   let cursorBefore: string | undefined;
 
-  try {
-    if (schedule.activity === 'flow_start') {
+  if (schedule.activity === 'flow_start') {
+    let actionError: unknown;
+    try {
       const outcome = await advanceScheduledServerFlow(schedule.orgId, schedule.projectId, {
         scheduleId: schedule.id,
         scheduleRunId: run.id,
@@ -49,22 +68,40 @@ export const runTenantSchedule = async (
         clearProjectDataKeys: schedule.clearProjectDataKeys
       });
       if (!outcome.ok) throw new Error(outcome.reason || 'Scheduled flow could not be started');
-      await finishScheduleRun(run, { status: 'completed', processedCount: 1 });
-      if (options.advanceSchedule !== false) await advanceTenantSchedule(schedule, scheduledFor);
-      return {
-        scheduleId: schedule.id,
-        status: 'completed',
-        processedCount: 1,
-        projectId: schedule.projectId,
-        runId: run.id
-      };
+    } catch (error) {
+      actionError = error;
     }
+    if (actionError) {
+      const message = actionError instanceof Error ? actionError.message : String(actionError);
+      await finishScheduleRun(run, { status: 'failed', error: message });
+      console.error('[scheduler] flow occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
+      return { scheduleId: schedule.id, status: 'failed', error: message };
+    }
+    await completeScheduleOccurrence(
+      schedule, run, scheduledFor,
+      { status: 'completed', processedCount: 1 },
+      options.advanceSchedule !== false
+    );
+    console.info('[scheduler] occurrence completed', {
+      scheduleId: schedule.id, activity: schedule.activity, scheduledFor, attempt: run.attempt
+    });
+    return {
+      scheduleId: schedule.id,
+      status: 'completed',
+      processedCount: 1,
+      projectId: schedule.projectId,
+      runId: run.id
+    };
+  }
 
+  let triageResult: Awaited<ReturnType<typeof runEmailTriage>> | undefined;
+  let triageError: unknown;
+  try {
     if (!schedule.connectionId) throw new Error('Legacy email triage schedule is not bound to a mailbox connection');
     if (!schedule.projectId) {
       console.warn(`[scheduler] legacy unbound triage schedule ${schedule.id} is running in compatibility mode`);
     }
-    const result = await runEmailTriage({
+    triageResult = await runEmailTriage({
       orgId: schedule.orgId,
       projectId: schedule.projectId,
       connectionId: schedule.connectionId,
@@ -80,22 +117,36 @@ export const runTenantSchedule = async (
       actor: `schedule:${schedule.id}`,
       createdAt: schedule.createdAt
     });
-    cursorBefore = result.cursorBefore;
-    await finishScheduleRun(run, {
-      status: 'completed',
-      cursorBefore,
-      cursorAfter: result.cursorAfter,
-      processedCount: result.processedCount
-    });
-    if (options.advanceSchedule !== false) await advanceTenantSchedule(schedule, scheduledFor);
-    return { scheduleId: schedule.id, status: 'completed', processedCount: result.processedCount, projectId: schedule.projectId, runId: run.id };
-  } catch (error: any) {
-    const message = error?.message || String(error);
+    cursorBefore = triageResult.cursorBefore;
+  } catch (error) {
+    triageError = error;
+  }
+  if (triageError || !triageResult) {
+    const message = triageError instanceof Error ? triageError.message : String(triageError || 'Email triage returned no result');
     await finishScheduleRun(run, { status: 'failed', cursorBefore, error: message });
     // A failed run does not advance the cursor or schedule occurrence. The
     // stale-run lease allows a later tick to retry this exact occurrence.
+    console.error('[scheduler] triage occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
     return { scheduleId: schedule.id, status: 'failed', error: message };
   }
+  await completeScheduleOccurrence(
+    schedule, run, scheduledFor,
+    {
+      status: 'completed',
+      cursorBefore,
+      cursorAfter: triageResult.cursorAfter,
+      processedCount: triageResult.processedCount
+    },
+    options.advanceSchedule !== false
+  );
+  console.info('[scheduler] occurrence completed', {
+    scheduleId: schedule.id, activity: schedule.activity, scheduledFor,
+    attempt: run.attempt, processedCount: triageResult.processedCount
+  });
+  return {
+    scheduleId: schedule.id, status: 'completed', processedCount: triageResult.processedCount,
+    projectId: schedule.projectId, runId: run.id
+  };
 };
 
 export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecutionResult[]> => {

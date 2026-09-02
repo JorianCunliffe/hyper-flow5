@@ -35,6 +35,10 @@ describe('Vercel Hobby deployment configuration', () => {
     assert.deepEqual(config.crons, [{ path: '/api/schedules/tick', schedule: '0 0 * * *' }]);
   });
 
+  test('does not ship a competing GitHub scheduler ticker', () => {
+    assert.equal(fs.existsSync(path.join(root, '.github', 'workflows', 'scheduler.yml')), false);
+  });
+
   test('keeps Firebase Admin loadable in Vercel CommonJS functions', () => {
     assert.equal(packageJson.overrides?.['jwks-rsa']?.jose, '4.15.9');
   });

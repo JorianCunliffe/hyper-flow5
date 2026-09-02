@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
 import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
-import { runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
+import { failedScheduleResults, runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const action = typeof req.query.action === 'string' ? req.query.action : undefined;
@@ -19,7 +19,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       await recordSchedulerTick('started');
       const results = await tickSchedules();
+      const failures = failedScheduleResults(results);
+      if (failures.length) {
+        const message = `${failures.length} scheduler job${failures.length === 1 ? '' : 's'} failed`;
+        await recordSchedulerTick('failed', message);
+        console.error('[scheduler] tick completed with failed jobs', {
+          failures: failures.map(item => ({ scheduleId: item.scheduleId, error: item.error }))
+        });
+        return res.status(500).json({ ok: false, error: message, results });
+      }
       await recordSchedulerTick('success');
+      console.info('[scheduler] tick completed', {
+        results: results.map(item => ({ scheduleId: item.scheduleId, status: item.status }))
+      });
       return res.status(200).json({ ok: true, results });
     } catch (error: any) {
       await recordSchedulerTick('failed', error?.message || String(error)).catch(() => undefined);
