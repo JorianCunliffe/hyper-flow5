@@ -1,29 +1,80 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Inbox, Link2, RefreshCw, RotateCcw, ShieldAlert, Wrench, X } from 'lucide-react';
-import type { AgentInboxJob, AskDecision, CoachingSession, ExternalActionReceipt, TenantSchedule, TriageDigest, TriageDisposition, TriageItem } from '../types';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { Activity, AlertCircle, Archive, ChevronRight, Clock3, FileText, Filter, Inbox, Mail, MessageSquareReply, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import type { AgentInboxJob, CoachingSession, ExternalActionReceipt, TenantSchedule, TriageDigest, TriageDisposition, TriageItem } from '../types';
 import { firebaseService } from '../services/firebaseService';
+import { TriageDetailDrawer, type TriageSelection } from './triage/TriageDetailDrawer';
+
+type ViewTab = 'emails' | 'responses' | 'runs' | 'digests';
+type StatusFilter = 'all' | 'active' | 'closed';
+type PriorityFilter = 'all' | 'urgent' | 'high' | 'normal' | 'low';
+type OperationActivity = {
+  kind: 'job' | 'coaching' | 'external' | 'schedule';
+  id: string;
+  at: number;
+  title: string;
+  detail: string;
+  status: string;
+  selection: TriageSelection;
+};
 
 const activeDispositions = new Set<TriageDisposition>([
   'new', 'linked_workflow', 'awaiting_interpretation', 'draft_prepared', 'needs_review', 'delivery_failure'
 ]);
+
+const formatDate = (value?: string | number | null) => value ? new Date(value).toLocaleString() : 'Not recorded';
+const formatLabel = (value?: string) => value ? value.replaceAll('_', ' ') : 'Not recorded';
 
 const responseError = async (response: Response): Promise<string> => {
   const body = await response.json().catch(() => ({}));
   return body?.error || `Request failed (${response.status})`;
 };
 
+const responseState = (item: TriageItem, job?: AgentInboxJob) => {
+  if (job?.responseCommunicationId) return { label: 'Response created', tone: 'emerald' } as const;
+  if (item.providerDraftId || job?.responseDraftId) return { label: 'Draft prepared', tone: 'indigo' } as const;
+  if (item.disposition === 'delivery_failure' || job?.status === 'failed') return { label: 'Failed', tone: 'red' } as const;
+  if (item.disposition === 'needs_review' || job?.status === 'needs_review') return { label: 'Needs review', tone: 'amber' } as const;
+  return { label: 'No response', tone: 'slate' } as const;
+};
+
+const statusTone = (status: string) => {
+  if (['completed', 'resolved', 'sent', 'enabled'].includes(status)) return 'bg-emerald-50 text-emerald-700';
+  if (['failed', 'delivery_failure'].includes(status)) return 'bg-red-50 text-red-700';
+  if (['needs_review', 'review_required', 'running', 'processing', 'calling'].includes(status)) return 'bg-amber-50 text-amber-700';
+  return 'bg-slate-100 text-slate-600';
+};
+
+const responseTone = (tone: ReturnType<typeof responseState>['tone']) => ({
+  emerald: 'bg-emerald-50 text-emerald-700',
+  indigo: 'bg-indigo-50 text-indigo-700',
+  red: 'bg-red-50 text-red-700',
+  amber: 'bg-amber-50 text-amber-700',
+  slate: 'bg-slate-100 text-slate-500'
+}[tone]);
+
+const updateLocationSelection = (selection: TriageSelection | null) => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('triage');
+  url.searchParams.delete('digest');
+  if (selection?.kind === 'email') url.searchParams.set('triage', selection.item.id);
+  if (selection?.kind === 'digest') url.searchParams.set('digest', selection.digest.id);
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+};
+
 export const TriageInbox: React.FC = () => {
   const [items, setItems] = useState<TriageItem[]>([]);
   const [digests, setDigests] = useState<TriageDigest[]>([]);
-  const [showClosed, setShowClosed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [reviewDecisions, setReviewDecisions] = useState<Record<string, AskDecision | ''>>({});
-  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
-  const [reviewValues, setReviewValues] = useState<Record<string, Record<string, string>>>({});
-  const [showOperations, setShowOperations] = useState(false);
   const [replayingId, setReplayingId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<TriageSelection | null>(null);
+  const [tab, setTab] = useState<ViewTab>('emails');
+  const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
+  const [projectFilter, setProjectFilter] = useState('all');
   const [operations, setOperations] = useState<{
     agentJobs: AgentInboxJob[];
     coachingSessions: CoachingSession[];
@@ -35,12 +86,27 @@ export const TriageInbox: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await firebaseService.authorizedFetch('/api/triage?limit=250');
-      if (!response.ok) throw new Error(await responseError(response));
-      const body = await response.json();
-      setItems(Array.isArray(body.data) ? body.data : []);
-      setDigests(Array.isArray(body.digests) ? body.digests : []);
-      const operationsResponse = await firebaseService.authorizedFetch('/api/operations');
+      const [triageResponse, operationsResponse] = await Promise.all([
+        firebaseService.authorizedFetch('/api/triage?limit=500'),
+        firebaseService.authorizedFetch('/api/operations')
+      ]);
+      if (!triageResponse.ok) throw new Error(await responseError(triageResponse));
+      const body = await triageResponse.json();
+      const nextItems = Array.isArray(body.data) ? body.data : [];
+      const nextDigests = Array.isArray(body.digests) ? body.digests : [];
+      setItems(nextItems);
+      setDigests(nextDigests);
+      setSelection(current => {
+        if (current?.kind === 'email') {
+          const refreshed = nextItems.find((entry: TriageItem) => entry.id === current.item.id);
+          return refreshed ? { kind: 'email', item: refreshed } : null;
+        }
+        if (current?.kind === 'digest') {
+          const refreshed = nextDigests.find((entry: TriageDigest) => entry.id === current.digest.id);
+          return refreshed ? { kind: 'digest', digest: refreshed } : null;
+        }
+        return current;
+      });
       if (operationsResponse.ok) {
         const snapshot = await operationsResponse.json();
         setOperations({
@@ -59,7 +125,28 @@ export const TriageInbox: React.FC = () => {
 
   useEffect(() => { void load(); }, [load]);
 
-  const update = async (item: TriageItem, payload: Record<string, unknown>) => {
+  useEffect(() => {
+    if (selection || (!items.length && !digests.length)) return;
+    const params = new URLSearchParams(window.location.search);
+    const triageId = params.get('triage');
+    const digestId = params.get('digest');
+    const item = triageId ? items.find(entry => entry.id === triageId) : undefined;
+    const digest = digestId ? digests.find(entry => entry.id === digestId) : undefined;
+    if (item) setSelection({ kind: 'email', item });
+    else if (digest) setSelection({ kind: 'digest', digest });
+  }, [digests, items, selection]);
+
+  const openSelection = useCallback((nextSelection: TriageSelection) => {
+    setSelection(nextSelection);
+    updateLocationSelection(nextSelection);
+  }, []);
+
+  const closeSelection = useCallback(() => {
+    setSelection(null);
+    updateLocationSelection(null);
+  }, []);
+
+  const update = useCallback(async (item: TriageItem, payload: Record<string, unknown>) => {
     setUpdatingId(item.id);
     setError(null);
     try {
@@ -70,15 +157,18 @@ export const TriageInbox: React.FC = () => {
       });
       if (!response.ok) throw new Error(await responseError(response));
       const body = await response.json();
-      if (body.item) setItems(current => current.map(entry => entry.id === item.id ? body.item : entry));
+      if (body.item) {
+        setItems(current => current.map(entry => entry.id === item.id ? body.item : entry));
+        setSelection(current => current?.kind === 'email' && current.item.id === item.id ? { kind: 'email', item: body.item } : current);
+      }
     } catch (cause: any) {
       setError(cause?.message || String(cause));
     } finally {
       setUpdatingId(null);
     }
-  };
+  }, []);
 
-  const replayAgentJob = async (jobId: string) => {
+  const replayAgentJob = useCallback(async (jobId: string) => {
     setReplayingId(jobId);
     setError(null);
     try {
@@ -92,192 +182,105 @@ export const TriageInbox: React.FC = () => {
     } finally {
       setReplayingId(null);
     }
-  };
+  }, [load]);
 
-  const visible = showClosed ? items : items.filter(item => activeDispositions.has(item.disposition));
+  const jobsByCommunication = useMemo(() => {
+    const map = new Map<string, AgentInboxJob>();
+    for (const job of operations.agentJobs) {
+      const current = map.get(job.communicationId);
+      if (!current || current.updatedAt < job.updatedAt) map.set(job.communicationId, job);
+    }
+    return map;
+  }, [operations.agentJobs]);
+
+  const projects = useMemo(() => Array.from(new Set(items.map(item => item.projectId).filter(Boolean) as string[])).sort(), [items]);
+
+  const filteredItems = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase();
+    return items.filter(item => {
+      if (statusFilter === 'active' && !activeDispositions.has(item.disposition)) return false;
+      if (statusFilter === 'closed' && activeDispositions.has(item.disposition)) return false;
+      if (priorityFilter !== 'all' && (item.priority || 'normal') !== priorityFilter) return false;
+      if (projectFilter !== 'all' && item.projectId !== projectFilter) return false;
+      if (tab === 'responses') {
+        const response = responseState(item, jobsByCommunication.get(item.communicationId));
+        if (response.label === 'No response') return false;
+      }
+      if (!needle) return true;
+      return [item.subject, item.sender, item.preview, item.summary, item.projectId, item.connectionId, item.communicationId]
+        .some(value => String(value || '').toLowerCase().includes(needle));
+    });
+  }, [deferredQuery, items, jobsByCommunication, priorityFilter, projectFilter, statusFilter, tab]);
+
+  const activity = useMemo<OperationActivity[]>(() => {
+    const records: OperationActivity[] = [];
+    for (const job of operations.agentJobs) records.push({ kind: 'job', id: job.id, at: job.updatedAt, title: `${job.channel} agent job`, detail: job.error || job.routing?.reason || job.communicationId, status: job.status, selection: { kind: 'job', job } });
+    for (const session of operations.coachingSessions) records.push({ kind: 'coaching', id: `${session.projectId}:${session.id}`, at: session.updatedAt, title: 'Coaching call', detail: session.failureReason || session.summary || session.projectId, status: session.status, selection: { kind: 'coaching', session } });
+    for (const action of operations.externalActions) records.push({ kind: 'external', id: action.idempotencyKey, at: action.completedAt || action.startedAt, title: formatLabel(action.kind), detail: action.error || action.projectId, status: action.status, selection: { kind: 'external', action } });
+    for (const schedule of operations.schedules) records.push({ kind: 'schedule', id: schedule.id, at: schedule.updatedAt, title: schedule.name, detail: `Next ${formatDate(schedule.nextRunAt)}`, status: schedule.enabled ? 'enabled' : 'disabled', selection: { kind: 'schedule', schedule } });
+    return records.sort((a, b) => b.at - a.at);
+  }, [operations]);
+
+  const filteredActivity = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase();
+    return needle ? activity.filter(entry => [entry.title, entry.detail, entry.status, entry.id].some(value => value.toLowerCase().includes(needle))) : activity;
+  }, [activity, deferredQuery]);
+
+  const filteredDigests = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase();
+    return needle ? digests.filter(digest => [digest.summary, digest.deliveryStatus, digest.deliveryChannel, digest.projectId, digest.id].some(value => String(value || '').toLowerCase().includes(needle))) : digests;
+  }, [deferredQuery, digests]);
+
+  const activeCount = items.filter(item => activeDispositions.has(item.disposition)).length;
+  const draftCount = items.filter(item => responseState(item, jobsByCommunication.get(item.communicationId)).label === 'Draft prepared').length;
+  const responseCount = items.filter(item => responseState(item, jobsByCommunication.get(item.communicationId)).label === 'Response created').length;
+  const errorCount = operations.agentJobs.filter(job => job.status === 'failed').length + operations.externalActions.filter(action => action.status === 'failed').length + operations.coachingSessions.filter(session => session.status === 'failed').length;
+
+  const tabs: Array<{ id: ViewTab; label: string; count: number; icon: React.ReactNode }> = [
+    { id: 'emails', label: 'Emails', count: items.length, icon: <Mail size={16} /> },
+    { id: 'responses', label: 'Responses', count: draftCount + responseCount, icon: <MessageSquareReply size={16} /> },
+    { id: 'runs', label: 'Runs & logs', count: activity.length, icon: <Activity size={16} /> },
+    { id: 'digests', label: 'Digests', count: digests.length, icon: <FileText size={16} /> }
+  ];
 
   return (
     <section className="h-full overflow-y-auto bg-slate-50 p-4 md:p-8" aria-labelledby="triage-heading">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 id="triage-heading" className="flex items-center gap-2 text-2xl font-black text-slate-900">
-              <Inbox className="text-indigo-600" /> Communications triage
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">Inbound messages, linked workflow responses, and delivery failures for this organization.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-              <input type="checkbox" checked={showClosed} onChange={event => setShowClosed(event.target.checked)} />
-              Show closed
-            </label>
-            <button type="button" onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-indigo-300 disabled:opacity-50">
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-            </button>
-          </div>
+          <div><h2 id="triage-heading" className="flex items-center gap-2 text-2xl font-black text-slate-900"><Inbox className="text-indigo-600" /> Email activity</h2><p className="mt-1 text-sm text-slate-500">Search triaged messages, inspect responses, and trace operational activity.</p></div>
+          <div className="flex items-center gap-3"><span className="text-xs font-medium text-slate-400">Latest {items.length} records loaded</span><button type="button" onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-indigo-300 disabled:opacity-50"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh</button></div>
         </div>
 
         {error && <div role="alert" className="mb-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700"><AlertCircle size={18} />{error}</div>}
-        {digests[0] && (
-          <article className="mb-5 rounded-2xl border border-indigo-200 bg-indigo-50 p-5 shadow-sm" aria-labelledby="latest-triage-digest">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 id="latest-triage-digest" className="text-sm font-black uppercase tracking-wide text-indigo-900">Latest daily digest</h3>
-                <p className="mt-1 text-xs text-indigo-700">{new Date(digests[0].scheduledFor).toLocaleString()} · {digests[0].deliveryChannel} · {digests[0].deliveryStatus.replaceAll('_', ' ')}</p>
-              </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-indigo-700">{digests[0].counts.total} new · {digests[0].counts.outstanding} outstanding</span>
-            </div>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{digests[0].summary}</p>
-            {digests[0].deliveryError && <p className="mt-3 text-xs font-semibold text-amber-700">Delivery: {digests[0].deliveryError}</p>}
-          </article>
-        )}
-        <section className="mb-5 rounded-2xl border border-slate-200 bg-white shadow-sm" aria-labelledby="operations-heading">
-          <button type="button" onClick={() => setShowOperations(value => !value)} className="flex w-full items-center justify-between gap-3 p-5 text-left">
-            <span><span id="operations-heading" className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-800"><Wrench size={16} className="text-indigo-600" /> Operations &amp; recovery</span><span className="mt-1 block text-xs text-slate-500">Agent jobs, coaching calls, Google writes, and schedules for this tenant.</span></span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{operations.agentJobs.filter(job => ['failed', 'needs_review'].includes(job.status)).length} jobs need attention</span>
-          </button>
-          {showOperations && <div className="grid gap-5 border-t border-slate-100 p-5 lg:grid-cols-2">
-            <div>
-              <h3 className="mb-2 text-sm font-black text-slate-800">Agent inbox jobs</h3>
-              <div className="space-y-2">{operations.agentJobs.slice(0, 10).map(job => <div key={job.id} className="rounded-lg border border-slate-200 p-3 text-xs"><div className="flex items-start justify-between gap-2"><div><span className="font-bold text-slate-800">{job.channel} · {job.status.replaceAll('_', ' ')}</span><div className="mt-1 font-mono text-slate-400">{job.id}</div>{job.error && <div className="mt-1 text-red-700">{job.error}</div>}</div>{['failed', 'needs_review'].includes(job.status) && <button type="button" onClick={() => void replayAgentJob(job.id)} disabled={replayingId === job.id} className="flex items-center gap-1 rounded border border-indigo-200 px-2 py-1 font-bold text-indigo-700 disabled:opacity-50"><RotateCcw size={12} /> Replay</button>}</div></div>)}{!operations.agentJobs.length && <p className="text-xs text-slate-500">No agent jobs recorded.</p>}</div>
-            </div>
-            <div>
-              <h3 className="mb-2 text-sm font-black text-slate-800">Coaching call outcomes</h3>
-              <div className="space-y-2">{operations.coachingSessions.slice(0, 10).map(session => <div key={`${session.projectId}:${session.id}`} className="rounded-lg border border-slate-200 p-3 text-xs"><span className="font-bold text-slate-800">{session.status.replaceAll('_', ' ')}</span><span className="ml-2 text-slate-500">{session.disposition || 'no disposition'}</span>{session.failureReason && <div className="mt-1 text-red-700">{session.failureReason}</div>}<div className="mt-1 font-mono text-slate-400">{session.projectId}</div></div>)}{!operations.coachingSessions.length && <p className="text-xs text-slate-500">No coaching sessions recorded.</p>}</div>
-            </div>
-            <div>
-              <h3 className="mb-2 text-sm font-black text-slate-800">Google and external writes</h3>
-              <div className="space-y-2">{operations.externalActions.slice(0, 10).map(action => <div key={action.idempotencyKey} className="rounded-lg border border-slate-200 p-3 text-xs"><span className="font-bold text-slate-800">{action.kind.replaceAll('_', ' ')} · {action.status}</span>{action.error && <div className="mt-1 text-red-700">{action.error}</div>}<div className="mt-1 font-mono text-slate-400">{action.projectId}</div></div>)}{!operations.externalActions.length && <p className="text-xs text-slate-500">No external action receipts recorded.</p>}</div>
-            </div>
-            <div>
-              <h3 className="mb-2 text-sm font-black text-slate-800">Schedules</h3>
-              <div className="space-y-2">{operations.schedules.slice(0, 10).map(schedule => <div key={schedule.id} className="rounded-lg border border-slate-200 p-3 text-xs"><span className="font-bold text-slate-800">{schedule.name} · {schedule.enabled ? 'enabled' : 'disabled'}</span><div className="mt-1 text-slate-500">Next {new Date(schedule.nextRunAt).toLocaleString()}</div>{schedule.lastError && <div className="mt-1 text-red-700">{schedule.lastError}</div>}</div>)}{!operations.schedules.length && <p className="text-xs text-slate-500">No schedules configured.</p>}</div>
-            </div>
-          </div>}
-        </section>
-        {!loading && visible.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-slate-500">No communications need attention.</div>}
 
-        <div className="space-y-4">
-          {visible.map(item => {
-            const busy = updatingId === item.id;
-            const selectedDecision = reviewDecisions[item.id] || item.interpretation?.decision || '';
-            const reviewNote = reviewNotes[item.id] || '';
-            const askFields = item.askFields || [];
-            const values = { ...(item.interpretation?.values || {}), ...(reviewValues[item.id] || {}) };
-            const isApproval = item.askKind === 'approval' || (!item.askKind && Boolean(item.interpretation?.decision));
-            const hasRequiredValues = askFields.length > 0
-              ? askFields.filter(field => field.required).every(field => values[field.name] !== undefined && values[field.name] !== '')
-              : Object.keys(values).length > 0;
-            const canAcceptReview = isApproval
-              ? Boolean(selectedDecision && (selectedDecision !== 'revise' || reviewNote.trim()))
-              : hasRequiredValues;
-            return (
-              <article key={item.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide">
-                      <span className="rounded-full bg-indigo-50 px-2 py-1 text-indigo-700">{item.channel}</span>
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">{item.disposition.replaceAll('_', ' ')}</span>
-                      {!item.memoryEligible && <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-amber-700"><ShieldAlert size={12} /> excluded from memory</span>}
-                    </div>
-                    <h3 className="truncate text-lg font-black text-slate-900">{item.subject || item.sender || 'Inbound communication'}</h3>
-                    <p className="mt-1 text-xs text-slate-500">{item.sender || 'Unknown sender'} · {new Date(item.occurredAt).toLocaleString()}</p>
-                    {item.preview && <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.preview}</p>}
-                    <dl className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                      {item.askId && <div><dt className="font-bold text-slate-400">Ask</dt><dd className="font-mono">{item.askId}</dd></div>}
-                      {item.askKind && <div><dt className="font-bold text-slate-400">Ask type</dt><dd>{item.askKind}</dd></div>}
-                      {item.projectId && <div><dt className="font-bold text-slate-400">Project</dt><dd className="font-mono">{item.projectId}</dd></div>}
-                      {item.interpretation?.intent && <div><dt className="font-bold text-slate-400">Intent</dt><dd>{item.interpretation.intent}</dd></div>}
-                      {item.interpretation?.confidence !== undefined && <div><dt className="font-bold text-slate-400">Confidence</dt><dd>{Math.round(item.interpretation.confidence * 100)}%</dd></div>}
-                    </dl>
-                    {item.interpretation?.evidence && <blockquote className="mt-3 border-l-2 border-indigo-200 pl-3 text-sm italic text-slate-600">{item.interpretation.evidence}</blockquote>}
-                    {item.proposedAction && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm font-semibold text-slate-700">Proposed: {item.proposedAction}</p>}
-                    {item.agentProposal && <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-slate-700"><p className="font-bold text-violet-800">Coaching action · {item.agentProposal.status.replaceAll('_', ' ')}</p><p className="mt-1">{item.agentProposal.summary}</p>{item.agentProposal.value && <p className="mt-2 rounded bg-white p-2 font-mono text-xs">{item.agentProposal.value}</p>}{item.agentProposal.error && <p className="mt-2 text-xs font-semibold text-red-700">{item.agentProposal.error}</p>}</div>}
-                    {item.threadId && <p className="mt-3 flex items-center gap-1 text-xs text-slate-400"><Link2 size={12} /> Thread {item.threadId}</p>}
-                    {item.disposition === 'needs_review' && item.askId && (
-                      <div className="mt-4 grid gap-3 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 sm:grid-cols-2">
-                        {isApproval ? (
-                          <label className="text-xs font-bold text-slate-600">
-                            Reviewer decision
-                            <select
-                              value={selectedDecision}
-                              onChange={event => setReviewDecisions(current => ({ ...current, [item.id]: event.target.value as AskDecision | '' }))}
-                              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
-                            >
-                              <option value="">Select a decision</option>
-                              <option value="approved">Approve</option>
-                              <option value="rejected">Reject</option>
-                              <option value="revise">Request revision</option>
-                            </select>
-                          </label>
-                        ) : askFields.map(field => (
-                          <label key={field.name} className="text-xs font-bold text-slate-600">
-                            {field.label || field.name}{field.required ? ' (required)' : ''}
-                            {field.options?.length ? (
-                              <select
-                                value={String(values[field.name] ?? '')}
-                                onChange={event => setReviewValues(current => ({ ...current, [item.id]: { ...(current[item.id] || {}), [field.name]: event.target.value } }))}
-                                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
-                              >
-                                <option value="">Select an option</option>
-                                {field.options.map(option => <option key={option} value={option}>{option}</option>)}
-                              </select>
-                            ) : (
-                              <input
-                                type={field.type === 'number' || field.type === 'date' ? field.type : 'text'}
-                                value={String(values[field.name] ?? '')}
-                                onChange={event => setReviewValues(current => ({ ...current, [item.id]: { ...(current[item.id] || {}), [field.name]: event.target.value } }))}
-                                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
-                              />
-                            )}
-                          </label>
-                        ))}
-                        <label className="text-xs font-bold text-slate-600">
-                          Reviewer note{selectedDecision === 'revise' ? ' (required)' : ''}
-                          <input
-                            type="text"
-                            value={reviewNote}
-                            onChange={event => setReviewNotes(current => ({ ...current, [item.id]: event.target.value }))}
-                            placeholder={item.interpretation?.evidence || 'Optional review note'}
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800"
-                          />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-2 md:max-w-48 md:justify-end">
-                    {item.agentProposal && ['pending', 'failed'].includes(item.agentProposal.status) && (
-                      <button type="button" disabled={busy} onClick={() => void update(item, { action: 'approve_agent_proposal' })} className="flex items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50"><Check size={14} /> Approve action</button>
-                    )}
-                    {item.agentProposal && ['pending', 'failed'].includes(item.agentProposal.status) && (
-                      <button type="button" disabled={busy} onClick={() => void update(item, { action: 'reject_agent_proposal' })} className="flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"><X size={14} /> Reject action</button>
-                    )}
-                    {item.disposition === 'needs_review' && item.askId && (
-                      <button
-                        type="button"
-                        disabled={busy || !canAcceptReview}
-                        onClick={() => void update(item, {
-                          action: 'accept_interpretation',
-                          ...(selectedDecision ? { decision: selectedDecision } : {}),
-                          ...(reviewNote.trim() ? { text: reviewNote.trim() } : {}),
-                          ...(Object.keys(values).length ? { values } : {})
-                        })}
-                        className="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-                      ><Check size={14} /> Accept</button>
-                    )}
-                    {activeDispositions.has(item.disposition) && (
-                      <button type="button" disabled={busy} onClick={() => void update(item, { disposition: 'resolved', action: 'resolve' })} className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"><Check size={14} /> Resolve</button>
-                    )}
-                    {activeDispositions.has(item.disposition) && (
-                      <button type="button" disabled={busy} onClick={() => void update(item, { disposition: 'ignored', action: 'ignore' })} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"><X size={14} /> Ignore</button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
+        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <button type="button" onClick={() => { setTab('emails'); setStatusFilter('active'); }} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-indigo-300"><div className="flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-wide text-slate-400">Needs attention</span><Clock3 size={17} className="text-amber-500" /></div><div className="mt-2 text-2xl font-black text-slate-900">{activeCount}</div></button>
+          <button type="button" onClick={() => setTab('responses')} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-indigo-300"><div className="flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-wide text-slate-400">Drafts</span><FileText size={17} className="text-indigo-500" /></div><div className="mt-2 text-2xl font-black text-slate-900">{draftCount}</div></button>
+          <button type="button" onClick={() => setTab('responses')} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-indigo-300"><div className="flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-wide text-slate-400">Responses</span><MessageSquareReply size={17} className="text-emerald-500" /></div><div className="mt-2 text-2xl font-black text-slate-900">{responseCount}</div></button>
+          <button type="button" onClick={() => setTab('runs')} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-indigo-300"><div className="flex items-center justify-between"><span className="text-xs font-bold uppercase tracking-wide text-slate-400">Errors</span><ShieldAlert size={17} className="text-red-500" /></div><div className="mt-2 text-2xl font-black text-slate-900">{errorCount}</div></button>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <nav className="flex overflow-x-auto border-b border-slate-200 px-2" aria-label="Email activity views">
+            {tabs.map(entry => <button key={entry.id} type="button" onClick={() => setTab(entry.id)} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-4 text-sm font-bold ${tab === entry.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{entry.icon}{entry.label}<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{entry.count}</span></button>)}
+          </nav>
+
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 p-4 lg:flex-row lg:items-center">
+            <label className="relative min-w-0 flex-1"><span className="sr-only">Search activity</span><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={tab === 'runs' ? 'Search jobs, schedules and errors…' : tab === 'digests' ? 'Search digest history…' : 'Search sender, subject, content or ID…'} className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /></label>
+            {(tab === 'emails' || tab === 'responses') && <div className="flex flex-wrap items-center gap-2"><Filter size={16} className="text-slate-400" /><label><span className="sr-only">Status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All statuses</option><option value="active">Needs attention</option><option value="closed">Closed</option></select></label><label><span className="sr-only">Priority</span><select value={priorityFilter} onChange={event => setPriorityFilter(event.target.value as PriorityFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>{projects.length > 0 && <label><span className="sr-only">Project</span><select value={projectFilter} onChange={event => setProjectFilter(event.target.value)} className="max-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All projects</option>{projects.map(project => <option key={project} value={project}>{project}</option>)}</select></label>}</div>}
+          </div>
+
+          {(tab === 'emails' || tab === 'responses') && <div className="overflow-x-auto"><table className="w-full min-w-[850px] border-collapse text-left"><thead><tr className="border-b border-slate-100 text-[11px] font-black uppercase tracking-wide text-slate-400"><th className="px-5 py-3">Message</th><th className="px-4 py-3">Received</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Triage result</th><th className="px-4 py-3">Response</th><th className="w-12 px-4 py-3"><span className="sr-only">Open</span></th></tr></thead><tbody>{filteredItems.map(item => { const job = jobsByCommunication.get(item.communicationId); const response = responseState(item, job); return <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-indigo-50/30"><td className="max-w-md px-5 py-4"><button type="button" onClick={() => openSelection({ kind: 'email', item })} className="block w-full text-left"><span className="block truncate text-sm font-black text-slate-900">{item.subject || 'Inbound communication'}</span><span className="mt-1 block truncate text-xs text-slate-500">{item.sender || 'Unknown sender'}{item.summary ? ` · ${item.summary}` : ''}</span></button></td><td className="whitespace-nowrap px-4 py-4 text-xs text-slate-500">{formatDate(item.occurredAt)}</td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${item.priority === 'urgent' || item.priority === 'high' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{item.priority || 'normal'}</span></td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusTone(item.disposition)}`}>{formatLabel(item.disposition)}</span></td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${responseTone(response.tone)}`}>{response.label}</span></td><td className="px-4 py-4"><button type="button" onClick={() => openSelection({ kind: 'email', item })} className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-600" aria-label={`Open ${item.subject || 'communication'}`}><ChevronRight size={17} /></button></td></tr>; })}</tbody></table>{!loading && filteredItems.length === 0 && <div className="p-12 text-center text-sm text-slate-500">No communications match these filters.</div>}</div>}
+
+          {tab === 'runs' && <div className="divide-y divide-slate-100">{filteredActivity.map(entry => <button key={`${entry.kind}:${entry.id}`} type="button" onClick={() => openSelection(entry.selection)} className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-indigo-50/30"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${entry.kind === 'job' ? 'bg-indigo-50 text-indigo-600' : entry.kind === 'schedule' ? 'bg-sky-50 text-sky-600' : entry.kind === 'coaching' ? 'bg-violet-50 text-violet-600' : 'bg-emerald-50 text-emerald-600'}`}>{entry.kind === 'schedule' ? <Clock3 size={17} /> : entry.kind === 'external' ? <Archive size={17} /> : <Activity size={17} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-black capitalize text-slate-900">{entry.title}</span><span className="mt-1 block truncate text-xs text-slate-500">{entry.detail}</span></span><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusTone(entry.status)}`}>{formatLabel(entry.status)}</span><span className="hidden whitespace-nowrap text-xs text-slate-400 md:block">{formatDate(entry.at)}</span><ChevronRight size={17} className="shrink-0 text-slate-400" /></button>)}{!loading && filteredActivity.length === 0 && <div className="p-12 text-center text-sm text-slate-500">No operational activity matches this search.</div>}</div>}
+
+          {tab === 'digests' && <div className="grid gap-4 p-4 md:grid-cols-2">{filteredDigests.map(digest => <button key={digest.id} type="button" onClick={() => openSelection({ kind: 'digest', digest })} className="rounded-xl border border-slate-200 p-4 text-left hover:border-indigo-300 hover:bg-indigo-50/30"><div className="flex items-start justify-between gap-3"><span><span className="block text-sm font-black text-slate-900">Daily digest</span><span className="mt-1 block text-xs text-slate-500">{formatDate(digest.scheduledFor)} · {digest.deliveryChannel}</span></span><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusTone(digest.deliveryStatus)}`}>{formatLabel(digest.deliveryStatus)}</span></div><p className="mt-4 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-slate-600">{digest.summary}</p><div className="mt-4 flex flex-wrap gap-2 text-xs font-bold"><span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{digest.counts.total} new</span><span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700">{digest.counts.outstanding} outstanding</span><span className="rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700">{digest.counts.draftsPrepared} drafts</span></div></button>)}{!loading && filteredDigests.length === 0 && <div className="col-span-full p-12 text-center text-sm text-slate-500">No digest history matches this search.</div>}</div>}
+
+          {loading && !items.length && <div className="flex items-center justify-center gap-2 p-12 text-sm font-semibold text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading email activity…</div>}
         </div>
       </div>
+
+      <TriageDetailDrawer selection={selection} items={items} agentJobs={operations.agentJobs} updatingId={updatingId} replayingId={replayingId} onClose={closeSelection} onSelectEmail={item => openSelection({ kind: 'email', item })} onUpdate={update} onReplayAgentJob={replayAgentJob} />
     </section>
   );
 };
