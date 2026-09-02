@@ -2,6 +2,7 @@ import React from 'react';
 import { PieChart as RePieChart, Pie, Cell } from 'recharts';
 import { Subtask } from '../types';
 import { getStatusColor } from '../constants';
+import { displayTaskStatus, isTaskComplete } from '../lib/taskStatus';
 
 interface PieChartProps {
   subtasks: Subtask[];
@@ -11,7 +12,8 @@ interface PieChartProps {
 export const MilestonePieChart: React.FC<PieChartProps> = ({ subtasks = [], size = 120 }) => {
   const safeSubtasks = subtasks || [];
   const dataMap = safeSubtasks.reduce((acc, sub) => {
-    acc[sub.status] = (acc[sub.status] || 0) + 1;
+    const status = displayTaskStatus(sub.status);
+    acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
 
@@ -26,7 +28,7 @@ export const MilestonePieChart: React.FC<PieChartProps> = ({ subtasks = [], size
     data.push({ name: 'Empty', value: 1, color: '#f1f5f9' });
   }
 
-  const completeCount = dataMap['Complete'] || 0;
+  const completeCount = safeSubtasks.filter(isTaskComplete).length;
   const totalCount = safeSubtasks.length || 1;
 
   return (

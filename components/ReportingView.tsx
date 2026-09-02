@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Project, AppSettings, Subtask, Milestone, ActivityLog } from '../types';
 import { BarChart3, Filter, Calendar, CheckCircle2, Circle, AlertCircle, Clock, Activity, Target } from 'lucide-react';
+import { isTaskComplete } from '../lib/taskStatus';
+import { isTaskOverdue } from '../lib/portfolioPresentation';
 
 interface ReportingViewProps {
   projects: Project[];
@@ -124,13 +126,11 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
   const currentSummary = useMemo(() => {
     let totalTasks = filteredTasks.length;
     let completedTasks = 0; let totalEstimated = 0; let totalActual = 0; let overdueTasks = 0;
-    const now = Date.now();
-
     filteredTasks.forEach(({ task }) => {
-      if (task.status === 'Complete') completedTasks++;
+      if (isTaskComplete(task)) completedTasks++;
       if (task.estimatedTime) totalEstimated += task.estimatedTime;
       if (task.actualTime) totalActual += task.actualTime;
-      if (task.dueDate && task.dueDate < now && task.status !== 'Complete') overdueTasks++;
+      if (isTaskOverdue(task)) overdueTasks++;
     });
 
     return { totalTasks, completedTasks, totalEstimated, totalActual, overdueTasks };
@@ -381,11 +381,11 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
                         <td className="p-4 text-sm font-medium text-slate-600">{project.name}</td>
                         <td className="p-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                            task.status === 'Complete' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                            isTaskComplete(task) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                             task.status === 'Not started' ? 'bg-slate-100 text-slate-600 border-slate-200' : 
                             'bg-indigo-50 text-indigo-700 border-indigo-200'
                           }`}>
-                            {task.status === 'Complete' ? <CheckCircle2 size={12} /> : task.status === 'Not started' ? <Circle size={12} /> : <AlertCircle size={12} />}
+                            {isTaskComplete(task) ? <CheckCircle2 size={12} /> : task.status === 'Not started' ? <Circle size={12} /> : <AlertCircle size={12} />}
                             {task.status}
                           </span>
                         </td>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Project, AppSettings, Subtask } from '../types';
 import { KanbanCard } from './KanbanCard';
+import { isTaskDueToday, isTaskOverdue } from '../lib/portfolioPresentation';
 import { getStatusBorderColor } from '../constants';
 import { Plus } from 'lucide-react';
 import { CreateTaskKanbanModal } from './modals/CreateTaskKanbanModal';
@@ -70,8 +71,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           // Apply new filters
           if (roleFilter && s.role !== roleFilter) return;
           if (importantFilter && !s.isImportant) return;
-          if (todayFilter && !s.isToday) return;
-          if (lateFilter && (!s.dueDate || s.dueDate >= Date.now())) return;
+          if (todayFilter && !isTaskDueToday(s)) return;
+          if (lateFilter && !isTaskOverdue(s)) return;
 
           tasks.push({
             id: `${p.id}-${m.id}-${idx}`,

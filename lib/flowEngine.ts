@@ -1,13 +1,12 @@
 import { Milestone, Project, NodeType, ActionRun } from '../types.js';
 import { checkReadyCondition } from './taskReadinessUtils.js';
 import { isReviewSatisfied, needsApprovalAsk } from './humanAsk.js';
+import { isTaskComplete } from './taskStatus.js';
 
 export type NodeResolution = 'pending' | 'complete' | 'skipped';
 
 export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
-
-const isSubtaskComplete = (status: string) => status === 'Completed' || status === 'Complete';
 
 /**
  * A node's work, ignoring dependencies and any review gate:
@@ -23,7 +22,7 @@ export const isNodeWorkDone = (m: Milestone): boolean => {
     case NodeType.LOOP:
       return !!m.loopConfig?.exited;
     case NodeType.MILESTONE:
-      return (m.subtasks || []).length > 0 && m.subtasks.every(s => isSubtaskComplete(s.status));
+      return (m.subtasks || []).length > 0 && m.subtasks.every(isTaskComplete);
     default:
       return m.actionConfig?.lastRun?.status === 'success';
   }

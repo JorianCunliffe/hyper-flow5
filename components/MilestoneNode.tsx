@@ -6,6 +6,7 @@ import { getStatusBorderColor, NODE_TYPE_META } from '../constants';
 import { getNodeType, isActionNode, isNodeComplete } from '../lib/flowEngine';
 import { sendTaskEmail } from '../lib/emailUtils';
 import { actionRunStatusLabel } from '../lib/actionRunPresentation';
+import { isTaskComplete } from '../lib/taskStatus';
 
 const TaskEmailButton: React.FC<{
   task: Subtask,
@@ -613,7 +614,7 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
                       formatDate={formatDate}
                     />
                   </div>
-                  {task.status === 'Complete' && task.completedAt && (
+                  {isTaskComplete(task) && task.completedAt && (
                     <span className="text-[8px] text-emerald-600 font-medium">Done {formatDate(task.completedAt)}</span>
                   )}
                 </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import html2canvas from 'html2canvas';
 import {
   Project,
@@ -77,6 +77,8 @@ import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
 import { NodeConfigModal } from './components/modals/NodeConfigModal';
 import { COACHING_TRANSIENT_KEYS, dailyCoachingTemplate, emailTriageTemplate, upgradeLegacyEmailTriageProject } from './lib/projectTemplates';
+import { displayTaskStatus, isTaskComplete } from './lib/taskStatus';
+import { parseAppView, type AppView } from './lib/appView';
 import type { ServiceSetupInput } from './lib/serviceSetup';
 
 const STORAGE_KEY = 'hyperflow_data_v1';
@@ -180,7 +182,13 @@ export const getMilestoneDurationInDays = (milestone: Milestone, project: Projec
   return duration;
 };
 
+const initialAppView = (): AppView => {
+  if (typeof window === 'undefined') return 'projects';
+  return parseAppView(new URLSearchParams(window.location.search).get('view'));
+};
+
 export const App: React.FC = () => {
+  const initialView = initialAppView();
   const [currentUser, setCurrentUser] = useState<any>(firebaseService.getCurrentUser());
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(firebaseService.getCurrentOrgId());
   
@@ -230,12 +238,12 @@ export const App: React.FC = () => {
   const [flowLog, setFlowLog] = useState<string[]>([]);
   
   // Kanban State
-  const [isKanbanMode, setIsKanbanMode] = useState(false);
-  const [isScratchMode, setIsScratchMode] = useState(false);
-  const [isFeedMode, setIsFeedMode] = useState(false);
-  const [isApprovalsMode, setIsApprovalsMode] = useState(false);
-  const [isReportingMode, setIsReportingMode] = useState(false);
-  const [isTriageMode, setIsTriageMode] = useState(false);
+  const [isKanbanMode, setIsKanbanMode] = useState(initialView === 'kanban');
+  const [isScratchMode, setIsScratchMode] = useState(initialView === 'scratch');
+  const [isFeedMode, setIsFeedMode] = useState(initialView === 'feed');
+  const [isApprovalsMode, setIsApprovalsMode] = useState(initialView === 'approvals');
+  const [isReportingMode, setIsReportingMode] = useState(initialView === 'reports');
+  const [isTriageMode, setIsTriageMode] = useState(initialView === 'activity');
   const [kanbanGrouping, setKanbanGrouping] = useState<'project' | 'member'>('project');
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
@@ -246,6 +254,20 @@ export const App: React.FC = () => {
   const [kanbanFilterImportant, setKanbanFilterImportant] = useState<boolean>(false);
   const [kanbanFilterToday, setKanbanFilterToday] = useState<boolean>(false);
   const [kanbanFilterLate, setKanbanFilterLate] = useState<boolean>(false);
+
+  const activeView: AppView = isTriageMode ? 'activity' : isReportingMode ? 'reports' : isApprovalsMode ? 'approvals' : isFeedMode ? 'feed' : isScratchMode ? 'scratch' : isKanbanMode ? 'kanban' : 'projects';
+  const openView = useCallback((view: AppView) => {
+    setIsKanbanMode(view === 'kanban');
+    setIsScratchMode(view === 'scratch');
+    setIsFeedMode(view === 'feed');
+    setIsApprovalsMode(view === 'approvals');
+    setIsReportingMode(view === 'reports');
+    setIsTriageMode(view === 'activity');
+    const url = new URL(window.location.href);
+    if (view === 'projects') url.searchParams.delete('view');
+    else url.searchParams.set('view', view);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -297,18 +319,6 @@ export const App: React.FC = () => {
   const isRemoteUpdate = useRef(false);
   const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
   const localUpdatedAt = useRef(0);
-
-  // Mobile Detection
-  useEffect(() => {
-    const checkMobile = () => {
-      if (window.innerWidth < 768) {
-        setIsKanbanMode(true);
-      }
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -851,8 +861,9 @@ export const App: React.FC = () => {
       
       (m.subtasks || []).forEach(s => {
         totalTasks++;
-        if (s.status === 'Completed') completedTasks++;
-        statusCount[s.status] = (statusCount[s.status] || 0) + 1;
+        if (isTaskComplete(s)) completedTasks++;
+        const displayedStatus = displayTaskStatus(s.status);
+        statusCount[displayedStatus] = (statusCount[displayedStatus] || 0) + 1;
       });
     });
 
@@ -2093,32 +2104,18 @@ export const App: React.FC = () => {
               </div>
               HyperFlow
             </h1>
-            <div className="flex bg-slate-100 rounded-lg p-0.5">
-               <button
-                 type="button"
-                 onClick={() => setIsTriageMode(current => !current)}
-                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                 aria-pressed={isTriageMode}
-               >
-                 <Inbox size={12} /> {isTriageMode ? 'Projects' : 'Triage'}
-               </button>
-               {!isTriageMode && <>
-               <button 
-                 onClick={() => setKanbanGrouping('project')}
-                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-               >
-                 <Briefcase size={12} /> Project
-               </button>
-               <button 
-                 onClick={() => setKanbanGrouping('member')}
-                 className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'member' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-               >
-                 <Users size={12} /> Member
-               </button>
-               </>}
-            </div>
+            <button type="button" onClick={() => setIsSettingsOpen(true)} className="rounded-lg p-2 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600" aria-label="Open settings"><Settings size={19} /></button>
          </div>
-         {!isTriageMode && <div className="p-2 flex gap-2 overflow-x-auto">
+         <nav className="flex gap-1 overflow-x-auto border-b border-slate-100 bg-slate-50/70 p-2" aria-label="App views">
+           <button type="button" onClick={() => openView('projects')} aria-pressed={activeView === 'projects'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'projects' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Layout size={14} /> Projects</button>
+           <button type="button" onClick={() => openView('kanban')} aria-pressed={activeView === 'kanban'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'kanban' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Columns size={14} /> Kanban</button>
+           <button type="button" onClick={() => openView('approvals')} aria-pressed={activeView === 'approvals'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'approvals' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><CheckCircle size={14} /> Approvals{allOpenAsks.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-800">{allOpenAsks.length}</span>}</button>
+           <button type="button" onClick={() => openView('activity')} aria-pressed={activeView === 'activity'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'activity' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Inbox size={14} /> Activity</button>
+           <button type="button" onClick={() => openView('scratch')} aria-pressed={activeView === 'scratch'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'scratch' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Edit2 size={14} /> Scratch</button>
+           <button type="button" onClick={() => openView('feed')} aria-pressed={activeView === 'feed'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'feed' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><Activity size={14} /> Feed</button>
+           <button type="button" onClick={() => openView('reports')} aria-pressed={activeView === 'reports'} className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${activeView === 'reports' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'}`}><BarChart3 size={14} /> Reports</button>
+         </nav>
+         {isKanbanMode && <div className="p-2 flex gap-2 overflow-x-auto">
              <select 
                className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
                value={kanbanFilterProject}
@@ -2231,7 +2228,8 @@ export const App: React.FC = () => {
         {/* VIEW SWITCHER IN HEADER */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
           <button 
-            onClick={() => { setIsKanbanMode(false); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('projects')}
+            aria-pressed={activeView === 'projects'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               !isKanbanMode && !isScratchMode && !isFeedMode && !isApprovalsMode && !isReportingMode && !isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2240,7 +2238,8 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">{selectedProjectId ? 'Project Map' : 'Dashboard'}</span>
           </button>
           <button 
-            onClick={() => { setIsKanbanMode(true); setIsScratchMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('kanban')}
+            aria-pressed={activeView === 'kanban'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isKanbanMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2249,7 +2248,8 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Kanban</span>
           </button>
           <button 
-            onClick={() => { setIsScratchMode(true); setIsKanbanMode(false); setIsFeedMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('scratch')}
+            aria-pressed={activeView === 'scratch'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isScratchMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2258,7 +2258,8 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Scratch</span>
           </button>
           <button 
-            onClick={() => { setIsFeedMode(true); setIsScratchMode(false); setIsKanbanMode(false); setIsApprovalsMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('feed')}
+            aria-pressed={activeView === 'feed'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isFeedMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2267,16 +2268,18 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Feed</span>
           </button>
           <button 
-            onClick={() => { setIsApprovalsMode(true); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsReportingMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('approvals')}
+            aria-pressed={activeView === 'approvals'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isApprovalsMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <CheckCircle size={16} />
-            <span className="hidden xl:inline">Approvals</span>
+            <span className="hidden xl:inline">Approvals</span>{allOpenAsks.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-800">{allOpenAsks.length}</span>}
           </button>
           <button 
-            onClick={() => { setIsReportingMode(true); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); setIsTriageMode(false); }}
+            onClick={() => openView('reports')}
+            aria-pressed={activeView === 'reports'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${
               isReportingMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
@@ -2285,7 +2288,8 @@ export const App: React.FC = () => {
             <span className="hidden xl:inline">Reports</span>
           </button>
           <button
-            onClick={() => { setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }}
+            onClick={() => openView('activity')}
+            aria-pressed={activeView === 'activity'}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${isTriageMode ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             title="Communications activity"
           >
@@ -2532,11 +2536,20 @@ export const App: React.FC = () => {
               <Dashboard 
                 projects={activeProjects}
                 settings={settings}
-                onSelectProject={(id) => { setSelectedProjectId(id); setIsKanbanMode(false); }}
+                onSelectProject={(id) => { setSelectedProjectId(id); openView('projects'); }}
                 onEditProject={setEditingProject}
                 onDuplicateProject={handleDuplicateProject}
                 onDeleteProject={handleDeleteProject}
                 formatDate={formatDate}
+                onOpenKanban={focus => {
+                  setKanbanFilterImportant(false);
+                  setKanbanFilterToday(focus === 'today');
+                  setKanbanFilterLate(focus === 'late');
+                  setKanbanFilterMember(focus === 'unassigned' ? 'Unassigned' : 'ALL');
+                  setKanbanFilterRole('ALL');
+                  setKanbanFilterProject('ALL');
+                  openView('kanban');
+                }}
               />
             ) : (
               /* PROJECT MAP VIEW */
@@ -2614,7 +2627,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={view => { const url = new URL(window.location.href); if (view === 'coaching') url.searchParams.set('activity', 'coaching'); else url.searchParams.delete('activity'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); setIsTriageMode(true); setIsReportingMode(false); setIsApprovalsMode(false); setIsFeedMode(false); setIsScratchMode(false); setIsKanbanMode(false); }} /></div>}
+                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={view => { const url = new URL(window.location.href); if (view === 'coaching') url.searchParams.set('activity', 'coaching'); else url.searchParams.delete('activity'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); openView('activity'); }} /></div>}
 
                   {/* MAP CANVAS */}
                   <div 

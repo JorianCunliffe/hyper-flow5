@@ -3,6 +3,7 @@ import { User, AlertTriangle, Clock, Calendar, Trash2, Mail, Loader2, Check, Vid
 import { Subtask, AppSettings } from '../types';
 import { getStatusBorderColor } from '../constants';
 import { sendTaskEmail } from '../lib/emailUtils';
+import { isTaskOverdue } from '../lib/portfolioPresentation';
 
 interface KanbanCardProps {
   task: Subtask;
@@ -80,7 +81,7 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   };
 
 
-  const isOverdue = task.dueDate && task.dueDate < Date.now() && task.status !== 'Complete';
+  const isOverdue = isTaskOverdue(task);
   
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
