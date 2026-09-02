@@ -76,7 +76,7 @@ import { CreateProjectModal } from './components/modals/CreateProjectModal';
 import { EditProjectModal } from './components/modals/EditProjectModal';
 import { EditTaskModal } from './components/modals/EditTaskModal';
 import { NodeConfigModal } from './components/modals/NodeConfigModal';
-import { COACHING_TRANSIENT_KEYS, dailyCoachingTemplate, emailTriageTemplate } from './lib/projectTemplates';
+import { COACHING_TRANSIENT_KEYS, dailyCoachingTemplate, emailTriageTemplate, upgradeLegacyEmailTriageProject } from './lib/projectTemplates';
 import type { ServiceSetupInput } from './lib/serviceSetup';
 
 const STORAGE_KEY = 'hyperflow_data_v1';
@@ -334,7 +334,7 @@ export const App: React.FC = () => {
           displayId = `P-${nextPId++}`;
         }
         
-        return {
+        return upgradeLegacyEmailTriageProject({
           ...p,
           displayId,
           markers: (Array.isArray(p.markers) ? p.markers : Object.values(p.markers || [])).map((m:any) => ({...m})),
@@ -349,7 +349,7 @@ export const App: React.FC = () => {
               return { ...s, displayId: sDisplayId };
             })
           }))
-        };
+        });
       });
       
     return { projects: sanitized, nextProjectId: nextPId, nextTaskId: nextTId };
@@ -1579,22 +1579,27 @@ export const App: React.FC = () => {
     const proj = projectsRef.current.find(p => p.id === selectedProjectId);
     if (!proj) return;
     const orgId = firebaseService.getCurrentOrgId();
-    if (firebaseService.isConfigured() && orgId) {
-      const response = await firebaseService.authorizedFetch('/api/flow/advance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgId, projectId: proj.id })
+    setFlowLog(['Advancing workflow…']);
+    try {
+      if (firebaseService.isConfigured() && orgId) {
+        const response = await firebaseService.authorizedFetch('/api/flow/advance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgId, projectId: proj.id })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Flow advance failed');
+        setFlowLog(result.log?.length ? result.log : ['Workflow advance completed.']);
+        return;
+      }
+      const { project: updated, log } = await advanceProjectFlow(proj, httpExecutor, {
+        orgId: firebaseService.getCurrentOrgId() || undefined
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Flow advance failed');
-      setFlowLog(result.log || []);
-      return;
+      commitProject(updated);
+      setFlowLog(log.length ? log : ['Workflow advance completed; no actions were ready.']);
+    } catch (error: any) {
+      setFlowLog([`Workflow advance failed: ${error?.message || String(error)}`]);
     }
-    const { project: updated, log } = await advanceProjectFlow(proj, httpExecutor, {
-      orgId: firebaseService.getCurrentOrgId() || undefined
-    });
-    commitProject(updated);
-    setFlowLog(log);
   };
 
   /**

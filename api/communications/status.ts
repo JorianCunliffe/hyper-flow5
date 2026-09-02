@@ -128,6 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const runs = projectSchedules.length ? await listScheduleRuns(member.orgId, projectSchedules[0].id, 20) : [];
       const digests = projectId ? (await listTenantTriageDigests(member.orgId, 30)).filter(item => item.projectId === projectId) : [];
       const overdue = projectSchedules.some(item => item.enabled && item.nextRunAt < Date.now() - 10 * 60_000);
+      const catchingUp = overdue && ['running', 'partial'].includes(String(runs[0]?.status || ''));
       return res.status(200).json({
         project: project || null,
         schedules: projectSchedules,
@@ -135,7 +136,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         workspaces,
         lastRun: runs[0] || null,
         lastDigest: digests[0] || null,
-        scheduler: { ...scheduler, overdue, warning: overdue ? 'A project schedule is overdue. Check the five-minute scheduler helper.' : null },
+        scheduler: {
+          ...scheduler,
+          overdue,
+          catchingUp,
+          warning: overdue
+            ? catchingUp
+              ? 'Mailbox backlog catch-up is in progress. Queued batches will continue on scheduler ticks.'
+              : 'A project schedule is overdue. Check the five-minute scheduler helper.'
+            : null
+        },
         upgradeRequired: unbound.length > 0 && !canAutoAttach,
         validationFailures: project?.projectData?.service_validation_failures || []
       });

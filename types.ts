@@ -403,7 +403,7 @@ export interface ScheduleRun {
   projectId?: string;
   flowId?: string;
   scheduledFor: number;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'partial' | 'completed' | 'failed';
   claimId: string;
   startedAt: number;
   attempt?: number;

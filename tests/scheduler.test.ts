@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { communicationsAfterCursor, cursorAfterCommunications, failedScheduleResults, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
-import { matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
+import { boundedCommunicationBatch, matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
 import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule, scheduleRunIsStale, seededScheduleTransactionValue } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
@@ -51,6 +51,16 @@ describe('durable communication cursor helpers', () => {
     assert.equal(cursorAfterCommunications('2026-08-28T03:00:00Z', []), '2026-08-28T03:00:00Z');
   });
 
+  test('bounds a triage batch without splitting an equal-timestamp cursor boundary', () => {
+    const records = [
+      { id: 'one', occurredAt: '2026-08-28T01:00:00Z' },
+      { id: 'two', occurredAt: '2026-08-28T02:00:00Z' },
+      { id: 'three', occurredAt: '2026-08-28T02:00:00Z' },
+      { id: 'four', occurredAt: '2026-08-28T03:00:00Z' }
+    ];
+    assert.deepEqual(boundedCommunicationBatch(records, 2).map(item => item.id), ['one', 'two', 'three']);
+  });
+
   test('treats missing and invalid timestamps as the beginning of time', () => {
     assert.equal(occurredMs(undefined), 0);
     assert.equal(occurredMs('not-a-date'), 0);
@@ -88,6 +98,7 @@ describe('tenant schedule normalization', () => {
       { scheduleId: 'completed', status: 'completed' },
       { scheduleId: 'duplicate', status: 'duplicate' },
       { scheduleId: 'skipped', status: 'skipped' },
+      { scheduleId: 'deferred', status: 'deferred' },
       { scheduleId: 'failed', status: 'failed', error: 'boom' }
     ]);
     assert.deepEqual(failed, [{ scheduleId: 'failed', status: 'failed', error: 'boom' }]);

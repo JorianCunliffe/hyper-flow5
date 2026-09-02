@@ -22,7 +22,7 @@ import {
 
 export interface ScheduleExecutionResult {
   scheduleId: string;
-  status: 'completed' | 'failed' | 'duplicate' | 'skipped';
+  status: 'completed' | 'deferred' | 'failed' | 'duplicate' | 'skipped';
   processedCount?: number;
   projectId?: string;
   runId?: string;
@@ -128,6 +128,28 @@ export const runTenantSchedule = async (
     // stale-run lease allows a later tick to retry this exact occurrence.
     console.error('[scheduler] triage occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
     return { scheduleId: schedule.id, status: 'failed', error: message };
+  }
+  if (triageResult.hasMore) {
+    await finishScheduleRun(run, {
+      status: 'partial',
+      cursorBefore,
+      cursorAfter: triageResult.cursorAfter,
+      processedCount: triageResult.processedCount
+    });
+    console.info('[scheduler] triage occurrence checkpointed', {
+      scheduleId: schedule.id,
+      scheduledFor,
+      attempt: run.attempt,
+      processedCount: triageResult.processedCount,
+      remainingCount: triageResult.remainingCount
+    });
+    return {
+      scheduleId: schedule.id,
+      status: 'deferred',
+      processedCount: triageResult.processedCount,
+      projectId: schedule.projectId,
+      runId: run.id
+    };
   }
   await completeScheduleOccurrence(
     schedule, run, scheduledFor,

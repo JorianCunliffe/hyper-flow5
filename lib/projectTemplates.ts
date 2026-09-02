@@ -1,4 +1,4 @@
-import { NodeType, type Milestone, type ProjectData } from '../types.js';
+import { NodeType, type Milestone, type Project, type ProjectData } from '../types.js';
 
 export type HyperFlowProjectTemplate = 'blank' | 'daily_coaching' | 'email_triage';
 
@@ -83,3 +83,23 @@ export const emailTriageTemplate = (): { milestones: Milestone[]; projectData: P
     triage_policy: 'human_only', triage_create_drafts: true, triage_digest_channel: 'web'
   }
 });
+
+/**
+ * Early service-project builds created a decorative review task instead of the
+ * executable Email Triage action. Upgrade only that exact generated shape so
+ * user-authored projects and later action-node configuration are preserved.
+ */
+export const upgradeLegacyEmailTriageProject = (project: Project): Project => {
+  const template = String(project.projectData?.project_template || '');
+  if (!['email_triage', 'daily_email_triage'].includes(template)) return project;
+  const projectData = { ...project.projectData, project_template: 'email_triage' };
+  const milestones = Array.isArray(project.milestones) ? project.milestones : [];
+  const legacyNode = milestones.length === 1 ? milestones[0] : undefined;
+  const legacyGeneratedShape = legacyNode?.id === 'TRIAGE_INBOX'
+    && !legacyNode.nodeType
+    && !legacyNode.actionConfig
+    && Array.isArray(legacyNode.subtasks)
+    && legacyNode.subtasks.some(task => task.id === 'TRIAGE_REVIEW');
+  if (!legacyGeneratedShape) return { ...project, projectData };
+  return { ...project, projectData, milestones: emailTriageTemplate().milestones };
+};

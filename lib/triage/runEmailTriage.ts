@@ -30,6 +30,7 @@ export interface RunEmailTriageInput {
   runId: string;
   actor?: string;
   createdAt?: number;
+  batchSize?: number;
 }
 
 export interface RunEmailTriageResult {
@@ -37,6 +38,8 @@ export interface RunEmailTriageResult {
   skippedCount: number;
   cursorBefore?: string;
   cursorAfter?: string;
+  hasMore: boolean;
+  remainingCount: number;
   digest: TriageDigest;
 }
 
@@ -62,6 +65,20 @@ export const cursorAfterCommunications = <T extends { occurredAt?: string }>(
   (latest, item) => occurredMs(item.occurredAt) > occurredMs(latest) ? item.occurredAt : latest,
   previous
 );
+
+export const boundedCommunicationBatch = <T extends { occurredAt?: string }>(
+  communications: T[],
+  requestedSize: number
+): T[] => {
+  const size = Math.min(Math.max(Math.floor(requestedSize) || 1, 1), 25);
+  if (communications.length <= size) return communications;
+  const boundary = occurredMs(communications[size - 1]?.occurredAt);
+  let end = size;
+  // The stored timestamp cursor is exclusive. Include every record at the
+  // boundary so moving the cursor never drops an equal-timestamp sibling.
+  while (end < communications.length && occurredMs(communications[end]?.occurredAt) === boundary) end += 1;
+  return communications.slice(0, end);
+};
 
 export const reconciliationCursor = (
   committedCursor: string | undefined,
@@ -183,11 +200,25 @@ export const runEmailTriage = async (
   const processedItems: TriageItem[] = [];
   let skippedCount = 0;
 
-  for (const communication of candidates) {
+  // A serverless timeout can occur after individual triage items are safely
+  // committed but before the cursor is moved. Reuse those project-scoped audit
+  // records as checkpoints instead of classifying and drafting them again.
+  const recentItems = await listTenantTriageItems(input.orgId, 500);
+  const completedIds = new Set(recentItems
+    .filter(item => item.projectId === input.projectId
+      && item.connectionId === input.connectionId
+      && item.audit?.some(entry => entry.action === 'project_reconciliation'))
+    .map(item => item.communicationId));
+  const pending = candidates.filter(item => !completedIds.has(item.id));
+  const configuredBatchSize = Number(input.batchSize ?? process.env.EMAIL_TRIAGE_BATCH_SIZE ?? 5);
+  const batch = boundedCommunicationBatch(pending, configuredBatchSize);
+
+  for (const communication of batch) {
     const detailed = await client.getCommunication(input.orgId, communication.id);
     let item = { ...triageItemFromCommunication(input.orgId, detailed), projectId: input.projectId, connectionId: input.connectionId };
     if (!matchesProjectTriagePolicy(detailed, item, policy, input.projectId)) {
       skippedCount += 1;
+      completedIds.add(communication.id);
       continue;
     }
     if (item.memoryEligible !== false && allowed.includes('classify')) {
@@ -240,6 +271,7 @@ export const runEmailTriage = async (
       audit: [...item.audit, { at: Date.now(), action: 'project_reconciliation', actor: input.actor || input.runId }]
     });
     processedItems.push(stored);
+    completedIds.add(communication.id);
   }
 
   const current = await listTenantTriageItems(input.orgId, 500);
@@ -253,7 +285,19 @@ export const runEmailTriage = async (
   try { digest = await deliverDigest(client, input, digest); }
   catch (error: any) { digest = { ...digest, deliveryStatus: 'failed', deliveryError: String(error?.message || error).slice(0, 1_000), updatedAt: Date.now() }; }
   await saveTriageDigest(digest);
-  const cursorAfter = cursorAfterCommunications(cursorBefore, candidates);
+  let contiguousCount = 0;
+  while (contiguousCount < candidates.length && completedIds.has(candidates[contiguousCount].id)) {
+    contiguousCount += 1;
+  }
+  const cursorAfter = cursorAfterCommunications(cursorBefore, candidates.slice(0, contiguousCount));
   if (cursorAfter) await writeCommunicationCursor(input.orgId, cursorKey, cursorAfter);
-  return { processedCount: processedItems.length, skippedCount, cursorBefore, cursorAfter, digest };
+  return {
+    processedCount: processedItems.length,
+    skippedCount,
+    cursorBefore,
+    cursorAfter,
+    hasMore: contiguousCount < candidates.length,
+    remainingCount: Math.max(0, candidates.length - contiguousCount),
+    digest
+  };
 };

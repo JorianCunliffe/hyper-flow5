@@ -31,6 +31,7 @@ import {
   WorkspaceResourceGrant
 } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
+import { upgradeLegacyEmailTriageProject } from './projectTemplates.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
 
 /**
@@ -339,8 +340,7 @@ const toArray = <T>(value: any): T[] =>
   Array.isArray(value) ? value : value && typeof value === 'object' ? (Object.values(value) as T[]) : [];
 
 export const normalizeServiceTemplate = (project: Project): Project => {
-  if (project.projectData?.project_template !== 'daily_email_triage') return project;
-  return { ...project, projectData: { ...project.projectData, project_template: 'email_triage' } };
+  return upgradeLegacyEmailTriageProject(project);
 };
 
 export interface LocatedProject {
@@ -1724,7 +1724,7 @@ export const claimScheduleRun = async (
     const stale = scheduleRunIsStale(current, startedAt);
     // Completed occurrences are immutable. Failed occurrences and expired
     // leases may be claimed again without advancing the schedule or cursor.
-    if (current && current.status !== 'failed' && !stale) return undefined;
+    if (current && !['failed', 'partial'].includes(current.status) && !stale) return undefined;
     claimed = {
       ...(current || {}),
       id: `${schedule.id}:${scheduledFor}`,

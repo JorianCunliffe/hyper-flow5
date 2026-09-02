@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dailyCoachingTemplate, emailTriageTemplate } from '../lib/projectTemplates';
+import { dailyCoachingTemplate, emailTriageTemplate, upgradeLegacyEmailTriageProject } from '../lib/projectTemplates';
 import { ACTION_TASK_TYPE } from '../lib/nodeTypes';
 import { NodeType } from '../types';
 import { coachingSessionFromProject, syncCoachingSessionFromProject } from '../lib/serverFlow';
@@ -127,5 +127,24 @@ describe('Daily Email Triage project template', () => {
     assert.equal(migrated.id, legacy.id);
     assert.equal(migrated.projectData?.project_template, 'email_triage');
     assert.equal(migrated.projectData?.retained, true);
+  });
+
+  test('upgrades the generated decorative triage milestone to the executable action', () => {
+    const legacy = {
+      id: 'legacy-triage', name: 'Inbox', company: 'Acme', type: 'Other' as const,
+      startDate: 0, createdAt: 1, updatedAt: 1,
+      projectData: { project_template: 'email_triage' },
+      milestones: [{
+        id: 'TRIAGE_INBOX', name: 'Daily mailbox triage', estimatedDuration: 1, dependsOn: [],
+        subtasks: [{
+          id: 'TRIAGE_REVIEW', name: 'Review prioritized communications',
+          description: '', assignedTo: '', status: 'Not started' as const
+        }]
+      }]
+    };
+    const upgraded = upgradeLegacyEmailTriageProject(legacy);
+    assert.equal(upgraded.milestones[0].nodeType, NodeType.EMAIL_TRIAGE);
+    assert.equal(upgraded.milestones[0].actionConfig?.autoExecute, true);
+    assert.deepEqual(upgraded.milestones[0].subtasks, []);
   });
 });
