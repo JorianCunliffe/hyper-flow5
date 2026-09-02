@@ -1760,9 +1760,9 @@ export const finishScheduleRun = async (
   const ref = getDb().ref(
     `schedule_runs/${safeRtdbKey(run.orgId)}/${safeRtdbKey(run.scheduleId)}/${run.scheduledFor}`
   );
-  // Prime the Admin SDK's local cache before entering the transaction. A cold
-  // transaction can invoke its updater with null first; treating that as a
-  // missing occurrence aborts before the server value is loaded.
+  // Read the authoritative value before entering the transaction. A cold
+  // Admin SDK transaction can invoke its updater with null first, so the first
+  // invocation is seeded from this read while later nulls still fail closed.
   const initial = (await ref.get()).val() as ScheduleRun | null;
   if (!initial || initial.claimId !== run.claimId) {
     const state = initial
@@ -1770,9 +1770,12 @@ export const finishScheduleRun = async (
       : 'occurrence missing';
     throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion (${state})`);
   }
+  let transactionInvocation = 0;
   const result = await ref.transaction(current => {
-    if (!current || current.claimId !== run.claimId) return undefined;
-    return { ...current, ...JSON.parse(JSON.stringify(patch)), completedAt: Date.now() };
+    transactionInvocation += 1;
+    const persisted = seededScheduleTransactionValue(current, initial, transactionInvocation);
+    if (!persisted || persisted.claimId !== run.claimId) return undefined;
+    return { ...persisted, ...JSON.parse(JSON.stringify(patch)), completedAt: Date.now() };
   });
   if (!result.committed) {
     const current = (await ref.get()).val() as ScheduleRun | null;
@@ -1782,6 +1785,12 @@ export const finishScheduleRun = async (
     throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion (${state})`);
   }
 };
+
+export const seededScheduleTransactionValue = <T>(
+  current: T | null,
+  initial: T | null,
+  invocation: number
+): T | null => current ?? (invocation === 1 ? initial : null);
 
 const advancedTenantScheduleValue = (
   current: TenantSchedule,
@@ -1873,14 +1882,22 @@ export const advanceTenantSchedule = async (
   now = Date.now()
 ): Promise<void> => {
   const ref = scheduleRef(schedule.orgId, schedule.id);
-  // See finishScheduleRun: a pre-read prevents a cold-cache null from being
-  // mistaken for an absent schedule by the transaction updater.
-  if (!(await ref.get()).exists()) {
+  // See finishScheduleRun: seed only the first cold-cache invocation.
+  const initialSnapshot = await ref.get();
+  if (!initialSnapshot.exists()) {
     throw new Error(`Schedule ${schedule.id} could not advance after occurrence ${from}`);
   }
+  const initial = initialSnapshot.val() as TenantSchedule;
+  let transactionInvocation = 0;
   const result = await ref.transaction(current => {
-    if (!current) return undefined;
-    return advancedTenantScheduleValue(current as TenantSchedule, schedule, from, now);
+    transactionInvocation += 1;
+    const persisted = seededScheduleTransactionValue(
+      current as TenantSchedule | null,
+      initial,
+      transactionInvocation
+    );
+    if (!persisted) return undefined;
+    return advancedTenantScheduleValue(persisted, schedule, from, now);
   });
   if (!result.committed) {
     throw new Error(`Schedule ${schedule.id} could not advance after occurrence ${from}`);

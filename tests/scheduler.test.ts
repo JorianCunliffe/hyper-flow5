@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { communicationsAfterCursor, cursorAfterCommunications, failedScheduleResults, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
 import { matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
-import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule } from '../lib/serverStore';
+import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule, seededScheduleTransactionValue } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
 import { project } from './helpers';
@@ -91,6 +91,14 @@ describe('tenant schedule normalization', () => {
       { scheduleId: 'failed', status: 'failed', error: 'boom' }
     ]);
     assert.deepEqual(failed, [{ scheduleId: 'failed', status: 'failed', error: 'boom' }]);
+  });
+
+  test('seeds only the first cold-cache transaction invocation', () => {
+    const initial = { claimId: 'claim_1', status: 'running' };
+    assert.equal(seededScheduleTransactionValue(null, initial, 1), initial);
+    assert.equal(seededScheduleTransactionValue(null, initial, 2), null);
+    const current = { claimId: 'claim_2', status: 'running' };
+    assert.equal(seededScheduleTransactionValue(current, initial, 2), current);
   });
 
   test('preserves omitted fields during a partial update', () => {
