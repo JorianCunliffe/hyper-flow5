@@ -1760,6 +1760,16 @@ export const finishScheduleRun = async (
   const ref = getDb().ref(
     `schedule_runs/${safeRtdbKey(run.orgId)}/${safeRtdbKey(run.scheduleId)}/${run.scheduledFor}`
   );
+  // Prime the Admin SDK's local cache before entering the transaction. A cold
+  // transaction can invoke its updater with null first; treating that as a
+  // missing occurrence aborts before the server value is loaded.
+  const initial = (await ref.get()).val() as ScheduleRun | null;
+  if (!initial || initial.claimId !== run.claimId) {
+    const state = initial
+      ? `current status=${initial.status}, claim=${initial.claimId === run.claimId ? 'matching' : 'different'}`
+      : 'occurrence missing';
+    throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion (${state})`);
+  }
   const result = await ref.transaction(current => {
     if (!current || current.claimId !== run.claimId) return undefined;
     return { ...current, ...JSON.parse(JSON.stringify(patch)), completedAt: Date.now() };
@@ -1862,7 +1872,13 @@ export const advanceTenantSchedule = async (
   from: number,
   now = Date.now()
 ): Promise<void> => {
-  const result = await scheduleRef(schedule.orgId, schedule.id).transaction(current => {
+  const ref = scheduleRef(schedule.orgId, schedule.id);
+  // See finishScheduleRun: a pre-read prevents a cold-cache null from being
+  // mistaken for an absent schedule by the transaction updater.
+  if (!(await ref.get()).exists()) {
+    throw new Error(`Schedule ${schedule.id} could not advance after occurrence ${from}`);
+  }
+  const result = await ref.transaction(current => {
     if (!current) return undefined;
     return advancedTenantScheduleValue(current as TenantSchedule, schedule, from, now);
   });
