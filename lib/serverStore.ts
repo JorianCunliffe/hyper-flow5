@@ -1721,7 +1721,7 @@ export const claimScheduleRun = async (
   const startedAt = Date.now();
   let claimed: ScheduleRun | null = null;
   const result = await ref.transaction(current => {
-    const stale = current?.status === 'running' && startedAt - Number(current.startedAt || 0) > 10 * 60 * 1000;
+    const stale = scheduleRunIsStale(current, startedAt);
     // Completed occurrences are immutable. Failed occurrences and expired
     // leases may be claimed again without advancing the schedule or cursor.
     if (current && current.status !== 'failed' && !stale) return undefined;
@@ -1752,6 +1752,14 @@ export const claimScheduleRun = async (
   }
   return { ...persisted, claimId };
 };
+
+export const SCHEDULE_RUN_LEASE_MS = 2 * 60_000;
+
+export const scheduleRunIsStale = (
+  current: Pick<ScheduleRun, 'status' | 'startedAt'> | null | undefined,
+  now: number
+): boolean => current?.status === 'running'
+  && now - Number(current.startedAt || 0) >= SCHEDULE_RUN_LEASE_MS;
 
 export const finishScheduleRun = async (
   run: ScheduleRun,

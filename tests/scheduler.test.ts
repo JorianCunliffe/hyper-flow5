@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { communicationsAfterCursor, cursorAfterCommunications, failedScheduleResults, listInboundEmailSince, occurredMs, reconciliationCursor } from '../lib/scheduler';
 import { matchesProjectTriagePolicy, projectTriageCursorKey } from '../lib/triage/runEmailTriage';
-import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule, seededScheduleTransactionValue } from '../lib/serverStore';
+import { buildScheduleCompletionUpdates, nextDailyScheduleOccurrence, normalizeTenantSchedule, scheduleRunIsStale, seededScheduleTransactionValue } from '../lib/serverStore';
 import { applyScheduledFlowContext, resetProjectForScheduledOccurrence } from '../lib/serverFlow';
 import { NodeType } from '../types';
 import { project } from './helpers';
@@ -99,6 +99,12 @@ describe('tenant schedule normalization', () => {
     assert.equal(seededScheduleTransactionValue(null, initial, 2), null);
     const current = { claimId: 'claim_2', status: 'running' };
     assert.equal(seededScheduleTransactionValue(current, initial, 2), current);
+  });
+
+  test('recovers a crashed schedule invocation on the next five-minute tick', () => {
+    const run = { status: 'running' as const, startedAt: 1_000 };
+    assert.equal(scheduleRunIsStale(run, 120_999), false);
+    assert.equal(scheduleRunIsStale(run, 121_000), true);
   });
 
   test('preserves omitted fields during a partial update', () => {
