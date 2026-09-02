@@ -35,6 +35,11 @@ describe('Vercel Hobby deployment configuration', () => {
     assert.deepEqual(config.crons, [{ path: '/api/schedules/tick', schedule: '0 0 * * *' }]);
   });
 
+  test('allows long-running API work within the Hobby Fluid Compute limit', () => {
+    assert.equal(config.fluid, true);
+    assert.equal(config.functions?.['api/**/*.ts']?.maxDuration, 300);
+  });
+
   test('does not ship a competing GitHub scheduler ticker', () => {
     assert.equal(fs.existsSync(path.join(root, '.github', 'workflows', 'scheduler.yml')), false);
   });
