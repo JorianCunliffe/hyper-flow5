@@ -5,6 +5,7 @@ export interface CommunicationCorrelation {
   project_id?: string;
   run_id: string;
   task_id: string;
+  /** HyperFlow person/directory correlation; not a Communications contacts.id UUID. */
   person_id?: string;
 }
 
@@ -51,6 +52,7 @@ export interface SendEmailRequest {
   subject: string;
   text?: string;
   html?: string;
+  /** Optional tenant-owned Communications contacts.id UUID. */
   person_id?: string;
   thread_id?: string;
   correlation: CommunicationCorrelation;

@@ -272,6 +272,8 @@ describe('channel-specific Ask delivery', () => {
     assert.deepEqual(request.reply_to, ['reply@example.com']);
     assert.match(request.text, /forms\/ask\/token_email/);
     assert.deepEqual(request.purpose, { type: 'human_ask', ask_id: 'ask_email', token: 'token_email' });
+    assert.equal(request.person_id, undefined, 'a HyperFlow team key is correlation, not a Communications contact UUID');
+    assert.equal(request.correlation.person_id, 'Jorian');
   });
 
   test('sends an SMS Ask through /v1/messages semantics, never /v1/asks', async () => {

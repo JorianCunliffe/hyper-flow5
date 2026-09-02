@@ -71,7 +71,6 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
       subject: `HyperFlow response requested: ${input.ask.prompt.slice(0, 80)}`,
       text: `${input.ask.prompt}\n\nSecure response form: ${formUrl}`,
       html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`,
-      person_id: input.personId,
       purpose,
       correlation,
       callback_url
