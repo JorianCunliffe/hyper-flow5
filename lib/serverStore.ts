@@ -1516,6 +1516,7 @@ export const upsertCoachingSession = async (
       updatedAt: now
     };
     if (session.retryStatus !== 'pending') {
+      next.retryStatus = session.retryStatus ?? null;
       next.nextRetryAt = null;
       next.retryClaimedAt = null;
       next.retryLeaseExpiresAt = null;

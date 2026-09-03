@@ -5,6 +5,7 @@ import { serverExecutor } from './serverExecutor.js';
 import { findProject, upsertCoachingSession, writeProject } from './serverStore.js';
 import { deliverRaisedAsks } from './asks/deliverRaisedAsks.js';
 import { expireAsk } from './asks/expireAsk.js';
+import { coachingCallDisposition, coachingCallNode, coachingRetryMatchesProject, coachingRetryState } from './coachingRetry.js';
 export { respondToAsk } from './asks/respondToAsk.js';
 
 /**
@@ -51,7 +52,10 @@ export const resetProjectForScheduledOccurrence = (
           lastRun: undefined,
           revision: undefined,
           runHistory: node.actionConfig.lastRun
-            ? [...(node.actionConfig.runHistory || []), node.actionConfig.lastRun]
+            ? [...(node.actionConfig.runHistory || []), {
+                ...node.actionConfig.lastRun,
+                scheduleOccurrenceId: node.actionConfig.lastRun.scheduleOccurrenceId || project.projectData?.schedule_occurrence_id
+              }]
             : node.actionConfig.runHistory
         }
       } : {}),
@@ -95,8 +99,7 @@ export const coachingSessionFromProject = (
   const data = project.projectData || {};
   const occurrenceId = typeof data.schedule_occurrence_id === 'string' ? data.schedule_occurrence_id : '';
   if (data.project_template !== 'daily_coaching' || !occurrenceId) return null;
-  const callNode = project.milestones.find(node => node.id === 'COACH_CALL') ||
-    project.milestones.find(node => node.nodeType === NodeType.PHONE_CALL && node.actionConfig?.template?.includes('coaching_session'));
+  const callNode = coachingCallNode(project);
   const extractionNode = project.milestones.find(node => node.id === 'COACH_EXTRACT');
   const writeNode = project.milestones.find(node => node.id === 'COACH_WRITE');
   const callRun = callNode?.actionConfig?.lastRun;
@@ -108,20 +111,9 @@ export const coachingSessionFromProject = (
   else if (extractionNode?.actionConfig?.lastRun?.status === 'success' && data.coaching_requires_review) status = 'review_required';
   else if (callRun) status = 'calling';
 
-  const attempts = [callRun, ...(callNode?.actionConfig?.runHistory || [])]
-    .filter(run => Boolean(run?.id)).length;
-  const maxAttempts = Math.min(Math.max(Number(data.coaching_max_attempts || 2), 1), 5);
-  const retryDelayMinutes = Math.min(Math.max(Number(data.coaching_retry_delay_minutes || 30), 5), 24 * 60);
-  const retryWindowMinutes = Math.min(Math.max(Number(data.coaching_retry_window_minutes || 180), 5), 24 * 60);
+  const retry = coachingRetryState(project, now);
   const scheduledFor = typeof data.scheduled_for === 'string' ? Date.parse(data.scheduled_for) : NaN;
-  const disposition = typeof outcome?.disposition === 'string'
-    ? outcome.disposition
-    : typeof callOutput.disposition === 'string' ? callOutput.disposition : undefined;
-  const retryableDisposition = ['no_answer', 'busy', 'provider_failure', 'failed', 'voicemail'].includes(disposition || '');
-  const withinWindow = Number.isFinite(scheduledFor) && now <= scheduledFor + retryWindowMinutes * 60_000;
-  const nextRetryAt = status === 'failed' && retryableDisposition && attempts < maxAttempts && withinWindow
-    ? Math.max(now, Number(callRun?.at || now) + retryDelayMinutes * 60_000)
-    : undefined;
+  const disposition = coachingCallDisposition(callRun);
 
   return {
     id: occurrenceId,
@@ -148,9 +140,9 @@ export const coachingSessionFromProject = (
     confidence: Number.isFinite(Number(data.coaching_confidence)) ? Number(data.coaching_confidence) : undefined,
     sheetWrite: data.google_sheet_write && typeof data.google_sheet_write === 'object' ? data.google_sheet_write : undefined,
     failureReason: callRun?.status === 'error' ? callRun.error || outcome?.failureReason : undefined,
-    attemptCount: attempts,
-    nextRetryAt,
-    retryStatus: nextRetryAt ? 'pending' : status === 'failed' && retryableDisposition && attempts >= maxAttempts ? 'exhausted' : undefined
+    attemptCount: retry.attempts,
+    nextRetryAt: retry.nextRetryAt,
+    retryStatus: retry.retryStatus
   };
 };
 
@@ -175,9 +167,17 @@ export const syncCoachingSessionFromProject = async (
 };
 
 /** Loads a project, advances it as far as it will go, and persists the result. */
-export const advanceServerFlow = async (orgId: string, projectId: string): Promise<AdvanceOutcome> => {
+export const advanceServerFlow = async (
+  orgId: string,
+  projectId: string,
+  options: { expectedCoachingOccurrenceId?: string } = {}
+): Promise<AdvanceOutcome> => {
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
+  if (options.expectedCoachingOccurrenceId !== undefined
+      && !coachingRetryMatchesProject(located.project, options.expectedCoachingOccurrenceId)) {
+    return { ok: true, reason: 'stale_coaching_retry', log: ['Skipped coaching retry: occurrence is no longer active'], pending: [] };
+  }
 
   const { project, log, pending, askedFor } = await advanceProjectFlow(located.project, serverExecutor, {
     orgId,

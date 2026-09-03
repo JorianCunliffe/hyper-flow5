@@ -693,6 +693,8 @@ Each occurrence has a transaction lease under `schedule_runs/{orgId}/{scheduleId
 
 The same tick claims sparse `agent_inbox_pending` and `coaching_retry_pending` indexes. Jobs carry two-minute leases and remain recoverable after a worker crash; completed/held work is removed from the index. Coaching retries are bounded by the project attempt/window settings and never redispatch from the same terminal callback.
 
+Coaching defaults to **two total attempts** (the original call plus one retry), waiting **ten minutes after the failed call resolves**. Voicemail, early hangup (`no_meaningful_response` and explicit hangup aliases), no answer, busy and provider failure are retryable; success, wrong number, cancellation, fax and automated-system outcomes are not. The retry runs on the first scheduler tick at or after its due time, only within the configured retry window. Counts are scoped to the current occurrence, and stale retries cannot start a later day's occurrence. The unversioned legacy 2-attempt/30-minute/180-minute default upgrades to ten minutes; separately customised settings and newly saved versioned policies are preserved. Setup's total-attempts field includes the initial call, so set it to `1` to disable automatic retries.
+
 ## Gemini helpers
 
 ### `POST /api/gemini/brainstormSubtasks`

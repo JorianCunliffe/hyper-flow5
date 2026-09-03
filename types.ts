@@ -487,6 +487,7 @@ export interface CommunicationOutcome {
 
 export interface ActionRun {
   id?: string;       // correlates async provider callbacks back to this exact run
+  scheduleOccurrenceId?: string; // scopes automatic call retries to one occurrence
   at: number;
   /**
    * 'pending' means the action was dispatched but its result arrives later via an

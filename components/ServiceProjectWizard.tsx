@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import type { ServiceSetupInput } from '../lib/serviceSetup';
 import { firebaseService } from '../services/firebaseService';
+import { COACHING_MAX_ATTEMPTS, COACHING_RETRY_DELAY_MINUTES, COACHING_RETRY_WINDOW_MINUTES } from '../lib/coachingRetry';
 
 type Template = ServiceSetupInput['template'];
 
@@ -30,8 +31,8 @@ const emailDefaults = (): ServiceSetupInput => ({
 const coachingDefaults = (): ServiceSetupInput => ({
   template: 'daily_coaching', projectName: 'Daily Coaching', accessPersonIds: [], personId: '', phone: '', voiceIdentity: '',
   workspaceConnectionId: '', documentId: '', spreadsheetId: '', sheetRange: 'Coaching!A:G',
-  localTime: '09:00', timezone: timeZone, retryAttempts: 2, retryWindowMinutes: 180,
-  retryDelayMinutes: 30, reviewRecipient: '', reviewChannels: ['web']
+  localTime: '09:00', timezone: timeZone, retryAttempts: COACHING_MAX_ATTEMPTS, retryWindowMinutes: COACHING_RETRY_WINDOW_MINUTES,
+  retryDelayMinutes: COACHING_RETRY_DELAY_MINUTES, reviewRecipient: '', reviewChannels: ['web']
 });
 
 const api = async (url: string, init?: RequestInit) => {
@@ -189,9 +190,10 @@ export const ServiceProjectWizard: React.FC<Props> = ({ isOpen, template = 'emai
           <label><span className={label}>Allowed Sheet range</span><input className={field} value={setup.sheetRange} onChange={e => patch({ sheetRange: e.target.value })} /></label>
           <label><span className={label}>Review recipient</span><input className={field} value={setup.reviewRecipient} onChange={e => patch({ reviewRecipient: e.target.value })} placeholder="email or E.164 phone" /></label>
           <fieldset className="md:col-span-2 rounded-xl border border-slate-200 p-3"><legend className={label}>Review channels</legend><div className="flex flex-wrap gap-4">{(['web', 'email', 'sms'] as const).map(channel => <label key={channel} className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={setup.reviewChannels.includes(channel)} onChange={() => patch({ reviewChannels: setup.reviewChannels.includes(channel) ? setup.reviewChannels.filter(item => item !== channel) : [...setup.reviewChannels, channel] })} />{channel}</label>)}</div></fieldset>
-          <label><span className={label}>Retry attempts</span><input className={field} type="number" min={0} max={5} value={setup.retryAttempts} onChange={e => patch({ retryAttempts: Number(e.target.value) })} /></label>
+          <label><span className={label}>Total call attempts (including first call)</span><input className={field} type="number" min={1} max={5} value={setup.retryAttempts} onChange={e => patch({ retryAttempts: Number(e.target.value) })} /></label>
           <label><span className={label}>Retry delay (minutes)</span><input className={field} type="number" min={5} value={setup.retryDelayMinutes} onChange={e => patch({ retryDelayMinutes: Number(e.target.value) })} /></label>
           <label><span className={label}>Retry window (minutes)</span><input className={field} type="number" min={5} value={setup.retryWindowMinutes} onChange={e => patch({ retryWindowMinutes: Number(e.target.value) })} /></label>
+          <p className="md:col-span-2 text-sm text-slate-500">{Math.max(0, setup.retryAttempts - 1)} automatic {setup.retryAttempts === 2 ? 'retry' : 'retries'} per coaching session, waiting {setup.retryDelayMinutes} minutes after a failed call. Voicemail and early hangups are retryable; completed calls and wrong numbers are not. Retries run on the first scheduler tick after the delay.</p>
         </>}
         <label><span className={label}>Daily time</span><input className={field} type="time" value={setup.localTime} onChange={e => patch({ localTime: e.target.value })} /></label>
         <label><span className={label}>Timezone</span><input className={field} value={setup.timezone} onChange={e => patch({ timezone: e.target.value })} /></label>

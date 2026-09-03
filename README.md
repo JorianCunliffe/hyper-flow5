@@ -14,7 +14,7 @@ HyperFlow is a visual workflow engine for projects that combine human milestones
 | Reports | Generate, evaluate, and revise reports with Gemini. |
 | Human Asks | Pause a run for approval, rejection, revision, information, or an upload; collect responses by web form, email, SMS, or voice. |
 | Communications triage | Run a project-scoped action against one connected mailbox, prepare safe provider-native drafts, publish an idempotent daily digest, and review inbound email/SMS/voice or proposed coaching actions in one tenant-scoped inbox. |
-| Daily Coaching | Read an allowlisted Google Doc and Sheet, place a correlated coaching call, exclude failed/voicemail outcomes, extract a typed result, and append one idempotent tracker row. |
+| Daily Coaching | Read an allowlisted Google Doc and Sheet, place a correlated coaching call, retry voicemail/early hangups once after ten minutes by default, exclude failed outcomes, extract a typed result, and append one idempotent tracker row. |
 | Omnichannel project agent | Route trusted inbound email, SMS, and completed voice conversations to an allowed project; answer bounded read-only questions, ask for project clarification, or hold typed mutations for authenticated approval. |
 | Durable schedules | Run tenant-local `communications_triage` or `flow_start` occurrences with leases, occurrence idempotency, retry windows, and misfire policy. |
 | Google Workspace | Store encrypted tenant OAuth credentials server-side and constrain Doc/Sheet actions to project-specific resource grants. |

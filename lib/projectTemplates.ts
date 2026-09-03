@@ -1,4 +1,5 @@
 import { NodeType, type Milestone, type Project, type ProjectData } from '../types.js';
+import { COACHING_MAX_ATTEMPTS, COACHING_RETRY_DELAY_MINUTES, COACHING_RETRY_WINDOW_MINUTES, COACHING_RETRY_POLICY_VERSION } from './coachingRetry.js';
 
 export type HyperFlowProjectTemplate = 'blank' | 'daily_coaching' | 'email_triage';
 
@@ -63,9 +64,10 @@ export const dailyCoachingTemplate = (options: {
     coaching_person_id: options.reviewer || '',
     contact_phone: options.phone || '',
     contact_email: options.email || '',
-    coaching_max_attempts: 2,
-    coaching_retry_delay_minutes: 30,
-    coaching_retry_window_minutes: 180,
+    coaching_max_attempts: COACHING_MAX_ATTEMPTS,
+    coaching_retry_delay_minutes: COACHING_RETRY_DELAY_MINUTES,
+    coaching_retry_window_minutes: COACHING_RETRY_WINDOW_MINUTES,
+    coaching_retry_policy_version: COACHING_RETRY_POLICY_VERSION,
     coaching_transient_keys: COACHING_TRANSIENT_KEYS
   }
 });

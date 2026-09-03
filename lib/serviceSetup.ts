@@ -128,9 +128,10 @@ export const validateServiceSetup = async (
         checks.push(check('workspace_resources', 'Google resources', false, error?.message || 'Selected Google resources could not be validated'));
       }
     }
-    const retryOk = Number.isInteger(input.retryAttempts) && input.retryAttempts >= 0 && input.retryAttempts <= 5
-      && input.retryDelayMinutes >= 5 && input.retryWindowMinutes >= input.retryDelayMinutes;
-    checks.push(check('retries', 'Retry policy', retryOk, retryOk ? 'Retry limits are valid' : 'Use 0-5 attempts, at least 5 minutes between attempts, and a window no shorter than the delay'));
+    const retryOk = Number.isInteger(input.retryAttempts) && input.retryAttempts >= 1 && input.retryAttempts <= 5
+      && Number.isInteger(input.retryDelayMinutes) && input.retryDelayMinutes >= 5 && input.retryDelayMinutes <= 1440
+      && Number.isInteger(input.retryWindowMinutes) && input.retryWindowMinutes >= input.retryDelayMinutes && input.retryWindowMinutes <= 1440;
+    checks.push(check('retries', 'Retry policy', retryOk, retryOk ? `${input.retryAttempts} total call attempts (${input.retryAttempts - 1} retries), ${input.retryDelayMinutes} minutes after failure` : 'Use 1-5 total attempts, a 5-1440 minute delay, and a window between the delay and 1440 minutes'));
     const reviewOk = input.reviewChannels.includes('web')
       || (input.reviewChannels.includes('email') && validEmail(input.reviewRecipient))
       || (input.reviewChannels.includes('sms') && validPhone(input.reviewRecipient));

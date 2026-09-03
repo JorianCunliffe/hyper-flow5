@@ -2,6 +2,7 @@ import { ActionRun, HumanAsk, Milestone, Project } from '../types.js';
 import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
+import { coachingCallNode, coachingRetryState } from './coachingRetry.js';
 
 /**
  * Environment-agnostic flow orchestration.
@@ -136,6 +137,7 @@ export const runActionNode = async (
 
   const run: ActionRun = {
     id: runId,
+    scheduleOccurrenceId: typeof project.projectData?.schedule_occurrence_id === 'string' ? project.projectData.schedule_occurrence_id : undefined,
     at: Date.now(),
     status: outcome.status,
     executionState:
@@ -148,7 +150,9 @@ export const runActionNode = async (
     externalId: outcome.externalId,
     externalExecutionId: outcome.externalExecutionId || outcome.externalId,
     externalService: outcome.externalService,
-    startedAt: outcome.startedAt || Date.now()
+    startedAt: outcome.startedAt || Date.now(),
+    resolvedAt: outcome.status === 'pending' ? undefined : Date.now(),
+    communicationOutcome: communicationOutcomeFromOutput(outcome.output)
   };
 
   const label =
@@ -230,6 +234,15 @@ export const advanceProjectFlow = async (
     // Never re-dispatch an action that is already waiting on a callback.
     const runnable = actionsToRun.filter(id => {
       const run = current.milestones.find(m => m.id === id)?.actionConfig?.lastRun;
+      if (run?.status === 'error' && coachingCallNode(current)?.id === id) {
+        const retry = coachingRetryState(current);
+        if (!retry.due) {
+          log.push(retry.nextRetryAt
+            ? `Coaching call retry held until ${new Date(retry.nextRetryAt).toISOString()}`
+            : 'Coaching call automatic retry stopped: attempt limit, retry window, or non-retryable outcome');
+          return false;
+        }
+      }
       return run?.status !== 'pending';
     });
 

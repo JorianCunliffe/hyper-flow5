@@ -3,6 +3,7 @@ import { Settings, X, Plus, Tags, Building, User, CheckCircle2, Type as LucideTy
 import { AppSettings, CommunicationsPersonRef, MailboxConnectionRef, Project, TeamMemberDetails, TenantAgentProfile, TenantSchedule, WorkspaceConnectionRef } from '../../types';
 import { firebaseService } from '../../services/firebaseService';
 import { COACHING_TRANSIENT_KEYS } from '../../lib/projectTemplates';
+import { coachingRetryPolicy } from '../../lib/coachingRetry';
 import type { ServiceSetupInput } from '../../lib/serviceSetup';
 import { ServiceProjectWizard } from '../ServiceProjectWizard';
 
@@ -262,12 +263,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       triagePolicy: data.triage_policy || 'human_only', createDrafts: data.triage_create_drafts !== false,
       digestChannel: data.triage_digest_channel || 'web', digestRecipient: data.triage_digest_recipient || '', authoritativeSync: true
     } as Partial<ServiceSetupInput>;
+    const retryPolicy = coachingRetryPolicy(data);
     return {
       template: 'daily_coaching', serviceProjectId: String(project.id), projectName: project.name, accessPersonIds: Array.isArray(data.service_allowed_person_ids) ? data.service_allowed_person_ids : [data.coaching_person_id].filter(Boolean), personId: data.coaching_person_id || '', phone: data.contact_phone || '',
       voiceIdentity: settings.communications?.fromNumber || '', workspaceConnectionId: data.coaching_workspace_connection_id || '',
       documentId: data.coaching_document_id || '', spreadsheetId: data.coaching_spreadsheet_id || '', sheetRange: data.coaching_sheet_range || 'Coaching!A:G',
       localTime: '09:00', timezone: data.coaching_timezone || settings.communications?.timezone || 'Australia/Brisbane',
-      retryAttempts: Number(data.coaching_max_attempts ?? 2), retryDelayMinutes: Number(data.coaching_retry_delay_minutes ?? 30), retryWindowMinutes: Number(data.coaching_retry_window_minutes ?? 180),
+      retryAttempts: retryPolicy.maxAttempts, retryDelayMinutes: retryPolicy.delayMinutes, retryWindowMinutes: retryPolicy.windowMinutes,
       reviewRecipient: data.coaching_review_recipient || '', reviewChannels: Array.isArray(data.coaching_review_channels) ? data.coaching_review_channels : ['web']
     } as Partial<ServiceSetupInput>;
   };

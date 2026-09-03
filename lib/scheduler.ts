@@ -17,7 +17,8 @@ import {
   completeScheduleRunAndAdvance,
   finishScheduleRun,
   listDueSchedules,
-  releaseCoachingRetry
+  releaseCoachingRetry,
+  upsertCoachingSession
 } from './serverStore.js';
 
 export interface ScheduleExecutionResult {
@@ -180,11 +181,15 @@ export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecution
     : [];
   for (const retry of coachingRetries) {
     try {
-      const outcome = await advanceServerFlow(retry.orgId, retry.projectId);
+      const outcome = await advanceServerFlow(retry.orgId, retry.projectId, { expectedCoachingOccurrenceId: retry.id });
       if (!outcome.ok) throw new Error(outcome.reason || 'Coaching retry could not advance');
+      if (outcome.reason === 'stale_coaching_retry') {
+        await upsertCoachingSession({ ...retry, retryStatus: 'exhausted', nextRetryAt: undefined });
+      }
       results.push({
         scheduleId: retry.scheduleId || `coaching_retry:${retry.id}`,
-        status: 'completed', processedCount: 1, projectId: retry.projectId, runId: retry.scheduleRunId
+        status: outcome.reason === 'stale_coaching_retry' ? 'skipped' : 'completed',
+        processedCount: outcome.reason === 'stale_coaching_retry' ? 0 : 1, projectId: retry.projectId, runId: retry.scheduleRunId
       });
     } catch (error: any) {
       const message = error?.message || String(error);
