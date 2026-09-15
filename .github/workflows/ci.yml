@@ -72,8 +72,14 @@ jobs:
       - name: Communications draft update tests
         run: node --test --test-reporter=spec test/mailboxDraftUpdate.test.js
         working-directory: communications
-      - name: Communications full regression suite
-        run: npm test
+      - name: Communications core regression tests
+        run: node --test --test-reporter=spec test/database.test.js test/transcripts.test.js test/context.test.js test/communications.test.js test/email.test.js test/emailPolicy.test.js test/mailbox.test.js test/callOutcome.test.js test/tools.test.js test/voiceTurns.test.js test/eventOutbox.test.js test/hyperflowScheduler.test.js test/memory.test.js test/security.test.js test/tenantClient.test.js test/contractFixtures.test.js
+        working-directory: communications
+      - name: Communications documentation contract
+        run: node --test --test-reporter=spec test/documentation.test.js
+        working-directory: communications
+      - name: Communications suite contract
+        run: node --test --test-reporter=spec test/suite.test.js
         working-directory: communications
       - run: npm ci
         working-directory: hyperflow
