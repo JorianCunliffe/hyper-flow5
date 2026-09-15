@@ -2,6 +2,7 @@ import { Milestone, Project, NodeType, ActionRun } from '../types.js';
 import { checkReadyCondition } from './taskReadinessUtils.js';
 import { isReviewSatisfied, needsApprovalAsk } from './humanAsk.js';
 import { isTaskComplete } from './taskStatus.js';
+import type { FlowHoldConfig, RuntimeMilestone } from './flowRuntimeTypes.js';
 
 export type NodeResolution = 'pending' | 'complete' | 'skipped';
 
@@ -15,10 +16,47 @@ export const activeOccurrenceId = (projectData?: Record<string, any>): string | 
   return typeof scheduled === 'string' && scheduled ? scheduled : undefined;
 };
 
+/** Generic hold config with legacy timer WAIT mapped into the same runtime shape. */
+export const getHoldConfig = (m: Milestone): FlowHoldConfig | undefined => {
+  const generic = (m as RuntimeMilestone).holdConfig;
+  if (generic) return generic;
+  if (!m.waitConfig) return undefined;
+  return {
+    kind: 'timer',
+    durationMinutes: m.waitConfig.durationMinutes,
+    reason: m.waitConfig.reason,
+    holdId: m.waitConfig.holdId,
+    armedAt: m.waitConfig.armedAt,
+    availableAt: m.waitConfig.resumeAt,
+    resolvedAt: m.waitConfig.resolvedAt,
+    occurrenceId: m.waitConfig.occurrenceId
+  };
+};
+
+const writeHoldConfig = (m: Milestone, cfg: FlowHoldConfig): Milestone => {
+  if ((m as RuntimeMilestone).holdConfig || cfg.kind !== 'timer') {
+    return { ...m, holdConfig: cfg } as RuntimeMilestone;
+  }
+  return {
+    ...m,
+    waitConfig: {
+      ...m.waitConfig,
+      kind: 'timer',
+      durationMinutes: cfg.durationMinutes,
+      reason: cfg.reason,
+      holdId: cfg.holdId,
+      armedAt: cfg.armedAt,
+      resumeAt: cfg.availableAt,
+      resolvedAt: cfg.resolvedAt,
+      occurrenceId: cfg.occurrenceId
+    }
+  };
+};
+
 const waitMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>): boolean => {
   const active = activeOccurrenceId(projectData);
   if (!active) return true;
-  return m.waitConfig?.occurrenceId === active;
+  return getHoldConfig(m)?.occurrenceId === active;
 };
 
 const eventMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>): boolean => {
@@ -34,7 +72,7 @@ export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>):
     case NodeType.LOOP:
       return !!m.loopConfig?.exited;
     case NodeType.WAIT:
-      return !!m.waitConfig?.resolvedAt && waitMatchesOccurrence(m, projectData);
+      return !!getHoldConfig(m)?.resolvedAt && waitMatchesOccurrence(m, projectData);
     case NodeType.EVENT_TRIGGER:
       return eventMatchesOccurrence(m, projectData);
     case NodeType.END:
@@ -136,7 +174,7 @@ export const getLoopBody = (project: Project, loopNode: Milestone): string[] => 
 };
 
 const resetNodeForIteration = (m: Milestone): Milestone => {
-  const reset: Milestone = {
+  let reset: Milestone = {
     ...m,
     completedAt: undefined,
     subtasks: (m.subtasks || []).map(s => ({
@@ -150,15 +188,19 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
   if (m.decisionConfig) {
     reset.decisionConfig = { ...m.decisionConfig, selectedTargetId: undefined, decidedAt: undefined };
   }
-  if (m.waitConfig) {
-    reset.waitConfig = {
-      ...m.waitConfig,
-      resumeAt: undefined,
+  const hold = getHoldConfig(m);
+  if (hold) {
+    reset = writeHoldConfig(reset, {
+      ...hold,
+      availableAt: undefined,
       armedAt: undefined,
       resolvedAt: undefined,
       holdId: undefined,
-      occurrenceId: undefined
-    };
+      occurrenceId: undefined,
+      resolution: undefined,
+      resolvedBy: undefined,
+      signalId: undefined
+    });
   }
   if (m.eventTriggerConfig) {
     reset.eventTriggerConfig = {
@@ -185,16 +227,42 @@ export interface AdvanceResult {
   log: string[];
 }
 
-const boundedWaitMinutes = (value: unknown): number => {
+const boundedMinutes = (value: unknown, fallback = 5): number => {
   const requested = Number(value);
-  if (!Number.isFinite(requested)) return 5;
+  if (!Number.isFinite(requested)) return fallback;
   return Math.min(Math.max(requested, 1), 24 * 60);
 };
 
+const validVariable = (value: unknown): string | undefined => {
+  const key = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
+};
+
+const applyHoldResult = (
+  data: Record<string, any>,
+  cfg: FlowHoldConfig,
+  resolution: 'timer' | 'timeout'
+): Record<string, any> => {
+  const key = validVariable(cfg.resultVariable);
+  if (!key) return data;
+  return {
+    ...data,
+    [key]: resolution,
+    [`${key}_resolved`]: true,
+    [`${key}_resolution`]: resolution
+  };
+};
+
+const humanWaitNeedsAsk = (m: Milestone): boolean => {
+  const cfg = getHoldConfig(m);
+  if (getNodeType(m) !== NodeType.WAIT || cfg?.kind !== 'human' || !cfg.holdId || cfg.resolvedAt) return false;
+  return !(m.asks || []).some(ask => ask.status === 'open' || ask.status === 'answered');
+};
+
 /**
- * Pure graph advance. EVENT_TRIGGER nodes are passive and are resolved only by
- * the event adapter. END nodes explicitly complete a ready branch. Failed
- * actions never retry themselves; retry must be configured in the graph.
+ * Pure graph advance. EVENT_TRIGGER nodes start occurrences. WAIT is the generic
+ * durable hold primitive: timer waits resolve by time, other waits resolve only
+ * from a matching external signal or their configured timeout.
  */
 export const advanceFlow = (project: Project): AdvanceResult => {
   let current = project;
@@ -256,40 +324,43 @@ export const advanceFlow = (project: Project): AdvanceResult => {
       if (type === NodeType.WAIT && isNodeReady(m, states)) {
         const now = Date.now();
         const occurrenceId = activeOccurrenceId(projectData);
-        const existing = m.waitConfig || { kind: 'timer' as const };
+        const existing = getHoldConfig(m) || { kind: 'timer' as const };
         const sameOccurrence = !occurrenceId || existing.occurrenceId === occurrenceId;
-        const resumeAt = sameOccurrence ? Number(existing.resumeAt || 0) : 0;
+        const availableAt = sameOccurrence ? Number(existing.availableAt || 0) : 0;
 
-        if (resumeAt > 0 && resumeAt <= now) {
+        if (availableAt > 0 && availableAt <= now) {
+          const resolution = existing.kind === 'timer' ? 'timer' as const : 'timeout' as const;
+          const resolved = { ...existing, occurrenceId, resolvedAt: now, resolution, resolvedBy: 'scheduler/time' };
           current = {
             ...current,
-            milestones: current.milestones.map(mil => mil.id === m.id ? {
-              ...mil,
-              waitConfig: { ...existing, occurrenceId, resolvedAt: now }
-            } : mil)
+            projectData: applyHoldResult(current.projectData || {}, resolved, resolution),
+            milestones: current.milestones.map(mil => mil.id === m.id ? writeHoldConfig(mil, resolved) : mil)
           };
-          log.push(`Wait "${m.name}": hold resolved`);
+          log.push(`Wait "${m.name}": ${resolution === 'timer' ? 'timer completed' : 'timed out'}`);
           changed = true;
-        } else if (resumeAt <= 0) {
-          const minutes = boundedWaitMinutes(existing.durationMinutes);
-          const holdId = `hold_${current.id}_${m.id}_${occurrenceId || now}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 220);
+        } else if (!existing.armedAt || !sameOccurrence) {
+          const delay = existing.kind === 'timer'
+            ? boundedMinutes(existing.durationMinutes)
+            : existing.timeoutMinutes ? boundedMinutes(existing.timeoutMinutes) : undefined;
+          const holdId = `hold_${current.projectData?.flow_run_id || current.id}_${m.id}_${occurrenceId || now}`
+            .replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 220);
+          const armed: FlowHoldConfig = {
+            ...existing,
+            ...(existing.kind === 'timer' ? { durationMinutes: delay } : {}),
+            holdId,
+            armedAt: now,
+            availableAt: delay ? now + delay * 60_000 : undefined,
+            resolvedAt: undefined,
+            occurrenceId,
+            resolution: undefined,
+            resolvedBy: undefined,
+            signalId: undefined
+          };
           current = {
             ...current,
-            milestones: current.milestones.map(mil => mil.id === m.id ? {
-              ...mil,
-              waitConfig: {
-                ...existing,
-                kind: 'timer',
-                durationMinutes: minutes,
-                resumeAt: now + minutes * 60_000,
-                armedAt: now,
-                resolvedAt: undefined,
-                holdId,
-                occurrenceId
-              }
-            } : mil)
+            milestones: current.milestones.map(mil => mil.id === m.id ? writeHoldConfig(mil, armed) : mil)
           };
-          log.push(`Wait "${m.name}": held for ${minutes} minute(s)`);
+          log.push(`Wait "${m.name}": holding for ${armed.kind}${delay ? ` (timeout ${delay} minute(s))` : ''}`);
           changed = true;
         }
       }
@@ -318,7 +389,10 @@ export const advanceFlow = (project: Project): AdvanceResult => {
     .map(m => m.id);
 
   const asksToOpen = current.milestones
-    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m, current.projectData) && needsApprovalAsk(m, current.projectData))
+    .filter(m =>
+      (finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m, current.projectData) && needsApprovalAsk(m, current.projectData)) ||
+      humanWaitNeedsAsk(m)
+    )
     .map(m => m.id);
 
   return { project: current, actionsToRun, asksToOpen, log };
