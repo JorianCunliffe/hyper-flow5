@@ -3,20 +3,25 @@ import { advanceServerFlow } from '../../lib/serverFlow.js';
 import { findProject, isServerStoreConfigured, listTenantSchedules } from '../../lib/serverStore.js';
 import { runTenantSchedule } from '../../lib/scheduler.js';
 import { ApiAuthError, hasSharedSecret, requireAppMember } from '../../lib/apiAuth.js';
+import { listFlowRuns } from '../../lib/flowRunStore.js';
+import { presentFlowRuns } from '../../lib/flowRunPresentation.js';
+
+const queryValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 
 /**
- * Advances a project's flow server-side. Useful for a scheduled sweep (retrying
- * failed actions, firing reminders) and for triggering an advance from anywhere
- * that isn't the browser.
+ * Advances a project's flow server-side. GET returns a bounded, sanitized run
+ * history for operational debugging without exposing mutable run state.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (!['GET', 'POST'].includes(req.method || '')) return res.status(405).json({ error: 'Method not allowed' });
 
   if (!isServerStoreConfigured()) {
     return res.status(503).json({ error: 'Server-side persistence is not configured' });
   }
 
-  const { orgId, projectId } = req.body || {};
+  const source = req.method === 'GET' ? req.query : (req.body || {});
+  const orgId = queryValue(source.orgId as string | string[] | undefined);
+  const projectId = queryValue(source.projectId as string | string[] | undefined);
   if (!orgId || !projectId) return res.status(400).json({ error: 'orgId and projectId are required' });
 
   try {
@@ -26,7 +31,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const normalizedOrgId = String(orgId);
     const normalizedProjectId = String(projectId);
     const located = await findProject(normalizedOrgId, normalizedProjectId);
-    const template = String(located?.project.projectData?.project_template || '');
+    if (!located) return res.status(404).json({ error: 'project_not_found' });
+
+    if (req.method === 'GET') {
+      const rawLimit = Number(queryValue(req.query.limit));
+      const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, Math.trunc(rawLimit))) : 25;
+      const runs = await listFlowRuns(normalizedOrgId, normalizedProjectId, limit);
+      return res.status(200).json({
+        ok: true,
+        projectId: normalizedProjectId,
+        runs: presentFlowRuns(runs)
+      });
+    }
+
+    const template = String(located.project.projectData?.project_template || '');
     if (['email_triage', 'daily_email_triage'].includes(template)) {
       const schedule = (await listTenantSchedules(normalizedOrgId)).find(item =>
         item.activity === 'communications_triage' && item.projectId === normalizedProjectId
@@ -53,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!outcome.ok) return res.status(404).json({ error: outcome.reason });
     return res.status(200).json(outcome);
   } catch (e: any) {
-    console.error('Server-side advance failed', e);
+    console.error('Server-side flow request failed', e);
     return res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e?.message || String(e) });
   }
 }
