@@ -64,6 +64,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [holdExternalIds, setHoldExternalIds] = useState(csvText(initialHold.match?.externalIds));
   const [holdHumanKind, setHoldHumanKind] = useState<AskKind>(initialHold.human?.kind || 'question');
   const [holdHumanPrompt, setHoldHumanPrompt] = useState(initialHold.human?.prompt || '');
+  const [holdHumanFieldsSource, setHoldHumanFieldsSource] = useState(initialHold.human?.fieldsSource || '');
   const [holdHumanAssignees, setHoldHumanAssignees] = useState(csvText(initialHold.human?.assignees));
   const [holdHumanChannels, setHoldHumanChannels] = useState<AskChannel[]>(initialHold.human?.channels || ['web']);
 
@@ -200,6 +201,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         holdConfig.human = {
           kind: holdHumanKind,
           prompt: holdHumanPrompt.trim() || undefined,
+          fieldsSource: holdHumanFieldsSource.trim() || undefined,
           assignees: csv(holdHumanAssignees).length ? csv(holdHumanAssignees) : undefined,
           channels: holdHumanChannels.length ? holdHumanChannels : ['web']
         };
@@ -354,6 +356,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
                   <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assignee IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanAssignees} onChange={(e) => setHoldHumanAssignees(e.target.value)} placeholder="person_123" /></label>
                 </div>
                 <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Prompt</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanPrompt} onChange={(e) => setHoldHumanPrompt(e.target.value)} placeholder={`Response required to continue “${milestone.name}”.`} /></label>
+                <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Question fields source</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdHumanFieldsSource} onChange={(e) => setHoldHumanFieldsSource(e.target.value)} placeholder="daily_plan.open_questions" /><span className="mt-1 block text-[10px] text-slate-500">Dot path to an upstream project-data array. The schema is frozen when this Ask opens.</span></label>
                 <fieldset><legend className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delivery channels</legend><div className="flex flex-wrap gap-2">{(['web', 'email', 'sms', 'voice'] as AskChannel[]).map(channel => { const selected = holdHumanChannels.includes(channel); return <label key={channel} className="flex items-center gap-1.5 rounded-lg border border-amber-100 bg-white px-2.5 py-1.5 text-xs font-semibold"><input type="checkbox" checked={selected} onChange={() => setHoldHumanChannels(current => selected ? current.filter(item => item !== channel) : [...current, channel])} />{channel}</label>; })}</div></fieldset>
               </div>
             )}
