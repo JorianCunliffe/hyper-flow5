@@ -8,8 +8,12 @@ export type NodeResolution = 'pending' | 'complete' | 'skipped';
 export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
 
-const activeOccurrenceId = (projectData?: Record<string, any>): string | undefined =>
-  typeof projectData?.schedule_occurrence_id === 'string' ? projectData.schedule_occurrence_id : undefined;
+export const activeOccurrenceId = (projectData?: Record<string, any>): string | undefined => {
+  const generic = projectData?.flow_occurrence_id;
+  if (typeof generic === 'string' && generic) return generic;
+  const scheduled = projectData?.schedule_occurrence_id;
+  return typeof scheduled === 'string' && scheduled ? scheduled : undefined;
+};
 
 const waitMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>): boolean => {
   const active = activeOccurrenceId(projectData);
@@ -17,14 +21,12 @@ const waitMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>):
   return m.waitConfig?.occurrenceId === active;
 };
 
-/**
- * A node's work, ignoring dependencies and any review gate:
- * - milestone: has subtasks and all are complete
- * - decision: a branch has been selected
- * - loop: exit condition met (exited)
- * - wait: the durable hold has resolved for the active occurrence
- * - action: success, or an explicitly configured continue-on-error result
- */
+const eventMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>): boolean => {
+  const active = activeOccurrenceId(projectData);
+  if (!active) return !!m.eventTriggerConfig?.triggeredAt;
+  return !!m.eventTriggerConfig?.triggeredAt && m.eventTriggerConfig?.occurrenceId === active;
+};
+
 export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>): boolean => {
   switch (getNodeType(m)) {
     case NodeType.DECISION:
@@ -33,6 +35,10 @@ export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>):
       return !!m.loopConfig?.exited;
     case NodeType.WAIT:
       return !!m.waitConfig?.resolvedAt && waitMatchesOccurrence(m, projectData);
+    case NodeType.EVENT_TRIGGER:
+      return eventMatchesOccurrence(m, projectData);
+    case NodeType.END:
+      return !!m.completedAt;
     case NodeType.MILESTONE:
       return (m.subtasks || []).length > 0 && m.subtasks.every(isTaskComplete);
     default: {
@@ -43,27 +49,15 @@ export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>):
   }
 };
 
-/**
- * A node is complete when its work is done *and* any human review gate on it has
- * been satisfied. An unreviewed node stays pending, so the flow does not run
- * ahead of the person who is supposed to sign the work off.
- */
 export const isNodeComplete = (m: Milestone, projectData?: Record<string, any>): boolean =>
   isNodeWorkDone(m, projectData) && isReviewSatisfied(m, projectData);
 
-/** A node whose work is finished but which is waiting on a human. */
 export const isAwaitingReview = (m: Milestone, projectData?: Record<string, any>): boolean =>
   isNodeWorkDone(m, projectData) && !isReviewSatisfied(m, projectData);
 
 const getChildren = (milestones: Milestone[], id: string): Milestone[] =>
   milestones.filter(m => (m.dependsOn || []).includes(id));
 
-/**
- * Resolves every node to pending / complete / skipped.
- * A node is skipped when a decided decision parent chose a different branch,
- * or when all of its parents are skipped. Skipped parents don't block a join:
- * a node can proceed when every parent is resolved and at least one is complete.
- */
 export const resolveNodeStates = (project: Project): Map<string, NodeResolution> => {
   const milestones = project.milestones;
   const states = new Map<string, NodeResolution>();
@@ -71,7 +65,7 @@ export const resolveNodeStates = (project: Project): Map<string, NodeResolution>
   const resolve = (id: string, visiting: Set<string>): NodeResolution => {
     const cached = states.get(id);
     if (cached) return cached;
-    if (visiting.has(id)) return 'pending'; // cycle guard
+    if (visiting.has(id)) return 'pending';
     visiting.add(id);
 
     const m = milestones.find(mil => mil.id === id);
@@ -105,11 +99,6 @@ export const resolveNodeStates = (project: Project): Map<string, NodeResolution>
   return states;
 };
 
-/**
- * A node is ready when it isn't complete/skipped itself, every parent is
- * resolved (complete or skipped), and at least one parent is complete
- * (or it has no parents).
- */
 export const isNodeReady = (m: Milestone, states: Map<string, NodeResolution>): boolean => {
   const own = states.get(m.id);
   if (own === 'complete' || own === 'skipped') return false;
@@ -119,10 +108,6 @@ export const isNodeReady = (m: Milestone, states: Map<string, NodeResolution>): 
   return parentStates.every(s => s !== 'pending') && parentStates.some(s => s === 'complete');
 };
 
-/**
- * Loop body = nodes forward-reachable from loopStart that can also reach the
- * loop node (excluding the loop node itself).
- */
 export const getLoopBody = (project: Project, loopNode: Milestone): string[] => {
   const startId = loopNode.loopConfig?.loopStartId;
   if (!startId) return [];
@@ -175,6 +160,14 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
       occurrenceId: undefined
     };
   }
+  if (m.eventTriggerConfig) {
+    reset.eventTriggerConfig = {
+      ...m.eventTriggerConfig,
+      lastEventId: undefined,
+      triggeredAt: undefined,
+      occurrenceId: undefined
+    };
+  }
   if (m.actionConfig?.lastRun) {
     reset.actionConfig = {
       ...m.actionConfig,
@@ -199,16 +192,9 @@ const boundedWaitMinutes = (value: unknown): number => {
 };
 
 /**
- * Advances the flow one step (pure function):
- * 1. Decides ready decision nodes.
- * 2. Processes ready loop nodes.
- * 3. Arms or resolves ready WAIT nodes. Persistence/scheduling of the hold is
- *    performed by the server adapter after this pure transition.
- * 4. Collects ready auto-execute action nodes for the caller to run.
- *
- * Failed actions are never retried merely because Advance Flow was called again.
- * A retry must be expressed by the graph (normally Decision -> Wait -> Loop),
- * which resets the action node explicitly for another attempt.
+ * Pure graph advance. EVENT_TRIGGER nodes are passive and are resolved only by
+ * the event adapter. END nodes explicitly complete a ready branch. Failed
+ * actions never retry themselves; retry must be configured in the graph.
  */
 export const advanceFlow = (project: Project): AdvanceResult => {
   let current = project;
@@ -306,6 +292,15 @@ export const advanceFlow = (project: Project): AdvanceResult => {
           log.push(`Wait "${m.name}": held for ${minutes} minute(s)`);
           changed = true;
         }
+      }
+
+      if (type === NodeType.END && !m.completedAt && isNodeReady(m, states)) {
+        current = {
+          ...current,
+          milestones: current.milestones.map(mil => mil.id === m.id ? { ...mil, completedAt: Date.now() } : mil)
+        };
+        log.push(`End "${m.name}": branch terminated`);
+        changed = true;
       }
     }
 
