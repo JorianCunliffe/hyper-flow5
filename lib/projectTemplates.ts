@@ -59,8 +59,11 @@ export const dailyCoachingTemplate = (options: {
   const hasRetry = totalAttempts > 1;
 
   const milestones: Milestone[] = [
-    action('COACH_DOC', 'Read coaching document', NodeType.GOOGLE_DOC, [], { resource_name: 'coaching_source' }),
-    action('COACH_TRACKER', 'Read coaching tracker', NodeType.GOOGLE_SHEET_READ, [], { resource_name: 'coaching_tracker' }),
+    // Generated legacy service projects keep using their default grant until the
+    // setup wizard writes named catalog resources. Human-authored nodes may use
+    // resource_name immediately.
+    action('COACH_DOC', 'Read coaching document', NodeType.GOOGLE_DOC, [], {}),
+    action('COACH_TRACKER', 'Read coaching tracker', NodeType.GOOGLE_SHEET_READ, [], {}),
     action('COACH_CALL', 'Daily coaching call', NodeType.PHONE_CALL, ['COACH_DOC', 'COACH_TRACKER'], {
       to: '{{contact_phone}}',
       purpose_type: 'coaching_session',
@@ -104,7 +107,6 @@ export const dailyCoachingTemplate = (options: {
       }
     }),
     action('COACH_WRITE', 'Update coaching tracker', NodeType.GOOGLE_SHEET_APPEND, ['COACH_EXTRACT'], {
-      resource_name: 'coaching_tracker',
       idempotency_key: '{{flow_occurrence_id}}:coaching-sheet',
       values: [[
         '{{scheduled_for}}', '{{coaching_progress}}', '{{coaching_blockers}}',
@@ -186,10 +188,6 @@ const upgradeGeneratedDailyCoachingProject = (project: Project): Project => {
   };
 };
 
-/**
- * Upgrades only exact generated legacy shapes. Human-authored graphs are never
- * rewritten: once a person edits the graph, the flow itself is authoritative.
- */
 export const upgradeLegacyEmailTriageProject = (project: Project): Project => {
   const coachingUpgraded = upgradeGeneratedDailyCoachingProject(project);
   if (coachingUpgraded !== project) return coachingUpgraded;
