@@ -2,7 +2,6 @@ import { ActionRun, HumanAsk, Milestone, Project } from '../types.js';
 import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
-import { coachingCallNode, coachingRetryState } from './coachingRetry.js';
 
 /**
  * Environment-agnostic flow orchestration.
@@ -20,9 +19,7 @@ export interface ActionExecutionContext {
   projectId: string;
   nodeId: string;
   runId: string;
-  /** Public base URL used to build provider callback URLs. */
   webhookBaseUrl?: string;
-  /** Reviewer feedback from a previous attempt, when this run is a redo. */
   revision?: { feedback: string; priorOutput?: any; count: number };
 }
 
@@ -47,9 +44,7 @@ export type ActionExecutor = (
 export interface OrchestrationResult {
   project: Project;
   log: string[];
-  /** Node ids whose runs are awaiting an inbound webhook. */
   pending: string[];
-  /** Asks raised during this advance, for the caller to deliver to people. */
   askedFor: { nodeId: string; ask: HumanAsk }[];
 }
 
@@ -57,24 +52,38 @@ let runCounter = 0;
 export const newRunId = (): string =>
   `run_${Date.now().toString(36)}_${(++runCounter).toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+const validResultVariable = (value: unknown): string | undefined => {
+  const key = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
+};
+
 /**
- * Records a run against a node. On success the run's output is merged into
- * projectData so downstream decisions and loops can branch on it. Pending and
- * failed runs never touch projectData.
- *
- * Pure — returns a new project.
+ * Records a run against a node. Successful object output is merged into project
+ * data as before. A configured resultVariable additionally exposes terminal
+ * success/error as graph data so Decision/Wait/Loop can express recovery without
+ * any feature-specific retry code.
  */
 export const applyActionRun = (project: Project, nodeId: string, run: ActionRun): Project => {
+  const node = project.milestones.find(m => m.id === nodeId);
   const merge = run.status === 'success' && run.output && typeof run.output === 'object' && !Array.isArray(run.output);
+  const resultVariable = validResultVariable(node?.actionConfig?.resultVariable);
+  const terminal = run.status !== 'pending' && resultVariable;
+  const resultData = terminal ? {
+    [resultVariable!]: run.status,
+    ...(run.output !== undefined ? { [`${resultVariable}_output`]: run.output } : {}),
+    ...(run.error ? { [`${resultVariable}_error`]: run.error } : {})
+  } : {};
+  const nextProjectData = merge || terminal
+    ? { ...(project.projectData || {}), ...(merge ? run.output : {}), ...resultData }
+    : project.projectData;
 
   return {
     ...project,
     updatedAt: Date.now(),
-    projectData: merge ? { ...(project.projectData || {}), ...run.output } : project.projectData,
+    projectData: nextProjectData,
     milestones: project.milestones.map(m => {
       if (m.id !== nodeId) return m;
       const prior = m.actionConfig?.lastRun;
-      // A pending run being resolved is the same run, not a new one — don't archive it.
       const isResolutionOfPrior = !!prior && prior.status === 'pending' && !!run.id && prior.id === run.id;
       return {
         ...m,
@@ -89,7 +98,6 @@ export const applyActionRun = (project: Project, nodeId: string, run: ActionRun)
   };
 };
 
-/** Finds the node holding a pending run with the given run id or provider external id. */
 export const findNodeByRun = (
   project: Project,
   match: { nodeId?: string; runId?: string; externalId?: string }
@@ -104,7 +112,6 @@ export const findNodeByRun = (
     return true;
   });
 
-/** Executes a single action node and folds the result back into the project. */
 export const runActionNode = async (
   project: Project,
   nodeId: string,
@@ -163,10 +170,6 @@ export const runActionNode = async (
   return { project: applyActionRun(project, nodeId, run), log: [`${node.name}: ${label}`], run };
 };
 
-/**
- * Resolves a previously-pending run when its provider calls back.
- * Returns null when the run cannot be matched (already resolved, or unknown).
- */
 export const resolvePendingRun = (
   project: Project,
   match: { nodeId?: string; runId?: string; externalId?: string },
@@ -176,7 +179,7 @@ export const resolvePendingRun = (
   if (!node) return null;
 
   const prior = node.actionConfig!.lastRun!;
-  if (prior.status !== 'pending') return null; // already resolved — treat as duplicate
+  if (prior.status !== 'pending') return null;
 
   const run: ActionRun = {
     ...prior,
@@ -198,10 +201,8 @@ export const resolvePendingRun = (
 };
 
 /**
- * Advances the flow and runs whatever it schedules, repeating until the flow
- * settles. Each round is: advance (decide/iterate) → run ready auto-execute
- * actions → advance again, since an action's output can satisfy a downstream
- * decision. Bounded so a misconfigured loop cannot spin forever.
+ * Advances until the graph settles. Failed actions are not silently retried;
+ * retry behaviour must be expressed by graph primitives that reset the action.
  */
 export const advanceProjectFlow = async (
   project: Project,
@@ -219,9 +220,6 @@ export const advanceProjectFlow = async (
     current = advanced;
     log.push(...advanceLog);
 
-    // Raise review asks before running anything else: a node awaiting sign-off
-    // is not complete, so its dependents stay blocked either way, but the person
-    // should be asked as early as possible.
     for (const nodeId of asksToOpen) {
       const node = current.milestones.find(m => m.id === nodeId);
       if (!node) continue;
@@ -231,19 +229,9 @@ export const advanceProjectFlow = async (
       log.push(`${node.name}: awaiting review by ${(ask.assignees || []).join(', ') || 'an unassigned reviewer'}`);
     }
 
-    // Never re-dispatch an action that is already waiting on a callback.
     const runnable = actionsToRun.filter(id => {
       const run = current.milestones.find(m => m.id === id)?.actionConfig?.lastRun;
-      if (run?.status === 'error' && coachingCallNode(current)?.id === id) {
-        const retry = coachingRetryState(current);
-        if (!retry.due) {
-          log.push(retry.nextRetryAt
-            ? `Coaching call retry held until ${new Date(retry.nextRetryAt).toISOString()}`
-            : 'Coaching call automatic retry stopped: attempt limit, retry window, or non-retryable outcome');
-          return false;
-        }
-      }
-      return run?.status !== 'pending';
+      return run?.status !== 'pending' && run?.status !== 'error';
     });
 
     if (runnable.length === 0) break;
@@ -261,6 +249,5 @@ export const advanceProjectFlow = async (
   return { project: current, log, pending: [...pending], askedFor };
 };
 
-/** True when a node is an action node currently awaiting an inbound callback. */
 export const isAwaitingCallback = (m: Milestone): boolean =>
   isActionNode(m) && m.actionConfig?.lastRun?.status === 'pending';
