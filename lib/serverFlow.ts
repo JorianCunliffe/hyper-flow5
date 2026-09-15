@@ -48,7 +48,6 @@ export const applyScheduledFlowContext = (
     projectData: {
       ...(reset.projectData || {}),
       ...(occurrence.input || {}),
-      flow_occurrence_id: occurrence.scheduleRunId,
       schedule_id: occurrence.scheduleId,
       schedule_run_id: occurrence.scheduleRunId,
       schedule_occurrence_id: occurrence.scheduleRunId,
@@ -58,11 +57,14 @@ export const applyScheduledFlowContext = (
   };
 };
 
-/** Compatibility projection only. Retry execution itself is expressed by flow primitives. */
+/**
+ * Compatibility projection only. It describes the generic flow for the coaching
+ * UI but never creates retry authority or scheduler state of its own.
+ */
 export const coachingSessionFromProject = (
   orgId: string,
   project: Project,
-  now = Date.now()
+  _now = Date.now()
 ): (Omit<CoachingSession, 'createdAt' | 'updatedAt'> & Partial<Pick<CoachingSession, 'createdAt' | 'updatedAt'>>) | null => {
   const data = project.projectData || {};
   const occurrenceId = typeof data.schedule_occurrence_id === 'string' ? data.schedule_occurrence_id : '';
@@ -71,23 +73,19 @@ export const coachingSessionFromProject = (
   const extractionNode = project.milestones.find(node => node.id === 'COACH_EXTRACT');
   const writeNode = project.milestones.find(node => node.id === 'COACH_WRITE');
   const retryWait = project.milestones.find(node => node.id === 'COACH_RETRY_WAIT');
-  const retryLoop = project.milestones.find(node => node.id === 'COACH_RETRY_LOOP');
   const callRun = callNode?.actionConfig?.lastRun;
   const callOutput = callRun?.output && typeof callRun.output === 'object' ? callRun.output : {};
   const outcome = callRun?.communicationOutcome;
-  const retryWaiting = !!retryWait?.waitConfig?.resumeAt && !retryWait.waitConfig.resolvedAt;
-  const retryExhausted = !!retryLoop?.loopConfig?.exited && callRun?.status === 'error';
+  const waitingOnGenericTimer = !!retryWait?.waitConfig?.resumeAt && !retryWait.waitConfig.resolvedAt;
   let status: 'scheduled' | 'calling' | 'review_required' | 'completed' | 'failed' = 'scheduled';
   if (writeNode?.actionConfig?.lastRun?.status === 'success') status = 'completed';
   else if (extractionNode?.actionConfig?.lastRun?.status === 'success' && data.coaching_requires_review) status = 'review_required';
   else if (callRun?.status === 'pending') status = 'calling';
-  else if (retryExhausted) status = 'failed';
-  else if (callRun?.status === 'error' && !retryWaiting) status = 'failed';
+  else if (callRun?.status === 'error' && !waitingOnGenericTimer) status = 'failed';
 
   const scheduledFor = typeof data.scheduled_for === 'string' ? Date.parse(data.scheduled_for) : NaN;
   const history = callNode?.actionConfig?.runHistory || [];
   const attempts = history.filter(run => run.scheduleOccurrenceId === occurrenceId).length + (callRun ? 1 : 0);
-  const nextRetryAt = retryWaiting ? Number(retryWait?.waitConfig?.resumeAt) : undefined;
 
   return {
     id: occurrenceId,
@@ -114,9 +112,7 @@ export const coachingSessionFromProject = (
     confidence: Number.isFinite(Number(data.coaching_confidence)) ? Number(data.coaching_confidence) : undefined,
     sheetWrite: data.google_sheet_write && typeof data.google_sheet_write === 'object' ? data.google_sheet_write : undefined,
     failureReason: callRun?.status === 'error' ? callRun.error || outcome?.failureReason : undefined,
-    attemptCount: attempts,
-    nextRetryAt,
-    retryStatus: retryWaiting ? 'pending' : retryExhausted ? 'exhausted' : undefined
+    attemptCount: attempts
   };
 };
 
