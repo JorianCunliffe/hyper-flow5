@@ -69,7 +69,10 @@ jobs:
           NODE
       - run: npm ci
         working-directory: communications
-      - name: Communications service tests
+      - name: Communications draft update tests
+        run: node --test --test-reporter=spec test/mailboxDraftUpdate.test.js
+        working-directory: communications
+      - name: Communications full regression suite
         run: npm test
         working-directory: communications
       - run: npm ci
