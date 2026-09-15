@@ -1,6 +1,7 @@
 import { getApps } from 'firebase-admin/app';
 import { getDatabase, type Database } from 'firebase-admin/database';
 import type { Project } from '../types.js';
+import { activeOccurrenceId } from './flowEngine.js';
 import { findProject, readSchedulerHealth, writeProject } from './serverStore.js';
 
 export interface FlowHold {
@@ -25,11 +26,7 @@ const safeKey = (value: string): string => encodeURIComponent(value).replace(/\.
 const indexKey = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'id'>): string =>
   safeKey(`${hold.orgId}:${hold.projectId}:${hold.id}`);
 
-/**
- * serverStore owns Firebase initialization. Calling this tiny read first keeps
- * credentials and tenant lifecycle settings in one place instead of duplicating
- * service-account parsing in the hold adapter.
- */
+/** Reuse serverStore's initialized Firebase runtime rather than parsing credentials twice. */
 const runtimeDb = async (): Promise<Database> => {
   await readSchedulerHealth();
   const app = getApps().find(candidate => candidate.name === 'hyperflow-server');
@@ -174,8 +171,7 @@ export const resumeClaimedFlowHold = async (hold: FlowHold): Promise<{ ok: boole
     return { ok: true, reason: 'stale_flow_hold' };
   }
 
-  const activeOccurrence = typeof located.project.projectData?.schedule_occurrence_id === 'string'
-    ? located.project.projectData.schedule_occurrence_id : undefined;
+  const activeOccurrence = activeOccurrenceId(located.project.projectData);
   if (hold.occurrenceId && activeOccurrence !== hold.occurrenceId) {
     await finishFlowHold(hold, 'cancelled', 'occurrence_changed');
     return { ok: true, reason: 'stale_flow_hold' };
