@@ -1,4 +1,4 @@
-import { CoachingSession, HumanAsk, Project } from '../types.js';
+import { CoachingSession, HumanAsk, type FlowEvent, Project } from '../types.js';
 import { advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
 import { findAskByToken } from './humanAsk.js';
 import { serverExecutor } from './serverExecutor.js';
@@ -6,6 +6,8 @@ import { findProject, upsertCoachingSession, writeProject } from './serverStore.
 import { deliverRaisedAsks } from './asks/deliverRaisedAsks.js';
 import { expireAsk } from './asks/expireAsk.js';
 import { syncTimerHoldsFromProject } from './flowHoldStore.js';
+import { applyFlowEvent } from './flowEvents.js';
+import { resetProjectForOccurrence } from './flowOccurrence.js';
 import { settleVisibleCallback } from './visibleFlows/runtime.js';
 export { respondToAsk } from './asks/respondToAsk.js';
 
@@ -33,47 +35,7 @@ export const resetProjectForScheduledOccurrence = (
   if (occurrence.resetPolicy !== 'flow' || project.projectData?.schedule_occurrence_id === occurrence.scheduleRunId) {
     return project;
   }
-  const projectData = { ...(project.projectData || {}) };
-  for (const key of occurrence.clearProjectDataKeys || []) delete projectData[key];
-  return {
-    ...project,
-    projectData,
-    milestones: project.milestones.map(node => ({
-      ...node,
-      ...(node.actionConfig ? {
-        actionConfig: {
-          ...node.actionConfig,
-          lastRun: undefined,
-          revision: undefined,
-          runHistory: node.actionConfig.lastRun
-            ? [...(node.actionConfig.runHistory || []), {
-                ...node.actionConfig.lastRun,
-                scheduleOccurrenceId: node.actionConfig.lastRun.scheduleOccurrenceId || project.projectData?.schedule_occurrence_id
-              }]
-            : node.actionConfig.runHistory
-        }
-      } : {}),
-      ...(node.decisionConfig ? {
-        decisionConfig: { ...node.decisionConfig, selectedTargetId: undefined, decidedAt: undefined }
-      } : {}),
-      ...(node.loopConfig ? {
-        loopConfig: { ...node.loopConfig, currentIteration: 0, exited: false }
-      } : {}),
-      ...(node.waitConfig ? {
-        waitConfig: {
-          ...node.waitConfig,
-          resumeAt: undefined,
-          armedAt: undefined,
-          resolvedAt: undefined,
-          holdId: undefined,
-          occurrenceId: undefined
-        }
-      } : {}),
-      ...(node.asks ? {
-        asks: node.asks.map(ask => ask.status === 'open' ? { ...ask, status: 'cancelled' as const } : ask)
-      } : {})
-    }))
-  };
+  return resetProjectForOccurrence(project, occurrence.scheduleRunId, occurrence.clearProjectDataKeys || []);
 };
 
 export const applyScheduledFlowContext = (
@@ -86,6 +48,7 @@ export const applyScheduledFlowContext = (
     projectData: {
       ...(reset.projectData || {}),
       ...(occurrence.input || {}),
+      flow_occurrence_id: occurrence.scheduleRunId,
       schedule_id: occurrence.scheduleId,
       schedule_run_id: occurrence.scheduleRunId,
       schedule_occurrence_id: occurrence.scheduleRunId,
@@ -180,27 +143,36 @@ const persistAdvancedProject = async (
   project: Project
 ): Promise<string | undefined> => {
   await writeProject(orgId, index, project);
-  // Persist timer indexes only after the project containing the armed hold is durable.
   await syncTimerHoldsFromProject(orgId, project);
   return syncCoachingSessionFromProject(orgId, project);
 };
 
-/** Loads a project, advances it as far as it will go, and persists the result. */
+const advanceAndPersist = async (
+  orgId: string,
+  located: Awaited<ReturnType<typeof findProject>> & {},
+  project: Project,
+  initialLog: string[] = []
+): Promise<AdvanceOutcome> => {
+  const advanced = await advanceProjectFlow(project, serverExecutor, {
+    orgId,
+    webhookBaseUrl: process.env.PUBLIC_BASE_URL
+  });
+  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
+  const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
+  return {
+    ok: true,
+    log: [...initialLog, ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])],
+    pending: advanced.pending
+  };
+};
+
 export const advanceServerFlow = async (
   orgId: string,
   projectId: string
 ): Promise<AdvanceOutcome> => {
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
-
-  const { project, log, pending, askedFor } = await advanceProjectFlow(located.project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-
-  const delivered = await deliverRaisedAsks(project, orgId, askedFor);
-  const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
-  return { ok: true, log: [...log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending };
+  return advanceAndPersist(orgId, located, located.project);
 };
 
 export const advanceScheduledServerFlow = async (
@@ -210,15 +182,29 @@ export const advanceScheduledServerFlow = async (
 ): Promise<AdvanceOutcome> => {
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
-
   const project = applyScheduledFlowContext(located.project, occurrence);
-  const advanced = await advanceProjectFlow(project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-  const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
-  return { ok: true, log: [...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending: advanced.pending };
+  return advanceAndPersist(orgId, located, project);
+};
+
+/**
+ * Starts a normal flow occurrence from one trusted external event. Projects that
+ * have no ready matching EVENT_TRIGGER node are left untouched.
+ */
+export const advanceEventServerFlow = async (
+  orgId: string,
+  projectId: string,
+  event: FlowEvent,
+  clearProjectDataKeys: string[] = []
+): Promise<AdvanceOutcome> => {
+  const located = await findProject(orgId, projectId);
+  if (!located) return { ok: false, reason: 'project_not_found' };
+  const applied = applyFlowEvent(located.project, event, clearProjectDataKeys);
+  if (!applied.matchedNodeIds.length) {
+    return { ok: true, reason: 'no_matching_event_trigger', log: ['No ready event trigger matched the event'], pending: [] };
+  }
+  return advanceAndPersist(orgId, located, applied.project, [
+    `Event ${event.type} triggered ${applied.matchedNodeIds.length} flow node(s)`
+  ]);
 };
 
 export interface AskLookup {
@@ -234,18 +220,11 @@ export const readAskByToken = async (
 ): Promise<AskLookup | null> => {
   const located = await findProject(orgId, projectId);
   if (!located) return null;
-
   const found = findAskByToken(located.project, token);
   if (!found) return null;
-
   return { ask: expireAsk(found.ask), nodeName: found.node.name, projectName: located.project.name };
 };
 
-/**
- * Resolves an action waiting on a provider callback, then always re-enters the
- * graph. Failed actions cannot redispatch themselves: block-mode failures remain
- * held, while continue-mode failures let a Decision/Wait/Loop recovery path run.
- */
 export const resolveCallbackAndAdvance = async (
   orgId: string,
   projectId: string,
@@ -285,24 +264,8 @@ export const resolveCallbackAndAdvance = async (
       milestones,
       projectData: { ...(located.project.projectData || {}), ...output }
     };
-    const advanced = await advanceProjectFlow(subtaskProject, serverExecutor, {
-      orgId,
-      webhookBaseUrl: process.env.PUBLIC_BASE_URL
-    });
-    const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-    const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
-    return {
-      ok: true,
-      log: ['Subtask completed from external event', ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])],
-      pending: advanced.pending
-    };
+    return advanceAndPersist(orgId, located, subtaskProject, ['Subtask completed from external event']);
   }
 
-  const advanced = await advanceProjectFlow(resolved.project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-  const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
-  return { ok: true, log: [...resolved.log, ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending: advanced.pending };
+  return advanceAndPersist(orgId, located, resolved.project, resolved.log);
 };
