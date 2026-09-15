@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { TenantSchedule } from '../types.js';
 import { advanceScheduledServerFlow, advanceServerFlow } from './serverFlow.js';
+import { claimDueFlowHolds, releaseFlowHold, resumeClaimedFlowHold } from './flowHoldStore.js';
 import { runEmailTriage } from './triage/runEmailTriage.js';
 export {
   communicationsAfterCursor,
@@ -126,8 +127,6 @@ export const runTenantSchedule = async (
   if (triageError || !triageResult) {
     const message = triageError instanceof Error ? triageError.message : String(triageError || 'Email triage returned no result');
     await finishScheduleRun(run, { status: 'failed', cursorBefore, error: message });
-    // A failed run does not advance the cursor or schedule occurrence. The
-    // stale-run lease allows a later tick to retry this exact occurrence.
     console.error('[scheduler] triage occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
     return { scheduleId: schedule.id, status: 'failed', error: message };
   }
@@ -175,11 +174,34 @@ export const runTenantSchedule = async (
 
 export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecutionResult[]> => {
   const agentJobs = await processAgentInbox(10);
+  const flowHolds = await claimDueFlowHolds(now, 10);
   const coachingRetries = await claimDueCoachingRetries(now, 10);
   const due = (await listDueSchedules(now)).slice(0, 25);
   const results: ScheduleExecutionResult[] = agentJobs.claimed
     ? [{ scheduleId: 'agent_inbox', status: 'completed', processedCount: agentJobs.completed }]
     : [];
+
+  for (const hold of flowHolds) {
+    try {
+      const outcome = await resumeClaimedFlowHold(hold);
+      if (!outcome.ok) throw new Error(outcome.reason || 'Flow hold could not resume');
+      results.push({
+        scheduleId: `flow_hold:${hold.id}`,
+        status: outcome.reason === 'stale_flow_hold' ? 'skipped' : 'completed',
+        processedCount: outcome.reason === 'stale_flow_hold' ? 0 : 1,
+        projectId: hold.projectId,
+        runId: hold.id
+      });
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      await releaseFlowHold(hold, message);
+      results.push({
+        scheduleId: `flow_hold:${hold.id}`,
+        status: 'failed', projectId: hold.projectId, runId: hold.id, error: message
+      });
+    }
+  }
+
   for (const retry of coachingRetries) {
     try {
       const outcome = await advanceServerFlow(retry.orgId, retry.projectId, { expectedCoachingOccurrenceId: retry.id });
