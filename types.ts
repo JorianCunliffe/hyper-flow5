@@ -69,6 +69,8 @@ export interface WorkspaceResourceGrant {
   documentId?: string;
   spreadsheetId?: string;
   sheetRange?: string;
+  /** Named ranges within the allowlisted spreadsheet. The legacy sheetRange remains the default. */
+  sheetRanges?: Array<{ name: string; range: string }>;
   updatedAt: number;
 }
 
@@ -451,6 +453,7 @@ export enum NodeType {
   MILESTONE = 'milestone',
   DECISION = 'decision',
   LOOP = 'loop',
+  WAIT = 'wait',
   EMAIL = 'email',
   SMS = 'sms',
   PHONE_CALL = 'phone_call',
@@ -459,6 +462,7 @@ export enum NodeType {
   GOOGLE_DOC = 'google_doc',
   GOOGLE_SHEET_READ = 'google_sheet_read',
   GOOGLE_SHEET_APPEND = 'google_sheet_append',
+  GOOGLE_SHEET_UPSERT = 'google_sheet_upsert',
   COACHING_EXTRACT = 'coaching_extract',
   EMAIL_TRIAGE = 'email_triage'
 }
@@ -481,6 +485,20 @@ export interface LoopConfig {
   maxIterations: number;
   currentIteration: number;
   exited?: boolean;
+}
+
+/** A first-class durable hold. Timer is the first supported kind; other hold kinds can reuse the same lifecycle. */
+export interface WaitConfig {
+  kind: 'timer';
+  /** Relative delay used when resumeAt is not explicitly provided. */
+  durationMinutes?: number;
+  /** Absolute epoch milliseconds. Set when the wait arms and retained for durable recovery. */
+  resumeAt?: number;
+  reason?: string;
+  maxResumes?: number;
+  armedAt?: number;
+  resolvedAt?: number;
+  holdId?: string;
 }
 
 export interface CommunicationOutcome {
@@ -761,6 +779,7 @@ export interface Milestone {
   nodeType?: NodeType;
   decisionConfig?: DecisionConfig; // DECISION nodes
   loopConfig?: LoopConfig;         // LOOP nodes
+  waitConfig?: WaitConfig;         // WAIT nodes
   actionConfig?: ActionConfig;     // EMAIL / SMS / PHONE_CALL / WEBHOOK / REPORT nodes
 
   /** Human review gate. Any node type can carry one. */
