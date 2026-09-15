@@ -60,7 +60,7 @@ const emailBody = (ask: HumanAsk, formUrl: string): { text: string; html: string
 
 const smsBody = (ask: HumanAsk, formUrl: string): string => {
   const field = nextAskField(ask);
-  if (!field) return `${ask.prompt}\n\nSecure response form: ${formUrl}`;
+  if (!field) return ask.prompt;
   return `${ask.prompt}\n\n${askFieldPrompt(field)}\n\nReply to this message, or use the secure form: ${formUrl}`;
 };
 
