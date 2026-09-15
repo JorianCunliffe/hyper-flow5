@@ -26,6 +26,15 @@ describe('Firebase production rules configuration', () => {
     assert.equal(rules.schedule_runs['.write'], false);
   });
 
+  test('keeps FlowRun, Hold and authority stores backend-only with required indexes', () => {
+    for (const root of ['flow_runs', 'flow_holds', 'flow_hold_open', 'flow_hold_pending', 'capability_policy', 'workspace_resource_catalog']) {
+      assert.equal(rules[root]['.read'], false);
+      assert.equal(rules[root]['.write'], false);
+    }
+    assert.equal(rules.flow_runs.$orgId.$projectId['.indexOn'], 'updatedAt');
+    assert.equal(rules.flow_hold_pending['.indexOn'], 'availableAt');
+  });
+
   test('keeps agent profiles and integration references backend-only', () => {
     for(const root of ['agent_profiles','integration_connections','integration_credentials','oauth_states','workspace_grants','external_action_receipts','coaching_sessions','conversation_contexts','agent_voice_context_requests']){
       assert.equal(rules[root]['.read'],false);assert.equal(rules[root]['.write'],false);
