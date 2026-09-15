@@ -33,6 +33,12 @@ export interface FlowHoldConfig {
     kind?: AskKind;
     prompt?: string;
     fields?: AskField[];
+    /**
+     * Optional dot path into projectData whose value is an array of field
+     * definitions (or strings). The source is resolved once when the Ask is
+     * raised, so later project-data edits cannot mutate an in-flight Ask schema.
+     */
+    fieldsSource?: string;
     assignees?: string[];
     channels?: AskChannel[];
     responsePolicy?: 'any' | 'all' | 'quorum';
