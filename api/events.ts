@@ -3,14 +3,62 @@ import { externalEventHttpStatus, receiveExternalEvent } from '../lib/externalEv
 import { createHash } from 'node:crypto';
 import { readVoiceContextResponse, saveVoiceContextResponse, serverStoreStatus } from '../lib/serverStore.js';
 import { buildVoiceAgentContext, type VoiceAgentContextRequest } from '../lib/voiceAgentContext.js';
+import { advanceEventServerFlow } from '../lib/serverFlow.js';
 import { waitUntil } from '@vercel/functions';
 import { processAgentInbox } from '../lib/agentRouter.js';
 
 const json = (body: unknown, status: number): Response => Response.json(body, { status });
 
+const text = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+const eventFlowTarget = (body: any): { orgId: string; projectId: string } | null => {
+  const correlation = body?.correlation && typeof body.correlation === 'object' ? body.correlation : {};
+  const orgId = text(correlation.tenant_id || correlation.org_id || correlation.orgId || body?.tenant_id);
+  const projectId = text(correlation.external_project_id || correlation.project_id || correlation.projectId);
+  if (!orgId || !projectId) return null;
+  // Provider callbacks already belong to an in-flight action. Let callback
+  // correlation resolve that run rather than resetting the project as a new occurrence.
+  if (correlation.run_id || correlation.runId || correlation.task_id || correlation.node_id || correlation.nodeId) return null;
+  return { orgId, projectId };
+};
+
+const dispatchEventFlow = (body: any): void => {
+  const target = eventFlowTarget(body);
+  const eventId = text(body?.event_id);
+  const type = text(body?.type);
+  if (!target || !eventId || !type) return;
+  const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)
+    ? body.payload as Record<string, unknown>
+    : {};
+  const occurred = body?.occurred_at ? new Date(body.occurred_at).getTime() : Date.now();
+  const channel = text(body?.channel || payload.channel);
+  const direction = text(payload.direction) || (type === 'communication.received' || type === 'sms.received' ? 'inbound' : undefined);
+  const personId = text(body?.correlation?.person_id || body?.correlation?.personId);
+  const communicationId = text(body?.communication_id);
+
+  waitUntil(advanceEventServerFlow(target.orgId, target.projectId, {
+    id: eventId,
+    type,
+    occurredAt: Number.isFinite(occurred) ? occurred : Date.now(),
+    channel,
+    direction,
+    personId,
+    communicationId,
+    payload
+  }).catch(error => {
+    console.error('Event-triggered flow failed', {
+      orgId: target.orgId,
+      projectId: target.projectId,
+      eventId,
+      type,
+      error: error?.message || String(error)
+    });
+  }));
+};
+
 // Vercel's Web Request handler exposes the untouched body stream. Reading it as
-// an ArrayBuffer preserves the exact bytes Communications signed; reconstructing
-// JSON from VercelRequest.body would change whitespace and invalidate the HMAC.
+// an ArrayBuffer preserves the exact bytes Communications signed.
 export const POST = async (request: Request): Promise<Response> => {
   const secret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
   if (!secret) return json({ error: 'COMMUNICATIONS_WEBHOOK_SECRET is not configured' }, 503);
@@ -27,9 +75,7 @@ export const POST = async (request: Request): Promise<Response> => {
     secret,
     action === 'voice_context' ? true : undefined
   );
-  if (!valid) {
-    return json({ error: 'Invalid or missing Communications signature' }, 401);
-  }
+  if (!valid) return json({ error: 'Invalid or missing Communications signature' }, 401);
 
   const storeStatus = serverStoreStatus();
   if (!storeStatus.ok) {
@@ -56,14 +102,14 @@ export const POST = async (request: Request): Promise<Response> => {
       const requestHash = createHash('sha256').update(rawBody).digest('hex');
       const existing = await readVoiceContextResponse(input.tenant_id, input.request_id, requestHash);
       const response = await buildVoiceAgentContext(input);
-      // Replayed reads must re-evaluate current membership and source grants.
-      // The stored request still detects conflicting reuse; it is not authority
-      // to disclose an older response after access has been revoked.
-      if (existing) return json(response,200);
+      if (existing) return json(response, 200);
       const stored = await saveVoiceContextResponse(input.tenant_id, input.request_id, requestHash, response as unknown as Record<string, unknown>);
       return json(stored, 200);
     }
+
     const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });
+    if (outcome.ok && !outcome.duplicate) dispatchEventFlow(body);
+
     if (outcome.ok && outcome.reason === 'agent_job_queued') {
       const orgId = String(body.tenant_id || body.correlation?.tenant_id || '');
       const jobId = String(body.communication_id || '');
