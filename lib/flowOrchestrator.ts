@@ -9,9 +9,7 @@ import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
  * The flow engine (./flowEngine) is pure: it decides *what* should happen next.
  * This module performs the effects — running action nodes and folding their
  * results back into the project — without knowing how those effects are carried
- * out. The browser injects an executor that POSTs to /api/tasks/execute; the
- * server injects one that calls executeTask() directly. That is what lets the
- * flow advance when nobody has the app open.
+ * out.
  */
 
 export interface ActionExecutionContext {
@@ -60,18 +58,23 @@ const validResultVariable = (value: unknown): string | undefined => {
 /**
  * Records a run against a node. Successful object output is merged into project
  * data as before. A configured resultVariable additionally exposes terminal
- * success/error as graph data so Decision/Wait/Loop can express recovery without
- * any feature-specific retry code.
+ * status and provider-neutral outcome fields so Decisions can branch without
+ * feature-specific recovery code.
  */
 export const applyActionRun = (project: Project, nodeId: string, run: ActionRun): Project => {
   const node = project.milestones.find(m => m.id === nodeId);
   const merge = run.status === 'success' && run.output && typeof run.output === 'object' && !Array.isArray(run.output);
   const resultVariable = validResultVariable(node?.actionConfig?.resultVariable);
   const terminal = run.status !== 'pending' && resultVariable;
+  const outcome = run.communicationOutcome || communicationOutcomeFromOutput(run.output);
   const resultData = terminal ? {
     [resultVariable!]: run.status,
+    [`${resultVariable}_success`]: run.status === 'success' && outcome?.successful !== false,
     ...(run.output !== undefined ? { [`${resultVariable}_output`]: run.output } : {}),
-    ...(run.error ? { [`${resultVariable}_error`]: run.error } : {})
+    ...(run.error ? { [`${resultVariable}_error`]: run.error } : {}),
+    ...(outcome?.disposition ? { [`${resultVariable}_disposition`]: outcome.disposition } : {}),
+    ...(outcome?.failureCode ? { [`${resultVariable}_failure_code`]: outcome.failureCode } : {}),
+    ...(outcome?.providerStatus ? { [`${resultVariable}_provider_status`]: outcome.providerStatus } : {})
   } : {};
   const nextProjectData = merge || terminal
     ? { ...(project.projectData || {}), ...(merge ? run.output : {}), ...resultData }
@@ -200,10 +203,7 @@ export const resolvePendingRun = (
   };
 };
 
-/**
- * Advances until the graph settles. Failed actions are not silently retried;
- * retry behaviour must be expressed by graph primitives that reset the action.
- */
+/** Failed actions are not silently retried; retry is graph configuration. */
 export const advanceProjectFlow = async (
   project: Project,
   executor: ActionExecutor,
