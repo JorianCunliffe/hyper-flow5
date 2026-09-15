@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { TenantSchedule } from '../types.js';
-import { advanceScheduledServerFlow, advanceServerFlow } from './serverFlow.js';
+import { advanceScheduledServerFlow } from './serverFlow.js';
 import { claimDueFlowHolds, releaseFlowHold, resumeClaimedFlowHold } from './flowHoldStore.js';
 import { runEmailTriage } from './triage/runEmailTriage.js';
 export {
@@ -14,13 +14,10 @@ import { processAgentInbox } from './agentRouter.js';
 import { runVisibleRoutine } from './cockpit/scheduledRoutines.js';
 import {
   advanceTenantSchedule,
-  claimDueCoachingRetries,
   claimScheduleRun,
   completeScheduleRunAndAdvance,
   finishScheduleRun,
-  listDueSchedules,
-  releaseCoachingRetry,
-  upsertCoachingSession
+  listDueSchedules
 } from './serverStore.js';
 
 export interface ScheduleExecutionResult {
@@ -175,7 +172,6 @@ export const runTenantSchedule = async (
 export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecutionResult[]> => {
   const agentJobs = await processAgentInbox(10);
   const flowHolds = await claimDueFlowHolds(now, 10);
-  const coachingRetries = await claimDueCoachingRetries(now, 10);
   const due = (await listDueSchedules(now)).slice(0, 25);
   const results: ScheduleExecutionResult[] = agentJobs.claimed
     ? [{ scheduleId: 'agent_inbox', status: 'completed', processedCount: agentJobs.completed }]
@@ -202,27 +198,6 @@ export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecution
     }
   }
 
-  for (const retry of coachingRetries) {
-    try {
-      const outcome = await advanceServerFlow(retry.orgId, retry.projectId, { expectedCoachingOccurrenceId: retry.id });
-      if (!outcome.ok) throw new Error(outcome.reason || 'Coaching retry could not advance');
-      if (outcome.reason === 'stale_coaching_retry') {
-        await upsertCoachingSession({ ...retry, retryStatus: 'exhausted', nextRetryAt: undefined });
-      }
-      results.push({
-        scheduleId: retry.scheduleId || `coaching_retry:${retry.id}`,
-        status: outcome.reason === 'stale_coaching_retry' ? 'skipped' : 'completed',
-        processedCount: outcome.reason === 'stale_coaching_retry' ? 0 : 1, projectId: retry.projectId, runId: retry.scheduleRunId
-      });
-    } catch (error: any) {
-      const message = error?.message || String(error);
-      await releaseCoachingRetry(retry, message);
-      results.push({
-        scheduleId: retry.scheduleId || `coaching_retry:${retry.id}`,
-        status: 'failed', projectId: retry.projectId, runId: retry.scheduleRunId, error: message
-      });
-    }
-  }
   for (const schedule of due) {
     const overdueBy = now - schedule.nextRunAt;
     const occurrenceWindow = Math.max(5, schedule.intervalMinutes) * 60_000;
