@@ -8,19 +8,31 @@ export type NodeResolution = 'pending' | 'complete' | 'skipped';
 export { ACTION_NODE_TYPES, ACTION_TASK_TYPE, getNodeType, isActionNode } from './nodeTypes.js';
 import { getNodeType, isActionNode } from './nodeTypes.js';
 
+const activeOccurrenceId = (projectData?: Record<string, any>): string | undefined =>
+  typeof projectData?.schedule_occurrence_id === 'string' ? projectData.schedule_occurrence_id : undefined;
+
+const waitMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>): boolean => {
+  const active = activeOccurrenceId(projectData);
+  if (!active) return true;
+  return m.waitConfig?.occurrenceId === active;
+};
+
 /**
  * A node's work, ignoring dependencies and any review gate:
  * - milestone: has subtasks and all are complete
  * - decision: a branch has been selected
  * - loop: exit condition met (exited)
+ * - wait: the durable hold has resolved for the active occurrence
  * - action: last run succeeded
  */
-export const isNodeWorkDone = (m: Milestone): boolean => {
+export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>): boolean => {
   switch (getNodeType(m)) {
     case NodeType.DECISION:
       return !!m.decisionConfig?.selectedTargetId;
     case NodeType.LOOP:
       return !!m.loopConfig?.exited;
+    case NodeType.WAIT:
+      return !!m.waitConfig?.resolvedAt && waitMatchesOccurrence(m, projectData);
     case NodeType.MILESTONE:
       return (m.subtasks || []).length > 0 && m.subtasks.every(isTaskComplete);
     default:
@@ -34,11 +46,11 @@ export const isNodeWorkDone = (m: Milestone): boolean => {
  * ahead of the person who is supposed to sign the work off.
  */
 export const isNodeComplete = (m: Milestone, projectData?: Record<string, any>): boolean =>
-  isNodeWorkDone(m) && isReviewSatisfied(m, projectData);
+  isNodeWorkDone(m, projectData) && isReviewSatisfied(m, projectData);
 
 /** A node whose work is finished but which is waiting on a human. */
 export const isAwaitingReview = (m: Milestone, projectData?: Record<string, any>): boolean =>
-  isNodeWorkDone(m) && !isReviewSatisfied(m, projectData);
+  isNodeWorkDone(m, projectData) && !isReviewSatisfied(m, projectData);
 
 const getChildren = (milestones: Milestone[], id: string): Milestone[] =>
   milestones.filter(m => (m.dependsOn || []).includes(id));
@@ -154,6 +166,16 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
   if (m.decisionConfig) {
     reset.decisionConfig = { ...m.decisionConfig, selectedTargetId: undefined, decidedAt: undefined };
   }
+  if (m.waitConfig) {
+    reset.waitConfig = {
+      ...m.waitConfig,
+      resumeAt: undefined,
+      armedAt: undefined,
+      resolvedAt: undefined,
+      holdId: undefined,
+      occurrenceId: undefined
+    };
+  }
   if (m.actionConfig?.lastRun) {
     reset.actionConfig = {
       ...m.actionConfig,
@@ -172,23 +194,30 @@ export interface AdvanceResult {
   log: string[];
 }
 
+const boundedWaitMinutes = (value: unknown): number => {
+  const requested = Number(value);
+  if (!Number.isFinite(requested)) return 5;
+  return Math.min(Math.max(requested, 1), 24 * 60);
+};
+
 /**
  * Advances the flow one step (pure function):
- * 1. Decides ready decision nodes (first branch whose conditions all pass wins;
- *    a branch without conditions is the default).
- * 2. Processes ready loop nodes: exits when exit conditions pass or max
- *    iterations reached, otherwise increments the counter and resets the body.
- * 3. Collects ready auto-execute action nodes for the caller to run.
+ * 1. Decides ready decision nodes.
+ * 2. Processes ready loop nodes.
+ * 3. Arms or resolves ready WAIT nodes. Persistence/scheduling of the hold is
+ *    performed by the server adapter after this pure transition.
+ * 4. Collects ready auto-execute action nodes for the caller to run.
  */
 export const advanceFlow = (project: Project): AdvanceResult => {
   let current = project;
   const log: string[] = [];
-  const projectData = project.projectData || {};
 
-  // Iterate a few passes so a decision unblocking a loop (etc.) settles in one call
+  // Iterate a few passes so a decision, completed wait, or loop can unblock the
+  // next node in one call without allowing a bad graph to spin forever.
   for (let pass = 0; pass < 5; pass++) {
     let changed = false;
     const states = resolveNodeStates(current);
+    const projectData = current.projectData || {};
 
     for (const m of current.milestones) {
       const type = getNodeType(m);
@@ -237,6 +266,47 @@ export const advanceFlow = (project: Project): AdvanceResult => {
         }
         changed = true;
       }
+
+      if (type === NodeType.WAIT && isNodeReady(m, states)) {
+        const now = Date.now();
+        const occurrenceId = activeOccurrenceId(projectData);
+        const existing = m.waitConfig || { kind: 'timer' as const };
+        const sameOccurrence = !occurrenceId || existing.occurrenceId === occurrenceId;
+        const resumeAt = sameOccurrence ? Number(existing.resumeAt || 0) : 0;
+
+        if (resumeAt > 0 && resumeAt <= now) {
+          current = {
+            ...current,
+            milestones: current.milestones.map(mil => mil.id === m.id ? {
+              ...mil,
+              waitConfig: { ...existing, occurrenceId, resolvedAt: now }
+            } : mil)
+          };
+          log.push(`Wait "${m.name}": hold resolved`);
+          changed = true;
+        } else if (resumeAt <= 0) {
+          const minutes = boundedWaitMinutes(existing.durationMinutes);
+          const holdId = `hold_${current.id}_${m.id}_${occurrenceId || now}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 220);
+          current = {
+            ...current,
+            milestones: current.milestones.map(mil => mil.id === m.id ? {
+              ...mil,
+              waitConfig: {
+                ...existing,
+                kind: 'timer',
+                durationMinutes: minutes,
+                resumeAt: now + minutes * 60_000,
+                armedAt: now,
+                resolvedAt: undefined,
+                holdId,
+                occurrenceId
+              }
+            } : mil)
+          };
+          log.push(`Wait "${m.name}": held for ${minutes} minute(s)`);
+          changed = true;
+        }
+      }
     }
 
     if (!changed) break;
@@ -251,7 +321,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
       // A node held at a review gate is neither complete nor skipped, so
       // readiness alone would schedule it again on every pass — redoing the work
       // repeatedly while a person is still looking at the first attempt.
-      !isNodeWorkDone(m) &&
+      !isNodeWorkDone(m, current.projectData) &&
       // Likewise for an action still waiting on a provider callback.
       m.actionConfig?.lastRun?.status !== 'pending'
     )
@@ -261,7 +331,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
   // raised. Skipped nodes are excluded — nobody should be asked to review work
   // on a branch the flow never took.
   const asksToOpen = current.milestones
-    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m) && needsApprovalAsk(m, current.projectData))
+    .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m, current.projectData) && needsApprovalAsk(m, current.projectData))
     .map(m => m.id);
 
   return { project: current, actionsToRun, asksToOpen, log };
