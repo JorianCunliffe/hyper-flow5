@@ -12,6 +12,8 @@ import { findFlowRunByAsk, saveFlowRun } from '../flowRunStore.js';
 import { materializeFlowRunProject, updateFlowRunFromProject } from '../flowRun.js';
 import { syncFlowHoldsFromRun } from '../flowHoldStore.js';
 import type { FlowHoldConfig, FlowRun, RuntimeMilestone } from '../flowRuntimeTypes.js';
+import { smsStepValues } from './askSteps.js';
+import { deliverNextSmsStep } from './deliverNextSmsStep.js';
 
 export interface AskResponsePayload {
   text?: string;
@@ -186,6 +188,10 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
       !matchedDelivery && !input.actorVerified) {
     return { ok: false, reason: 'verified_reviewer_identity_required' };
   }
+  const stepValues = !isHumanResponse(input.response) && input.channel === 'sms' &&
+      !input.response.structured && !input.response.decision
+    ? smsStepValues(found.ask, input.response.text)
+    : undefined;
   const response: HumanResponse = isHumanResponse(input.response)
     ? { ...input.response }
     : await interpretAskResponse(found.ask, {
@@ -195,7 +201,7 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
         text: input.response.text,
         values: input.response.structured
           ? Object.fromEntries(Object.entries(input.response.structured).filter(([key]) => key !== 'decision'))
-          : undefined,
+          : stepValues,
         attachments: input.response.attachments,
         raw: input.response.raw,
         at: input.occurredAt
@@ -210,7 +216,16 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const reviewed = replaceProvisionalCommunicationResponse(
     found.ask, response, input.communicationId, input.actorVerified
   );
-  const updatedAsk = recordAskResponse(reviewed.ask, reviewed.response);
+  let updatedAsk = recordAskResponse(reviewed.ask, reviewed.response);
+  if (updatedAsk.status === 'open' && input.channel === 'sms' && !reviewed.response.needsInterpretation) {
+    updatedAsk = await deliverNextSmsStep({
+      ask: updatedAsk,
+      project: sourceProject,
+      orgId: input.orgId,
+      projectId: input.projectId,
+      personId: matchedDelivery?.personId
+    });
+  }
   let project = {
     ...sourceProject,
     milestones: sourceProject.milestones.map(m => m.id === found.ask.nodeId ? upsertAsk(m, updatedAsk) : m)
