@@ -1,5 +1,6 @@
-import type { AskChannel, AskDecision, Attachment, HumanAsk, HumanResponse } from '../../types.js';
+import type { AskChannel, AskDecision, Attachment, HumanAsk, HumanResponse, Project } from '../../types.js';
 import { validateResponse } from '../askResponses.js';
+import { getHoldConfig } from '../flowEngine.js';
 import { advanceProjectFlow } from '../flowOrchestrator.js';
 import { applyAskToProject, findAskById, findAskByToken, recordAskResponse, upsertAsk } from '../humanAsk.js';
 import { serverExecutor } from '../serverExecutor.js';
@@ -7,6 +8,10 @@ import { findProject, writeProject } from '../serverStore.js';
 import { deliverRaisedAsks } from './deliverRaisedAsks.js';
 import { interpretAskResponse } from '../triage/responseInterpreter.js';
 import { expireAsk } from './expireAsk.js';
+import { findFlowRunByAsk, saveFlowRun } from '../flowRunStore.js';
+import { materializeFlowRunProject, updateFlowRunFromProject } from '../flowRun.js';
+import { syncFlowHoldsFromRun } from '../flowHoldStore.js';
+import type { FlowHoldConfig, FlowRun, RuntimeMilestone } from '../flowRuntimeTypes.js';
 
 export interface AskResponsePayload {
   text?: string;
@@ -39,6 +44,7 @@ export interface RespondToAskOutcome {
   askKind?: HumanAsk['kind'];
   askFields?: HumanAsk['fields'];
   response?: HumanResponse;
+  flowRunId?: string;
   log?: string[];
   pending?: string[];
 }
@@ -67,6 +73,76 @@ export const replaceProvisionalCommunicationResponse = (
   };
 };
 
+const validVariable = (value: unknown): string | undefined => {
+  const key = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
+};
+
+const resolveHumanWait = (
+  project: Project,
+  nodeId: string,
+  response: HumanResponse,
+  now: number
+): Project => {
+  const node = project.milestones.find(item => item.id === nodeId);
+  const cfg = node ? getHoldConfig(node) : undefined;
+  if (!node || cfg?.kind !== 'human' || !cfg.holdId || cfg.resolvedAt) return project;
+  const resolved: FlowHoldConfig = {
+    ...cfg,
+    resolvedAt: now,
+    resolution: 'signal',
+    resolvedBy: 'human',
+    signalId: response.id
+  };
+  const resultKey = validVariable(cfg.resultVariable);
+  const payloadKey = validVariable(cfg.payloadVariable);
+  const payload = {
+    decision: response.decision,
+    text: response.text,
+    values: response.values,
+    attachments: response.attachments,
+    actor: response.actor,
+    via: response.via
+  };
+  const projectData = {
+    ...(project.projectData || {}),
+    ...(resultKey ? {
+      [resultKey]: 'signal',
+      [`${resultKey}_resolved`]: true,
+      [`${resultKey}_resolution`]: 'signal',
+      [`${resultKey}_payload`]: payload
+    } : {}),
+    ...(payloadKey ? { [payloadKey]: payload } : {})
+  };
+  return {
+    ...project,
+    projectData,
+    milestones: project.milestones.map(item => item.id === nodeId
+      ? ({ ...item, holdConfig: resolved } as RuntimeMilestone)
+      : item)
+  };
+};
+
+const advanceAndPersistRun = async (
+  input: RespondToAskInput,
+  located: Awaited<ReturnType<typeof findProject>> & {},
+  run: FlowRun,
+  project: Project
+): Promise<{ project: Project; run: FlowRun; log: string[]; pending: string[] }> => {
+  const advanced = await advanceProjectFlow(project, serverExecutor, {
+    orgId: input.orgId,
+    webhookBaseUrl: process.env.PUBLIC_BASE_URL
+  });
+  const delivered = await deliverRaisedAsks(advanced.project, input.orgId, advanced.askedFor);
+  const savedRun = await saveFlowRun(updateFlowRunFromProject(run, delivered.project));
+  await syncFlowHoldsFromRun(savedRun, delivered.project);
+  try { await writeProject(input.orgId, located.index, delivered.project); }
+  catch (error: any) {
+    advanced.log.push(`Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`);
+  }
+  return { project: delivered.project, run: savedRun, log: [...advanced.log, ...delivered.log], pending: advanced.pending };
+};
+
 /** The one canonical entry point for a human response, regardless of channel. */
 export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToAskOutcome> => {
   if (!input.askId && !input.askToken) return { ok: false, reason: 'ask_identity_required' };
@@ -78,7 +154,10 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const located = await findProject(input.orgId, input.projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
-  const found = input.askId ? findAskById(located.project, input.askId) : findAskByToken(located.project, input.askToken!);
+  const runFound = await findFlowRunByAsk(input.orgId, input.projectId, input.askId, input.askToken);
+  const flowRun = runFound?.run;
+  const sourceProject = flowRun ? materializeFlowRunProject(located.project, flowRun) : located.project;
+  const found = input.askId ? findAskById(sourceProject, input.askId) : findAskByToken(sourceProject, input.askToken!);
   if (!found) return { ok: false, reason: 'ask_not_found' };
   if (expireAsk(found.ask, input.occurredAt ?? Date.now()).status === 'expired') {
     return { ok: false, reason: 'ask_expired', askStatus: 'expired', askKind: found.ask.kind, askFields: found.ask.fields };
@@ -95,7 +174,8 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
       askStatus: 'answered',
       askKind: found.ask.kind,
       askFields: found.ask.fields,
-      response: sameResponse
+      response: sameResponse,
+      flowRunId: flowRun?.id
     };
   }
 
@@ -127,18 +207,34 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const invalid = validateResponse(found.ask, response);
   if (invalid) return { ok: false, reason: invalid };
 
-  // A verified triage review replaces the provisional machine interpretation
-  // for the same communication. It must not count as a second reviewer reply.
   const reviewed = replaceProvisionalCommunicationResponse(
     found.ask, response, input.communicationId, input.actorVerified
   );
   const updatedAsk = recordAskResponse(reviewed.ask, reviewed.response);
   let project = {
-    ...located.project,
-    milestones: located.project.milestones.map(m => m.id === found.ask.nodeId ? upsertAsk(m, updatedAsk) : m)
+    ...sourceProject,
+    milestones: sourceProject.milestones.map(m => m.id === found.ask.nodeId ? upsertAsk(m, updatedAsk) : m)
   };
-  if (updatedAsk.status === 'answered') project = applyAskToProject(project, updatedAsk.id);
+  if (updatedAsk.status === 'answered') {
+    project = applyAskToProject(project, updatedAsk.id);
+    project = resolveHumanWait(project, found.ask.nodeId, reviewed.response, input.occurredAt ?? Date.now());
+  }
 
+  if (flowRun) {
+    const persisted = await advanceAndPersistRun(input, located, flowRun, project);
+    return {
+      ok: true,
+      askStatus: updatedAsk.status,
+      askKind: found.ask.kind,
+      askFields: found.ask.fields,
+      response: reviewed.response,
+      flowRunId: persisted.run.id,
+      log: persisted.log,
+      pending: persisted.pending
+    };
+  }
+
+  // Backwards-compatible path for an Ask created before FlowRun migration.
   const advanced = await advanceProjectFlow(project, serverExecutor, {
     orgId: input.orgId,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL

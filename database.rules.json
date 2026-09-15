@@ -97,6 +97,36 @@
         ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
       }
     },
+    "flow_runs": {
+      ".read": false,
+      ".write": false,
+      "$orgId": {
+        "$projectId": {
+          ".indexOn": "updatedAt"
+        }
+      }
+    },
+    "flow_holds": {
+      ".read": false,
+      ".write": false
+    },
+    "flow_hold_open": {
+      ".read": false,
+      ".write": false
+    },
+    "flow_hold_pending": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": "availableAt"
+    },
+    "capability_policy": {
+      ".read": false,
+      ".write": false
+    },
+    "workspace_resource_catalog": {
+      ".read": false,
+      ".write": false
+    },
     "scheduler_health": {
       ".read": "auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true",
       ".write": "auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true"

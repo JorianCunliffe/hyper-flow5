@@ -241,7 +241,7 @@ describe('scheduled flow correlation', () => {
     });
     assert.deepEqual(next.projectData, {
       existing: 'kept', goal: 'focus', schedule_id: 'schedule_1',
-      schedule_run_id: 'schedule_1:123', schedule_occurrence_id: 'schedule_1:123',
+      schedule_run_id: 'schedule_1:123', flow_occurrence_id: 'schedule_1:123', schedule_occurrence_id: 'schedule_1:123',
       scheduled_for: '2026-08-30T23:00:00.000Z', flow_id: 'coaching'
     });
     assert.deepEqual(original.projectData, { existing: 'kept' });

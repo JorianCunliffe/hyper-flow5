@@ -1,15 +1,14 @@
-import { ActionRun, HumanAsk, Milestone, Project } from '../types.js';
-import { ACTION_TASK_TYPE, advanceFlow, getNodeType, isActionNode } from './flowEngine.js';
+import { ActionRun, HumanAsk, Milestone, Project, NodeType } from '../types.js';
+import { ACTION_TASK_TYPE, activeOccurrenceId, advanceFlow, getHoldConfig, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
+import { createHumanHoldAsk } from './flowHoldAsk.js';
 
 /**
  * Environment-agnostic flow orchestration.
  *
- * The flow engine (./flowEngine) is pure: it decides *what* should happen next.
- * This module performs the effects — running action nodes and folding their
- * results back into the project — without knowing how those effects are carried
- * out.
+ * The flow engine is pure: it decides what should happen next. This module
+ * performs effects and folds results back into the isolated run-state Project.
  */
 
 export interface ActionExecutionContext {
@@ -55,12 +54,6 @@ const validResultVariable = (value: unknown): string | undefined => {
   return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
 };
 
-/**
- * Records a run against a node. Successful object output is merged into project
- * data as before. A configured resultVariable additionally exposes terminal
- * status and provider-neutral outcome fields so Decisions can branch without
- * feature-specific recovery code.
- */
 export const applyActionRun = (project: Project, nodeId: string, run: ActionRun): Project => {
   const node = project.milestones.find(m => m.id === nodeId);
   const merge = run.status === 'success' && run.output && typeof run.output === 'object' && !Array.isArray(run.output);
@@ -147,7 +140,7 @@ export const runActionNode = async (
 
   const run: ActionRun = {
     id: runId,
-    scheduleOccurrenceId: typeof project.projectData?.schedule_occurrence_id === 'string' ? project.projectData.schedule_occurrence_id : undefined,
+    scheduleOccurrenceId: activeOccurrenceId(project.projectData),
     at: Date.now(),
     status: outcome.status,
     executionState:
@@ -223,10 +216,13 @@ export const advanceProjectFlow = async (
     for (const nodeId of asksToOpen) {
       const node = current.milestones.find(m => m.id === nodeId);
       if (!node) continue;
-      const ask = createApprovalAsk(node, { projectId: current.id });
+      const hold = getHoldConfig(node);
+      const ask = getNodeType(node) === NodeType.WAIT && hold?.kind === 'human'
+        ? createHumanHoldAsk(current, node)
+        : createApprovalAsk(node, { projectId: current.id });
       current = { ...current, milestones: current.milestones.map(m => (m.id === nodeId ? upsertAsk(m, ask) : m)) };
       askedFor.push({ nodeId, ask });
-      log.push(`${node.name}: awaiting review by ${(ask.assignees || []).join(', ') || 'an unassigned reviewer'}`);
+      log.push(`${node.name}: awaiting human response from ${(ask.assignees || []).join(', ') || 'an unassigned reviewer'}`);
     }
 
     const runnable = actionsToRun.filter(id => {
