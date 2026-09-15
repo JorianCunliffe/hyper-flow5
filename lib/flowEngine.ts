@@ -23,7 +23,7 @@ const waitMatchesOccurrence = (m: Milestone, projectData?: Record<string, any>):
  * - decision: a branch has been selected
  * - loop: exit condition met (exited)
  * - wait: the durable hold has resolved for the active occurrence
- * - action: last run succeeded
+ * - action: success, or an explicitly configured continue-on-error result
  */
 export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>): boolean => {
   switch (getNodeType(m)) {
@@ -35,8 +35,11 @@ export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>):
       return !!m.waitConfig?.resolvedAt && waitMatchesOccurrence(m, projectData);
     case NodeType.MILESTONE:
       return (m.subtasks || []).length > 0 && m.subtasks.every(isTaskComplete);
-    default:
-      return m.actionConfig?.lastRun?.status === 'success';
+    default: {
+      const run = m.actionConfig?.lastRun;
+      if (run?.status === 'success') return true;
+      return run?.status === 'error' && m.actionConfig?.failureMode === 'continue';
+    }
   }
 };
 
@@ -80,9 +83,7 @@ export const resolveNodeStates = (project: Project): Map<string, NodeResolution>
 
     let skipped = false;
     if (parents.length > 0) {
-      // Skipped if every parent is skipped...
       skipped = parents.every(p => resolve(p.id, visiting) === 'skipped');
-      // ...or any decided decision parent chose a different child
       for (const p of parents) {
         if (
           getNodeType(p) === NodeType.DECISION &&
@@ -159,8 +160,6 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
       completedAt: undefined,
       approvalStatus: undefined
     })),
-    // Cancel rather than delete: the audit trail survives, but a sign-off given
-    // for the previous iteration can never satisfy the gate for this one.
     asks: (m.asks || []).map(a => (a.status === 'open' || a.status === 'answered' ? { ...a, status: 'cancelled' as const } : a))
   };
   if (m.decisionConfig) {
@@ -188,8 +187,7 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
 
 export interface AdvanceResult {
   project: Project;
-  actionsToRun: string[]; // ids of auto-execute action nodes now ready
-  /** Ids of nodes whose work is done but which need a review ask raised. */
+  actionsToRun: string[];
   asksToOpen: string[];
   log: string[];
 }
@@ -207,13 +205,15 @@ const boundedWaitMinutes = (value: unknown): number => {
  * 3. Arms or resolves ready WAIT nodes. Persistence/scheduling of the hold is
  *    performed by the server adapter after this pure transition.
  * 4. Collects ready auto-execute action nodes for the caller to run.
+ *
+ * Failed actions are never retried merely because Advance Flow was called again.
+ * A retry must be expressed by the graph (normally Decision -> Wait -> Loop),
+ * which resets the action node explicitly for another attempt.
  */
 export const advanceFlow = (project: Project): AdvanceResult => {
   let current = project;
   const log: string[] = [];
 
-  // Iterate a few passes so a decision, completed wait, or loop can unblock the
-  // next node in one call without allowing a bad graph to spin forever.
   for (let pass = 0; pass < 5; pass++) {
     let changed = false;
     const states = resolveNodeStates(current);
@@ -314,22 +314,14 @@ export const advanceFlow = (project: Project): AdvanceResult => {
 
   const finalStates = resolveNodeStates(current);
   const actionsToRun = current.milestones
-    .filter(m =>
-      isActionNode(m) &&
-      m.actionConfig?.autoExecute &&
-      isNodeReady(m, finalStates) &&
-      // A node held at a review gate is neither complete nor skipped, so
-      // readiness alone would schedule it again on every pass — redoing the work
-      // repeatedly while a person is still looking at the first attempt.
-      !isNodeWorkDone(m, current.projectData) &&
-      // Likewise for an action still waiting on a provider callback.
-      m.actionConfig?.lastRun?.status !== 'pending'
-    )
+    .filter(m => {
+      if (!isActionNode(m) || !m.actionConfig?.autoExecute || !isNodeReady(m, finalStates)) return false;
+      if (isNodeWorkDone(m, current.projectData)) return false;
+      const status = m.actionConfig?.lastRun?.status;
+      return status !== 'pending' && status !== 'error';
+    })
     .map(m => m.id);
 
-  // A node whose work is finished but which is gated on a person needs an ask
-  // raised. Skipped nodes are excluded — nobody should be asked to review work
-  // on a branch the flow never took.
   const asksToOpen = current.milestones
     .filter(m => finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m, current.projectData) && needsApprovalAsk(m, current.projectData))
     .map(m => m.id);
