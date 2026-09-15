@@ -1,13 +1,13 @@
 
 import React from 'react';
-import { GitBranch, RefreshCw, Mail, MessageSquare, Phone, Webhook, FileText, Circle, LucideIcon, BookOpen, TableProperties, BrainCircuit, Inbox, Clock3 } from 'lucide-react';
+import { GitBranch, RefreshCw, Mail, MessageSquare, Phone, Webhook, FileText, Circle, LucideIcon, BookOpen, TableProperties, BrainCircuit, Inbox, Clock3, Octagon, Radio } from 'lucide-react';
 import { NodeType } from './types';
 
 export interface NodeTypeMeta {
   label: string;
   icon: LucideIcon;
-  color: string;      // main accent (bg for icon chip)
-  ringClass: string;  // tailwind ring color for the node shell
+  color: string;
+  ringClass: string;
   description: string;
 }
 
@@ -15,21 +15,22 @@ export const NODE_TYPE_META: Record<NodeType, NodeTypeMeta> = {
   [NodeType.MILESTONE]: { label: 'Milestone', icon: Circle, color: '#6366f1', ringClass: 'ring-slate-100', description: 'Standard milestone with subtasks' },
   [NodeType.DECISION]: { label: 'Decision', icon: GitBranch, color: '#f59e0b', ringClass: 'ring-amber-200', description: 'Branches the flow based on project data conditions' },
   [NodeType.LOOP]: { label: 'Loop', icon: RefreshCw, color: '#8b5cf6', ringClass: 'ring-violet-200', description: 'Repeats a section until an exit condition or max iterations' },
-  [NodeType.WAIT]: { label: 'Wait', icon: Clock3, color: '#d97706', ringClass: 'ring-amber-300', description: 'Durably pauses a flow until a timer or future hold condition resolves' },
-  [NodeType.EMAIL]: { label: 'Email', icon: Mail, color: '#3b82f6', ringClass: 'ring-blue-200', description: 'Sends an email via Resend' },
+  [NodeType.WAIT]: { label: 'Wait', icon: Clock3, color: '#d97706', ringClass: 'ring-amber-300', description: 'Durably pauses a flow until its configured hold resolves' },
+  [NodeType.END]: { label: 'End', icon: Octagon, color: '#475569', ringClass: 'ring-slate-400', description: 'Explicitly terminates this branch of the flow' },
+  [NodeType.EVENT_TRIGGER]: { label: 'Event', icon: Radio, color: '#0891b2', ringClass: 'ring-cyan-300', description: 'Starts a flow occurrence when a matching trusted event arrives' },
+  [NodeType.EMAIL]: { label: 'Email', icon: Mail, color: '#3b82f6', ringClass: 'ring-blue-200', description: 'Sends an email via the Communications API' },
   [NodeType.SMS]: { label: 'SMS', icon: MessageSquare, color: '#10b981', ringClass: 'ring-emerald-200', description: 'Sends an SMS via the Communications API' },
   [NodeType.PHONE_CALL]: { label: 'Phone Call', icon: Phone, color: '#0ea5e9', ringClass: 'ring-sky-200', description: 'Starts a voice call via the Communications API' },
   [NodeType.WEBHOOK]: { label: 'Webhook', icon: Webhook, color: '#64748b', ringClass: 'ring-slate-300', description: 'Calls an external HTTP endpoint' },
   [NodeType.REPORT]: { label: 'Report', icon: FileText, color: '#ec4899', ringClass: 'ring-pink-200', description: 'Generates a report with AI (draft, evaluate, revise)' },
-  [NodeType.GOOGLE_DOC]: { label: 'Read Doc', icon: BookOpen, color: '#4285f4', ringClass: 'ring-blue-200', description: 'Reads the Google Doc allowlisted for this project' },
-  [NodeType.GOOGLE_SHEET_READ]: { label: 'Read Sheet', icon: TableProperties, color: '#0f9d58', ringClass: 'ring-emerald-200', description: 'Reads the Google Sheet range allowlisted for this project' },
-  [NodeType.GOOGLE_SHEET_APPEND]: { label: 'Append Sheet', icon: TableProperties, color: '#188038', ringClass: 'ring-emerald-300', description: 'Appends rows idempotently to the allowlisted Google Sheet range' },
-  [NodeType.GOOGLE_SHEET_UPSERT]: { label: 'Upsert Sheet', icon: TableProperties, color: '#137333', ringClass: 'ring-emerald-400', description: 'Updates or appends an idempotent row in the allowlisted Google Sheet range' },
+  [NodeType.GOOGLE_DOC]: { label: 'Read Doc', icon: BookOpen, color: '#4285f4', ringClass: 'ring-blue-200', description: 'Reads a granted Google Doc resource' },
+  [NodeType.GOOGLE_SHEET_READ]: { label: 'Read Sheet', icon: TableProperties, color: '#0f9d58', ringClass: 'ring-emerald-200', description: 'Reads a granted Google Sheet range resource' },
+  [NodeType.GOOGLE_SHEET_APPEND]: { label: 'Append Sheet', icon: TableProperties, color: '#188038', ringClass: 'ring-emerald-300', description: 'Appends rows idempotently to a granted Google Sheet range' },
+  [NodeType.GOOGLE_SHEET_UPSERT]: { label: 'Upsert Sheet', icon: TableProperties, color: '#137333', ringClass: 'ring-emerald-400', description: 'Updates or appends an idempotent row in a granted Google Sheet range' },
   [NodeType.COACHING_EXTRACT]: { label: 'Coach Result', icon: BrainCircuit, color: '#7c3aed', ringClass: 'ring-violet-300', description: 'Extracts a typed coaching result from a verified human call' },
   [NodeType.EMAIL_TRIAGE]: { label: 'Email Triage', icon: Inbox, color: '#4f46e5', ringClass: 'ring-indigo-300', description: 'Synchronizes and classifies the mailbox selected for this project' }
 };
 
-// Default mappings for the initial statuses
 export const DEFAULT_STATUS_COLORS: Record<string, string> = {
   'Completed': '#dcfce7',
   'Started': '#dbeafe',
