@@ -1,79 +1,231 @@
-import { getApps } from 'firebase-admin/app';
-import { getDatabase, type Database } from 'firebase-admin/database';
-import type { Project } from '../types.js';
-import { activeOccurrenceId } from './flowEngine.js';
-import { findProject, readSchedulerHealth, writeProject } from './serverStore.js';
-
-export interface FlowHold {
-  id: string;
-  orgId: string;
-  projectId: string;
-  nodeId: string;
-  kind: 'timer';
-  status: 'waiting' | 'processing' | 'resolved' | 'cancelled';
-  availableAt: number;
-  occurrenceId?: string;
-  reason?: string;
-  createdAt: number;
-  updatedAt: number;
-  claimedAt?: number;
-  leaseExpiresAt?: number;
-  attemptCount?: number;
-  error?: string;
-}
+import type { HumanAsk, Milestone, Project } from '../types.js';
+import { runtimeDatabase } from './runtimeDatabase.js';
+import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } from './flowRuntimeTypes.js';
 
 const safeKey = (value: string): string => encodeURIComponent(value).replace(/\./g, '%2E');
-const indexKey = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'id'>): string =>
-  safeKey(`${hold.orgId}:${hold.projectId}:${hold.id}`);
-
-/** Reuse serverStore's initialized Firebase runtime rather than parsing credentials twice. */
-const runtimeDb = async (): Promise<Database> => {
-  await readSchedulerHealth();
-  const app = getApps().find(candidate => candidate.name === 'hyperflow-server');
-  if (!app) throw new Error('HyperFlow runtime database is unavailable');
-  return getDatabase(app);
-};
-
-const holdPath = (hold: Pick<FlowHold, 'orgId' | 'id'>): string =>
-  `flow_holds/${safeKey(hold.orgId)}/${safeKey(hold.id)}`;
-
-const pendingPath = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'id'>): string =>
+const indexKey = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'flowRunId' | 'id'>): string =>
+  safeKey(`${hold.orgId}:${hold.projectId}:${hold.flowRunId}:${hold.id}`);
+const holdPath = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'flowRunId' | 'id'>): string =>
+  `flow_holds/${safeKey(hold.orgId)}/${safeKey(hold.projectId)}/${safeKey(hold.flowRunId)}/${safeKey(hold.id)}`;
+const runHoldRoot = (run: Pick<FlowRun, 'orgId' | 'projectId' | 'id'>): string =>
+  `flow_holds/${safeKey(run.orgId)}/${safeKey(run.projectId)}/${safeKey(run.id)}`;
+const openPath = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'id'>): string =>
+  `flow_hold_open/${safeKey(hold.orgId)}/${safeKey(hold.projectId)}/${safeKey(hold.id)}`;
+const pendingPath = (hold: Pick<FlowHold, 'orgId' | 'projectId' | 'flowRunId' | 'id'>): string =>
   `flow_hold_pending/${indexKey(hold)}`;
 
-/** Persist every armed WAIT node as a sparse scheduler index. Idempotent. */
-export const syncTimerHoldsFromProject = async (orgId: string, project: Project): Promise<void> => {
-  const db = await runtimeDb();
-  const updates: Record<string, unknown> = {};
-  const now = Date.now();
+const arr = <T>(value: unknown): T[] =>
+  Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value as Record<string, T>) : [];
 
-  for (const node of project.milestones) {
-    if (node.nodeType !== 'wait' || !node.waitConfig?.holdId) continue;
-    const cfg = node.waitConfig;
-    const hold: FlowHold = {
-      id: cfg.holdId,
-      orgId,
-      projectId: project.id,
+export const runtimeHoldConfig = (node: Milestone): FlowHoldConfig | undefined => {
+  const generic = (node as RuntimeMilestone).holdConfig;
+  if (generic) return generic;
+  if (!node.waitConfig) return undefined;
+  return {
+    kind: 'timer',
+    durationMinutes: node.waitConfig.durationMinutes,
+    reason: node.waitConfig.reason,
+    holdId: node.waitConfig.holdId,
+    armedAt: node.waitConfig.armedAt,
+    availableAt: node.waitConfig.resumeAt,
+    resolvedAt: node.waitConfig.resolvedAt,
+    occurrenceId: node.waitConfig.occurrenceId
+  };
+};
+
+const latestRelevantAsk = (node: Milestone): HumanAsk | undefined => {
+  const asks = arr<HumanAsk>(node.asks);
+  for (let index = asks.length - 1; index >= 0; index--) {
+    if (asks[index].status !== 'cancelled') return asks[index];
+  }
+  return undefined;
+};
+
+const waitHold = (run: FlowRun, project: Project, node: Milestone, now: number): FlowHold | null => {
+  const cfg = runtimeHoldConfig(node);
+  if (!cfg?.holdId || !cfg.armedAt) return null;
+  const ask = cfg.kind === 'human' ? latestRelevantAsk(node) : undefined;
+  return {
+    id: cfg.holdId,
+    orgId: run.orgId,
+    projectId: run.projectId,
+    flowRunId: run.id,
+    nodeId: node.id,
+    source: 'wait',
+    kind: cfg.kind,
+    status: cfg.resolvedAt ? 'resolved' : 'waiting',
+    occurrenceId: cfg.occurrenceId || run.occurrenceId,
+    reason: cfg.reason,
+    resultVariable: cfg.resultVariable,
+    payloadVariable: cfg.payloadVariable,
+    match: cfg.match,
+    askId: ask?.id,
+    askToken: ask?.token,
+    availableAt: cfg.availableAt,
+    resolution: cfg.resolution,
+    createdAt: cfg.armedAt,
+    updatedAt: now
+  };
+};
+
+const actionHold = (run: FlowRun, node: Milestone, now: number): FlowHold | null => {
+  const action = node.actionConfig?.lastRun;
+  if (!action?.id || !action.startedAt) return null;
+  const id = `hold_action_${run.id}_${node.id}_${action.id}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 220);
+  return {
+    id,
+    orgId: run.orgId,
+    projectId: run.projectId,
+    flowRunId: run.id,
+    nodeId: node.id,
+    source: 'action',
+    kind: 'provider',
+    status: action.status === 'pending' ? 'waiting' : 'resolved',
+    occurrenceId: run.occurrenceId,
+    reason: 'Awaiting asynchronous action provider result',
+    match: {
+      providerServices: action.externalService ? [action.externalService] : undefined,
+      actionRunIds: [action.id],
+      externalIds: [action.externalExecutionId || action.externalId].filter(Boolean) as string[]
+    },
+    actionRunId: action.id,
+    externalId: action.externalExecutionId || action.externalId,
+    providerService: action.externalService,
+    resolution: action.status === 'pending' ? undefined : 'signal',
+    createdAt: action.startedAt,
+    updatedAt: now
+  };
+};
+
+const reviewHolds = (run: FlowRun, node: Milestone, now: number): FlowHold[] => {
+  const cfg = runtimeHoldConfig(node);
+  const explicitHumanWait = cfg?.kind === 'human';
+  return arr<HumanAsk>(node.asks)
+    .filter(ask => !explicitHumanWait && ask.status !== 'cancelled')
+    .map(ask => ({
+      id: `hold_ask_${run.id}_${ask.id}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 220),
+      orgId: run.orgId,
+      projectId: run.projectId,
+      flowRunId: run.id,
       nodeId: node.id,
-      kind: 'timer',
-      status: cfg.resolvedAt ? 'resolved' : 'waiting',
-      availableAt: Number(cfg.resumeAt || now),
-      occurrenceId: cfg.occurrenceId,
-      reason: cfg.reason,
-      createdAt: Number(cfg.armedAt || now),
+      source: 'review' as const,
+      kind: 'human' as const,
+      status: ask.status === 'open' ? 'waiting' as const : 'resolved' as const,
+      occurrenceId: run.occurrenceId,
+      reason: 'Awaiting human response',
+      match: { askIds: [ask.id] },
+      askId: ask.id,
+      askToken: ask.token,
+      resolution: ask.status === 'open' ? undefined : 'signal' as const,
+      createdAt: ask.createdAt,
+      updatedAt: now
+    }));
+};
+
+/**
+ * Reconciles all durable waits for one FlowRun. This includes explicit WAIT
+ * nodes plus implicit provider/human waits created by action and review nodes.
+ */
+export const syncFlowHoldsFromRun = async (run: FlowRun, project: Project): Promise<void> => {
+  const db = await runtimeDatabase();
+  const now = Date.now();
+  const desired = new Map<string, FlowHold>();
+  for (const node of project.milestones) {
+    const wait = waitHold(run, project, node, now);
+    if (wait) desired.set(wait.id, wait);
+    const action = actionHold(run, node, now);
+    if (action) desired.set(action.id, action);
+    for (const review of reviewHolds(run, node, now)) desired.set(review.id, review);
+  }
+
+  const existingSnapshot = await db.ref(runHoldRoot(run)).get();
+  const existing = Object.values<any>(existingSnapshot.val() || {});
+  const updates: Record<string, unknown> = {};
+
+  for (const prior of existing) {
+    if (desired.has(String(prior.id))) continue;
+    const cancelled: FlowHold = {
+      ...prior,
+      status: prior.status === 'resolved' ? 'resolved' : 'cancelled',
+      resolution: prior.resolution || (prior.status === 'resolved' ? 'signal' : 'cancelled'),
       updatedAt: now
     };
+    updates[holdPath(cancelled)] = cancelled;
+    updates[openPath(cancelled)] = null;
+    updates[pendingPath(cancelled)] = null;
+  }
+
+  for (const hold of desired.values()) {
     updates[holdPath(hold)] = hold;
-    updates[pendingPath(hold)] = cfg.resolvedAt ? null : {
-      orgId, projectId: project.id, holdId: hold.id,
-      availableAt: hold.availableAt, createdAt: hold.createdAt
-    };
+    if (hold.status === 'waiting') {
+      updates[openPath(hold)] = {
+        orgId: hold.orgId,
+        projectId: hold.projectId,
+        flowRunId: hold.flowRunId,
+        holdId: hold.id,
+        kind: hold.kind,
+        updatedAt: hold.updatedAt
+      };
+      updates[pendingPath(hold)] = hold.availableAt ? {
+        orgId: hold.orgId,
+        projectId: hold.projectId,
+        flowRunId: hold.flowRunId,
+        holdId: hold.id,
+        availableAt: hold.availableAt,
+        createdAt: hold.createdAt
+      } : null;
+    } else {
+      updates[openPath(hold)] = null;
+      updates[pendingPath(hold)] = null;
+    }
   }
 
   if (Object.keys(updates).length) await db.ref().update(updates);
 };
 
+const listMatches = (allowed: string[] | undefined, value: string | undefined): boolean =>
+  !allowed?.length || allowed.includes('*') || (!!value && allowed.includes(value));
+
+export const holdMatchesSignal = (hold: FlowHold, signal: FlowSignal): boolean => {
+  if (hold.status !== 'waiting') return false;
+  if (hold.kind !== signal.kind) return false;
+  const match = hold.match || {};
+  if (signal.kind === 'event') {
+    return listMatches(match.eventTypes, signal.eventType) &&
+      listMatches(match.channels, signal.channel) &&
+      listMatches(match.directions, signal.direction) &&
+      listMatches(match.personIds, signal.personId);
+  }
+  if (signal.kind === 'human') {
+    return (!match.askIds?.length || (!!signal.askId && match.askIds.includes(signal.askId))) &&
+      (!hold.askToken || !signal.askToken || hold.askToken === signal.askToken);
+  }
+  return listMatches(match.providerServices, signal.providerService) &&
+    (!match.actionRunIds?.length || (!!signal.actionRunId && match.actionRunIds.includes(signal.actionRunId))) &&
+    (!match.externalIds?.length || (!!signal.externalId && match.externalIds.includes(signal.externalId)));
+};
+
+export const listMatchingFlowHolds = async (
+  orgId: string,
+  projectId: string,
+  signal: FlowSignal
+): Promise<FlowHold[]> => {
+  const db = await runtimeDatabase();
+  const open = await db.ref(`flow_hold_open/${safeKey(orgId)}/${safeKey(projectId)}`).get();
+  const stubs = Object.values<any>(open.val() || {});
+  const holds: FlowHold[] = [];
+  for (const stub of stubs.slice(0, 250)) {
+    if (stub.kind !== signal.kind || !stub.flowRunId || !stub.holdId) continue;
+    const snap = await db.ref(holdPath({ orgId, projectId, flowRunId: String(stub.flowRunId), id: String(stub.holdId) })).get();
+    if (!snap.exists()) continue;
+    const hold = snap.val() as FlowHold;
+    if (holdMatchesSignal(hold, signal)) holds.push(hold);
+  }
+  return holds;
+};
+
 export const claimDueFlowHolds = async (now = Date.now(), limit = 10): Promise<FlowHold[]> => {
-  const db = await runtimeDb();
+  const db = await runtimeDatabase();
   const max = Math.min(Math.max(limit, 1), 25);
   const snapshot = await db.ref('flow_hold_pending')
     .orderByChild('availableAt').endAt(now).limitToFirst(max * 3).get();
@@ -89,9 +241,10 @@ export const claimDueFlowHolds = async (now = Date.now(), limit = 10): Promise<F
     const stub = {
       orgId: String(candidate.orgId || ''),
       projectId: String(candidate.projectId || ''),
+      flowRunId: String(candidate.flowRunId || ''),
       id: String(candidate.holdId || '')
     };
-    if (!stub.orgId || !stub.projectId || !stub.id) continue;
+    if (!stub.orgId || !stub.projectId || !stub.flowRunId || !stub.id) continue;
     const reference = db.ref(holdPath(stub));
     const result = await reference.transaction(current => {
       if (!current) return undefined;
@@ -112,16 +265,25 @@ export const claimDueFlowHolds = async (now = Date.now(), limit = 10): Promise<F
       const hold = result.snapshot.val() as FlowHold;
       claimed.push(hold);
       await db.ref(pendingPath(hold)).set({
-        orgId: hold.orgId, projectId: hold.projectId, holdId: hold.id,
-        availableAt: hold.leaseExpiresAt, createdAt: hold.createdAt
+        orgId: hold.orgId,
+        projectId: hold.projectId,
+        flowRunId: hold.flowRunId,
+        holdId: hold.id,
+        availableAt: hold.leaseExpiresAt,
+        createdAt: hold.createdAt
       });
     }
   }
   return claimed;
 };
 
-export const finishFlowHold = async (hold: FlowHold, status: 'resolved' | 'cancelled', error?: string): Promise<void> => {
-  const db = await runtimeDb();
+export const finishFlowHold = async (
+  hold: FlowHold,
+  status: 'resolved' | 'cancelled',
+  error?: string,
+  resolution?: FlowHold['resolution']
+): Promise<void> => {
+  const db = await runtimeDatabase();
   const now = Date.now();
   await db.ref(holdPath(hold)).transaction(current => {
     if (!current) return undefined;
@@ -129,16 +291,18 @@ export const finishFlowHold = async (hold: FlowHold, status: 'resolved' | 'cance
     return {
       ...current,
       status,
+      resolution: resolution || current.resolution || (status === 'cancelled' ? 'cancelled' : 'signal'),
       updatedAt: now,
       leaseExpiresAt: null,
       ...(error ? { error: String(error).slice(0, 1000) } : {})
     };
   });
+  await db.ref(openPath(hold)).remove();
   await db.ref(pendingPath(hold)).remove();
 };
 
 export const releaseFlowHold = async (hold: FlowHold, error: string): Promise<void> => {
-  const db = await runtimeDb();
+  const db = await runtimeDatabase();
   const now = Date.now();
   const result = await db.ref(holdPath(hold)).transaction(current => {
     if (!current || current.status !== 'processing' || current.claimedAt !== hold.claimedAt) return undefined;
@@ -153,47 +317,24 @@ export const releaseFlowHold = async (hold: FlowHold, error: string): Promise<vo
   });
   if (result.committed) {
     const saved = result.snapshot.val() as FlowHold;
+    await db.ref(openPath(saved)).set({
+      orgId: saved.orgId, projectId: saved.projectId, flowRunId: saved.flowRunId,
+      holdId: saved.id, kind: saved.kind, updatedAt: saved.updatedAt
+    });
     await db.ref(pendingPath(saved)).set({
-      orgId: saved.orgId, projectId: saved.projectId, holdId: saved.id,
-      availableAt: saved.availableAt, createdAt: saved.createdAt
+      orgId: saved.orgId, projectId: saved.projectId, flowRunId: saved.flowRunId,
+      holdId: saved.id, availableAt: saved.availableAt, createdAt: saved.createdAt
     });
   }
 };
 
-/**
- * Resolve a claimed timer hold against the exact node/occurrence that armed it,
- * then re-enter normal server-side orchestration. Stale timers are cancelled.
- */
+/** Scheduler entry point for timer waits and timeouts on signal waits. */
 export const resumeClaimedFlowHold = async (hold: FlowHold): Promise<{ ok: boolean; reason?: string }> => {
-  const located = await findProject(hold.orgId, hold.projectId);
-  if (!located || located.project.isArchived) {
-    await finishFlowHold(hold, 'cancelled', 'project_not_available');
-    return { ok: true, reason: 'stale_flow_hold' };
+  const { resumeFlowRunFromHold } = await import('./serverFlow.js');
+  try {
+    return await resumeFlowRunFromHold(hold, hold.kind === 'timer' ? 'timer' : 'timeout');
+  } catch (error: any) {
+    await releaseFlowHold(hold, error?.message || String(error));
+    return { ok: false, reason: error?.message || String(error) };
   }
-
-  const activeOccurrence = activeOccurrenceId(located.project.projectData);
-  if (hold.occurrenceId && activeOccurrence !== hold.occurrenceId) {
-    await finishFlowHold(hold, 'cancelled', 'occurrence_changed');
-    return { ok: true, reason: 'stale_flow_hold' };
-  }
-
-  const node = located.project.milestones.find(item => item.id === hold.nodeId);
-  if (!node?.waitConfig || node.waitConfig.holdId !== hold.id || node.waitConfig.resolvedAt) {
-    await finishFlowHold(hold, 'cancelled', 'wait_no_longer_active');
-    return { ok: true, reason: 'stale_flow_hold' };
-  }
-
-  const resolvedAt = Date.now();
-  const project: Project = {
-    ...located.project,
-    milestones: located.project.milestones.map(item => item.id === hold.nodeId ? {
-      ...item,
-      waitConfig: { ...item.waitConfig!, resolvedAt }
-    } : item)
-  };
-  await writeProject(hold.orgId, located.index, project);
-  await finishFlowHold(hold, 'resolved');
-
-  const { advanceServerFlow } = await import('./serverFlow.js');
-  return advanceServerFlow(hold.orgId, hold.projectId);
 };
