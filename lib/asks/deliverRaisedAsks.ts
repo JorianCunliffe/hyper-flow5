@@ -1,6 +1,5 @@
 import type { HumanAsk, Project } from '../../types.js';
 import { upsertAsk } from '../humanAsk.js';
-import { syncTimerHoldsFromProject } from '../flowHoldStore.js';
 import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
 import { deliverAsk } from './deliverAsk.js';
 import { newAskId, newAskToken } from './createAsk.js';
@@ -67,11 +66,6 @@ export const deliverRaisedAsks = async (
       milestones: current.milestones.map(node => node.id === item.nodeId ? upsertAsk(node, ask) : node)
     };
   }
-
-  // WAIT nodes are pure flow state until the server adapter persists their sparse
-  // timer index. Keeping this alongside other server-side post-advance delivery
-  // work means every server advance gets durable timer recovery automatically.
-  await syncTimerHoldsFromProject(orgId, current);
 
   return { project: current, log };
 };
