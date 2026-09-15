@@ -13,6 +13,7 @@ import type { CommunicationResult, CommunicationsClient } from './communications
 import { createCommunicationsClient } from './communications/client.js';
 import { channelOperatingContext } from './cockpit/channelContext.js';
 import { recordReceptionistIntake, callbackRequestText } from './cockpit/receptionist.js';
+import { advanceEventServerFlow } from './serverFlow.js';
 import {
   claimAgentInboxJobs,
   claimContactDispatch,
@@ -276,6 +277,47 @@ const deliverAgentReply = async (
   return { kind: 'sent', id: result.id };
 };
 
+const markEventHandled = async (
+  job: AgentInboxJob,
+  routing: ProjectRoutingDecision,
+  project: Project,
+  context: ConversationContext | null,
+  threadId: string
+): Promise<void> => {
+  const savedAt = Date.now();
+  await saveConversationContext({
+    id: threadId,
+    orgId: job.orgId,
+    threadId,
+    personId: job.personId,
+    channel: job.channel,
+    activeProjectId: routing.projectId,
+    topic: project.name,
+    selectionConfidence: routing.confidence,
+    clarificationState: 'none',
+    ...(context?.replyWindowStartedAt ? { replyWindowStartedAt: context.replyWindowStartedAt } : {}),
+    ...(context?.automaticReplyCount !== undefined ? { automaticReplyCount: context.automaticReplyCount } : {}),
+    ...(context?.lastAutomaticReplyAt ? { lastAutomaticReplyAt: context.lastAutomaticReplyAt } : {}),
+    updatedAt: savedAt,
+    expiresAt: savedAt + CONTEXT_TTL_MS
+  });
+  await patchTenantTriageItem(
+    job.orgId,
+    job.communicationId,
+    { projectId: routing.projectId },
+    'flow-event-router',
+    'flow_event.routed'
+  );
+  await finishAgentInboxJob(job, { status: 'completed', routing });
+  await setTenantTriageDisposition(
+    job.orgId,
+    job.communicationId,
+    'linked_workflow',
+    'flow-event-router',
+    `Inbound ${job.channel} triggered the configured flow for ${project.name}`
+  );
+};
+
 export const processAgentInboxJob = async (
   job: AgentInboxJob,
   client: CommunicationsClient = createCommunicationsClient()
@@ -287,8 +329,6 @@ export const processAgentInboxJob = async (
       listTenantProjects(job.orgId)
     ]);
     if (!profile) throw new Error('Tenant agent profile is not configured');
-    // Known callers need receptionist intake too. Canonical voice content
-    // contains caller turns only, not an assistant's suggested callback.
     const callbackText = job.channel === 'voice' ? callbackRequestText(communication.content) : null;
     if (callbackText && profile.receptionistEnabled) {
       const intake = await recordReceptionistIntake(job, profile, { communication, callbackText });
@@ -341,7 +381,45 @@ export const processAgentInboxJob = async (
       );
       return;
     }
+
     const project = projects.find(candidate => String(candidate.id) === routing.projectId)!;
+
+    // A project-correlated event may already have entered the flow at the signed
+    // webhook boundary. In that case this inbox job only closes the routing/audit
+    // loop and must not also generate an AI reply.
+    if (project.projectData?.flow_trigger_event_id === job.eventId) {
+      await markEventHandled(job, routing, project, context, threadId);
+      return;
+    }
+
+    // Uncorrelated inbound communications first pass the normal project router.
+    // Once a project is selected, the same trusted Event primitive gets first
+    // refusal. Message text is payload data only; it never grants authority.
+    if (!job.trustedProjectId) {
+      const parsedOccurredAt = Date.parse(String(communication.occurredAt || ''));
+      const eventOutcome = await advanceEventServerFlow(job.orgId, routing.projectId, {
+        id: job.eventId,
+        type: 'communication.received',
+        occurredAt: Number.isFinite(parsedOccurredAt) ? parsedOccurredAt : Date.now(),
+        channel: job.channel,
+        direction: 'inbound',
+        personId: job.personId,
+        communicationId: job.communicationId,
+        payload: {
+          communication_id: job.communicationId,
+          thread_id: threadId,
+          channel: job.channel,
+          ...(clean(communication.subject, 1_000) ? { subject: clean(communication.subject, 1_000) } : {}),
+          ...(clean(communication.content, 20_000) ? { content: clean(communication.content, 20_000) } : {})
+        }
+      });
+      if (!eventOutcome.ok) throw new Error(eventOutcome.reason || 'Event-triggered flow could not start');
+      if (eventOutcome.reason !== 'no_matching_event_trigger') {
+        await markEventHandled(job, routing, project, context, threadId);
+        return;
+      }
+    }
+
     const [triage, sessions] = await Promise.all([
       listTenantTriageItems(job.orgId, 25),
       listCoachingSessions(job.orgId, routing.projectId, 10)

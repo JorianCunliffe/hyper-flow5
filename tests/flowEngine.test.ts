@@ -327,8 +327,6 @@ describe('advanceFlow — loops', () => {
   });
 
   test('resetting the body re-opens decisions, which are then re-evaluated against current data', () => {
-    // The reset clears selectedTargetId; a later pass in the same advanceFlow call
-    // re-decides. With `go` now false, the second evaluation must pick the other branch.
     const p = project(
       [
         decision(
@@ -422,7 +420,7 @@ describe('advanceFlow — action scheduling', () => {
     assert.deepEqual(advanceFlow(p).actionsToRun, []);
   });
 
-  test('re-runs an action whose last attempt failed', () => {
+  test('does not silently re-run an action whose last attempt failed', () => {
     const p = project([
       doneMilestone('A'),
       action('SEND', NodeType.EMAIL, {
@@ -430,7 +428,11 @@ describe('advanceFlow — action scheduling', () => {
         actionConfig: { template: '', autoExecute: true, lastRun: { at: 1, status: 'error', error: 'boom' } }
       })
     ]);
-    assert.deepEqual(advanceFlow(p).actionsToRun, ['SEND']);
+    assert.deepEqual(
+      advanceFlow(p).actionsToRun,
+      [],
+      'a retry must be expressed by an explicit Loop/reset in the flow graph'
+    );
   });
 
   test('skipped action nodes are never scheduled', () => {

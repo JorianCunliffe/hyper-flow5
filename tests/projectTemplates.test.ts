@@ -2,43 +2,79 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dailyCoachingTemplate, emailTriageTemplate, upgradeLegacyEmailTriageProject } from '../lib/projectTemplates';
 import { ACTION_TASK_TYPE } from '../lib/nodeTypes';
+import { isActionNode } from '../lib/flowEngine';
 import { NodeType } from '../types';
 import { coachingSessionFromProject, syncCoachingSessionFromProject } from '../lib/serverFlow';
 import { normalizeServiceTemplate } from '../lib/serverStore';
 
 describe('Daily Coaching project template', () => {
-  test('builds the complete read, call, extract, review, and write dependency chain', () => {
+  test('builds coaching from ordinary configurable flow primitives', () => {
     const template = dailyCoachingTemplate({
       reviewer: 'Jorian', phone: '+61411111111', email: 'jorian@example.com'
     });
     assert.deepEqual(template.milestones.map(node => node.id), [
-      'COACH_DOC', 'COACH_TRACKER', 'COACH_CALL', 'COACH_EXTRACT', 'COACH_WRITE'
+      'COACH_DOC',
+      'COACH_TRACKER',
+      'COACH_CALL',
+      'COACH_CALL_ROUTE',
+      'COACH_EXTRACT',
+      'COACH_WRITE',
+      'COACH_FAILED_END',
+      'COACH_RETRY_WAIT',
+      'COACH_RETRY_LOOP',
+      'COACH_RETRIES_END'
     ]);
-    assert.deepEqual(template.milestones.find(node => node.id === 'COACH_CALL')?.dependsOn, ['COACH_DOC', 'COACH_TRACKER']);
-    assert.deepEqual(template.milestones.find(node => node.id === 'COACH_EXTRACT')?.dependsOn, ['COACH_CALL']);
-    assert.deepEqual(template.milestones.find(node => node.id === 'COACH_WRITE')?.dependsOn, ['COACH_EXTRACT']);
-    const extraction = template.milestones.find(node => node.id === 'COACH_EXTRACT')!;
+
+    const byId = new Map(template.milestones.map(node => [node.id, node]));
+    assert.deepEqual(byId.get('COACH_CALL')?.dependsOn, ['COACH_DOC', 'COACH_TRACKER']);
+    assert.deepEqual(byId.get('COACH_CALL_ROUTE')?.dependsOn, ['COACH_CALL']);
+    assert.equal(byId.get('COACH_CALL_ROUTE')?.nodeType, NodeType.DECISION);
+    assert.deepEqual(byId.get('COACH_EXTRACT')?.dependsOn, ['COACH_CALL_ROUTE']);
+    assert.equal(byId.get('COACH_RETRY_WAIT')?.nodeType, NodeType.WAIT);
+    assert.equal(byId.get('COACH_RETRY_WAIT')?.waitConfig?.durationMinutes, 10);
+    assert.equal(byId.get('COACH_RETRY_LOOP')?.nodeType, NodeType.LOOP);
+    assert.equal(byId.get('COACH_RETRY_LOOP')?.loopConfig?.loopStartId, 'COACH_CALL');
+    assert.equal(byId.get('COACH_RETRIES_END')?.nodeType, NodeType.END);
+    assert.equal(byId.get('COACH_FAILED_END')?.nodeType, NodeType.END);
+
+    const call = byId.get('COACH_CALL')!;
+    assert.equal(call.actionConfig?.failureMode, 'continue');
+    assert.equal(call.actionConfig?.resultVariable, 'coaching_call_result');
+
+    const extraction = byId.get('COACH_EXTRACT')!;
     assert.deepEqual(extraction.reviewPolicy?.when, [{ variable: 'coaching_requires_review', equals: true }]);
     assert.deepEqual(extraction.reviewPolicy?.channels, ['web', 'email']);
     assert.equal(template.projectData.contact_phone, '+61411111111');
     assert.equal(template.projectData.project_template, 'daily_coaching');
   });
 
-  test('every action is executable and Sheet writes use occurrence idempotency', () => {
+  test('only action nodes are executable and Sheet writes use occurrence idempotency', () => {
     const template = dailyCoachingTemplate();
-    for (const node of template.milestones) {
+    const actions = template.milestones.filter(isActionNode);
+    assert.deepEqual(actions.map(node => node.id), [
+      'COACH_DOC', 'COACH_TRACKER', 'COACH_CALL', 'COACH_EXTRACT', 'COACH_WRITE'
+    ]);
+    for (const node of actions) {
       assert.ok(ACTION_TASK_TYPE[node.nodeType as NodeType], `${node.id} is not executable`);
       assert.equal(node.actionConfig?.autoExecute, true);
     }
-    assert.match(template.milestones.find(node => node.id === 'COACH_WRITE')?.actionConfig?.template || '', /schedule_occurrence_id/);
+    assert.match(
+      template.milestones.find(node => node.id === 'COACH_WRITE')?.actionConfig?.template || '',
+      /flow_occurrence_id/
+    );
   });
 
-  test('projects failed calls as failed sessions without a Sheet write', () => {
+  test('projects a failed call for presentation without creating a special retry queue state', () => {
     const template = dailyCoachingTemplate();
     const call = template.milestones.find(node => node.id === 'COACH_CALL')!;
     const scheduledFor = Date.parse('2026-08-30T23:00:00.000Z');
     call.actionConfig!.lastRun = {
-      id: 'run_call', at: scheduledFor, resolvedAt: scheduledFor + 2 * 60_000, status: 'error', error: 'Answering machine detected',
+      id: 'run_call',
+      scheduleOccurrenceId: 'daily:1',
+      at: scheduledFor,
+      resolvedAt: scheduledFor + 2 * 60_000,
+      status: 'error',
+      error: 'Answering machine detected',
       externalExecutionId: 'comm_1',
       communicationOutcome: { disposition: 'voicemail', successful: false, memoryEligible: false }
     };
@@ -46,44 +82,34 @@ describe('Daily Coaching project template', () => {
       id: 'project_1', name: 'Daily Coaching', company: 'Acme', type: 'Other', startDate: 0,
       milestones: template.milestones, createdAt: 0, updatedAt: 0,
       projectData: {
-        ...template.projectData, schedule_id: 'daily', schedule_run_id: 'daily:1',
-        schedule_occurrence_id: 'daily:1', scheduled_for: '2026-08-30T23:00:00.000Z'
+        ...template.projectData,
+        schedule_id: 'daily',
+        schedule_run_id: 'daily:1',
+        schedule_occurrence_id: 'daily:1',
+        scheduled_for: '2026-08-30T23:00:00.000Z'
       }
     }, scheduledFor + 10 * 60_000);
     assert.equal(session?.status, 'failed');
     assert.equal(session?.disposition, 'voicemail');
     assert.equal(session?.failureReason, 'Answering machine detected');
     assert.equal(session?.sheetWrite, undefined);
-    assert.equal(session?.retryStatus, 'pending');
-    assert.equal(session?.attemptCount, 1);
-    assert.equal(session?.nextRetryAt, scheduledFor + 12 * 60_000);
+    assert.equal(session?.retryStatus, undefined);
+    assert.equal(session?.nextRetryAt, undefined);
   });
 
-  test('does not retry wrong numbers and exhausts a bounded retry policy', () => {
-    const template = dailyCoachingTemplate();
-    const call = template.milestones.find(node => node.id === 'COACH_CALL')!;
-    call.actionConfig!.lastRun = {
-      id: 'run_2', at: 2, status: 'error', error: 'Wrong number',
-      communicationOutcome: { disposition: 'wrong_number', successful: false, memoryEligible: false }
-    };
-    const base = {
-      id: 'project_1', name: 'Daily Coaching', company: 'Acme', type: 'Other' as const, startDate: 0,
-      milestones: template.milestones, createdAt: 0, updatedAt: 0,
-      projectData: {
-        ...template.projectData, schedule_occurrence_id: 'daily:1',
-        scheduled_for: '2026-08-30T23:00:00.000Z'
-      }
-    };
-    assert.equal(coachingSessionFromProject('org_1', base, Date.parse('2026-08-30T23:10:00Z'))?.nextRetryAt, undefined);
-
-    call.actionConfig!.lastRun = {
-      ...call.actionConfig!.lastRun!, error: 'No answer',
-      communicationOutcome: { disposition: 'no_answer', successful: false, memoryEligible: false }
-    };
-    call.actionConfig!.runHistory = [{ id: 'run_1', at: Date.parse('2026-08-30T23:00:00Z'), status: 'error' }];
-    const exhausted = coachingSessionFromProject('org_1', base, Date.parse('2026-08-30T23:10:00Z'));
-    assert.equal(exhausted?.retryStatus, 'exhausted');
-    assert.equal(exhausted?.attemptCount, 2);
+  test('encodes retryable outcomes and bounded attempts in Decision/Wait/Loop configuration', () => {
+    const template = dailyCoachingTemplate({ retryAttempts: 3, retryDelayMinutes: 12 });
+    const route = template.milestones.find(node => node.id === 'COACH_CALL_ROUTE')!;
+    const retryBranch = route.decisionConfig?.branches.find(branch => branch.targetId === 'COACH_RETRY_WAIT');
+    assert.deepEqual(retryBranch?.conditions, [{
+      variable: 'coaching_call_result_disposition',
+      oneOf: [
+        'voicemail', 'no_meaningful_response', 'hangup', 'hang_up', 'hung_up',
+        'no_answer', 'busy', 'provider_failed', 'provider_failure', 'failed'
+      ]
+    }]);
+    assert.equal(template.milestones.find(node => node.id === 'COACH_RETRY_WAIT')?.waitConfig?.durationMinutes, 12);
+    assert.equal(template.milestones.find(node => node.id === 'COACH_RETRY_LOOP')?.loopConfig?.maxIterations, 2);
   });
 
   test('does not fail an already-persisted workflow when the coaching projection is temporarily unavailable', async () => {

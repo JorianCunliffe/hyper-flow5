@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ExternalActionReceipt, WorkspaceResourceGrant } from '../../types.js';
+import type { ExternalActionReceipt, WorkspaceNamedResource, WorkspaceResourceGrant, WorkspaceResourcePermission } from '../../types.js';
 import {
   claimExternalActionReceipt,
   finishExternalActionReceipt,
@@ -9,6 +9,8 @@ import {
   saveWorkspaceConnectionRef,
   writeWorkspaceCredential
 } from '../serverStore.js';
+import { currentActionResourceName } from '../actionExecutionScope.js';
+import { readProjectWorkspaceResources } from '../workspaceResourceCatalog.js';
 import { credentialFingerprint, openCredential, sealCredential, type SealedCredential } from './credentialCrypto.js';
 import { refreshGoogleToken, type GoogleTokenSet } from './googleOAuth.js';
 
@@ -110,7 +112,6 @@ export const listGoogleWorkspaceResources = async (
   }));
 };
 
-/** Read-only preflight used before a coaching project exists. */
 export const validateGoogleWorkspaceSelection = async (input: {
   orgId: string;
   connectionId: string;
@@ -147,20 +148,66 @@ const documentText = (document: any): string => (document.body?.content || [])
 const requireGrant = async (orgId: string, projectId: string): Promise<WorkspaceResourceGrant> => {
   const grant = await readWorkspaceResourceGrant(orgId, projectId);
   if (!grant) throw new Error('Google Workspace resources are not configured for this project');
-  return grant;
+  const resources = await readProjectWorkspaceResources(orgId, projectId);
+  return { ...grant, resources };
+};
+
+const named = (grant: WorkspaceResourceGrant, name: string): WorkspaceNamedResource => {
+  const resource = (grant.resources || []).find(item => item.name.toLowerCase() === name.toLowerCase());
+  if (!resource) throw new Error(`Workspace resource "${name}" is not granted to this project`);
+  return resource;
+};
+
+const requirePermission = (resource: WorkspaceNamedResource, permission: WorkspaceResourcePermission): void => {
+  if (!(resource.permissions || ['read']).includes(permission)) {
+    throw new Error(`Workspace resource "${resource.name}" does not grant ${permission} permission`);
+  }
+};
+
+export const resolveGoogleDocGrant = (
+  grant: WorkspaceResourceGrant,
+  resourceName = currentActionResourceName()
+): { documentId: string; resourceName?: string } => {
+  if (resourceName) {
+    const resource = named(grant, resourceName);
+    if (resource.type !== 'google_doc' || !resource.documentId) {
+      throw new Error(`Workspace resource "${resourceName}" is not a Google Doc`);
+    }
+    requirePermission(resource, 'read');
+    return { documentId: resource.documentId, resourceName: resource.name };
+  }
+  if (!grant.documentId) throw new Error('A default Google Doc is not configured for this project');
+  return { documentId: grant.documentId };
+};
+
+export const resolveGoogleSheetGrant = (
+  grant: WorkspaceResourceGrant,
+  permission: WorkspaceResourcePermission,
+  resourceName = currentActionResourceName()
+): { spreadsheetId: string; range: string; resourceName?: string } => {
+  if (resourceName) {
+    const resource = named(grant, resourceName);
+    if (resource.type !== 'google_sheet_range' || !resource.spreadsheetId || !resource.range) {
+      throw new Error(`Workspace resource "${resourceName}" is not a Google Sheet range`);
+    }
+    requirePermission(resource, permission);
+    return { spreadsheetId: resource.spreadsheetId, range: resource.range, resourceName: resource.name };
+  }
+  if (!grant.spreadsheetId || !grant.sheetRange) throw new Error('A default Google Sheet range is not configured for this project');
+  return { spreadsheetId: grant.spreadsheetId, range: grant.sheetRange };
 };
 
 export const readGrantedGoogleDoc = async (orgId: string, projectId: string): Promise<{
   documentId: string; title?: string; revisionId?: string; text: string; readAt: string;
 }> => {
   const grant = await requireGrant(orgId, projectId);
-  if (!grant.documentId) throw new Error('A Google Doc is not configured for this project');
+  const selected = resolveGoogleDocGrant(grant);
   const accessToken = await googleAccessToken(orgId, grant.connectionId);
   const document = await googleJson<any>(
-    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(grant.documentId)}`, accessToken
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(selected.documentId)}`, accessToken
   );
   return {
-    documentId: grant.documentId,
+    documentId: selected.documentId,
     title: typeof document.title === 'string' ? document.title : undefined,
     revisionId: typeof document.revisionId === 'string' ? document.revisionId : undefined,
     text: documentText(document).slice(0, 100_000),
@@ -172,21 +219,19 @@ export const readGrantedGoogleSheet = async (orgId: string, projectId: string): 
   spreadsheetId: string; range: string; values: unknown[][]; readAt: string;
 }> => {
   const grant = await requireGrant(orgId, projectId);
-  if (!grant.spreadsheetId || !grant.sheetRange) throw new Error('A Google Sheet and range are not configured for this project');
+  const selected = resolveGoogleSheetGrant(grant, 'read');
   const accessToken = await googleAccessToken(orgId, grant.connectionId);
   const result = await googleJson<{ range?: string; values?: unknown[][] }>(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(grant.spreadsheetId)}/values/${encodeURIComponent(grant.sheetRange)}`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(selected.range)}`,
     accessToken
   );
   const values = (result.values || []).slice(0, 500).map(row => row.slice(0, 50));
-  return { spreadsheetId: grant.spreadsheetId, range: result.range || grant.sheetRange, values, readAt: new Date().toISOString() };
+  return { spreadsheetId: selected.spreadsheetId, range: result.range || selected.range, values, readAt: new Date().toISOString() };
 };
 
 const requestHash = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-// Coaching, email, document, and transcript text is untrusted data. RAW keeps
-// values beginning with =, +, -, or @ from becoming executable Sheet formulas.
 export const GOOGLE_SHEET_VALUE_INPUT_OPTION = 'RAW' as const;
 
 export const appendGrantedGoogleSheet = async (
@@ -200,8 +245,8 @@ export const appendGrantedGoogleSheet = async (
     throw new Error('Google Sheet append values must contain 1-100 rows and at most 50 columns');
   }
   const grant = await requireGrant(orgId, projectId);
-  if (!grant.spreadsheetId || !grant.sheetRange) throw new Error('A Google Sheet and range are not configured for this project');
-  const hash = requestHash({ projectId, spreadsheetId: grant.spreadsheetId, range: grant.sheetRange, values });
+  const selected = resolveGoogleSheetGrant(grant, 'append');
+  const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, values });
   const receipt: ExternalActionReceipt = {
     id: randomUUID(), orgId, projectId, kind: 'google_sheet_append', idempotencyKey,
     requestHash: hash, status: 'running', startedAt: Date.now()
@@ -215,13 +260,14 @@ export const appendGrantedGoogleSheet = async (
     const accessToken = await googleAccessToken(orgId, grant.connectionId);
     const query = new URLSearchParams({ valueInputOption: GOOGLE_SHEET_VALUE_INPUT_OPTION, insertDataOption: 'INSERT_ROWS' });
     const result = await googleJson<Record<string, unknown>>(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(grant.spreadsheetId)}/values/${encodeURIComponent(grant.sheetRange)}:append?${query}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(selected.range)}:append?${query}`,
       accessToken,
       { method: 'POST', body: JSON.stringify({ majorDimension: 'ROWS', values }) }
     );
     const response = {
-      spreadsheetId: grant.spreadsheetId,
-      range: grant.sheetRange,
+      spreadsheetId: selected.spreadsheetId,
+      range: selected.range,
+      resourceName: selected.resourceName,
       updates: result.updates || null
     };
     await finishExternalActionReceipt(claimed.receipt, { status: 'completed', response });
@@ -232,7 +278,7 @@ export const appendGrantedGoogleSheet = async (
   }
 };
 
-const parseWritableRange = (range: string): { sheet: string; startColumn: string; endColumn: string; startRow: number } => {
+export const parseWritableRange = (range: string): { sheet: string; startColumn: string; endColumn: string; startRow: number } => {
   const match = range.match(/^(.+)!([A-Z]+)(\d*)\s*:\s*([A-Z]+)(\d*)$/i);
   if (!match) throw new Error('Google Sheet upsert requires an A1 range such as Coaching!A2:G');
   return {
@@ -257,9 +303,9 @@ export const upsertGrantedGoogleSheet = async (
   if (!Array.isArray(values) || values.length === 0 || values.length > 50) throw new Error('Google Sheet upsert values must contain 1-50 columns');
   if (String(values[keyColumn] ?? '') !== String(keyValue)) throw new Error('The upsert row value at keyColumn must equal keyValue');
   const grant = await requireGrant(orgId, projectId);
-  if (!grant.spreadsheetId || !grant.sheetRange) throw new Error('A Google Sheet and range are not configured for this project');
-  const writableRange = parseWritableRange(grant.sheetRange);
-  const hash = requestHash({ projectId, spreadsheetId: grant.spreadsheetId, range: grant.sheetRange, keyColumn, keyValue, values });
+  const selected = resolveGoogleSheetGrant(grant, 'upsert');
+  const writableRange = parseWritableRange(selected.range);
+  const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, keyColumn, keyValue, values });
   const receipt: ExternalActionReceipt = {
     id: randomUUID(), orgId, projectId, kind: 'google_sheet_upsert', idempotencyKey,
     requestHash: hash, status: 'running', startedAt: Date.now()
@@ -272,7 +318,7 @@ export const upsertGrantedGoogleSheet = async (
   try {
     const accessToken = await googleAccessToken(orgId, grant.connectionId);
     const current = await googleJson<{ values?: unknown[][] }>(
-      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(grant.spreadsheetId)}/values/${encodeURIComponent(grant.sheetRange)}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(selected.range)}`,
       accessToken
     );
     const matches = (current.values || []).map((row, index) => ({ row, index }))
@@ -285,7 +331,7 @@ export const upsertGrantedGoogleSheet = async (
       const targetRange = `${writableRange.sheet}!${writableRange.startColumn}${rowNumber}:${writableRange.endColumn}${rowNumber}`;
       const query = new URLSearchParams({ valueInputOption: GOOGLE_SHEET_VALUE_INPUT_OPTION });
       result = await googleJson<Record<string, unknown>>(
-        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(grant.spreadsheetId)}/values/${encodeURIComponent(targetRange)}?${query}`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(targetRange)}?${query}`,
         accessToken,
         { method: 'PUT', body: JSON.stringify({ majorDimension: 'ROWS', values: [values] }) }
       );
@@ -293,13 +339,19 @@ export const upsertGrantedGoogleSheet = async (
     } else {
       const query = new URLSearchParams({ valueInputOption: GOOGLE_SHEET_VALUE_INPUT_OPTION, insertDataOption: 'INSERT_ROWS' });
       result = await googleJson<Record<string, unknown>>(
-        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(grant.spreadsheetId)}/values/${encodeURIComponent(grant.sheetRange)}:append?${query}`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(selected.range)}:append?${query}`,
         accessToken,
         { method: 'POST', body: JSON.stringify({ majorDimension: 'ROWS', values: [values] }) }
       );
       operation = 'appended';
     }
-    const response = { spreadsheetId: grant.spreadsheetId, range: grant.sheetRange, operation, updates: result.updates || result };
+    const response = {
+      spreadsheetId: selected.spreadsheetId,
+      range: selected.range,
+      resourceName: selected.resourceName,
+      operation,
+      updates: result.updates || result
+    };
     await finishExternalActionReceipt(claimed.receipt, { status: 'completed', response });
     return response;
   } catch (error: any) {

@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
+import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import {
   claimTriageAgentProposal,
   findProject,
@@ -16,15 +16,50 @@ import { respondToAsk } from '../../lib/asks/respondToAsk.js';
 import { appendGrantedGoogleSheet } from '../../lib/integrations/googleWorkspace.js';
 import { advanceScheduledServerFlow } from '../../lib/serverFlow.js';
 import { COACHING_TRANSIENT_KEYS } from '../../lib/projectTemplates.js';
+import { readTenantCapabilityPolicy, saveTenantCapabilityPolicy } from '../../lib/capabilityPolicyStore.js';
+import { readProjectWorkspaceResources, saveProjectWorkspaceResources } from '../../lib/workspaceResourceCatalog.js';
 
 const dispositions: TriageDisposition[] = [
   'new', 'linked_workflow', 'awaiting_interpretation', 'draft_prepared',
   'needs_review', 'ignored', 'resolved', 'spam_automatic', 'delivery_failure'
 ];
 
+const requestScope = (req: VercelRequest): string =>
+  String(req.query.scope || req.body?.scope || '').trim();
+
+const isAdmin = (role: string): boolean => ['owner', 'admin'].includes(role);
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const member = await requireAppMember(req);
+    const scope = requestScope(req);
+
+    // These are configuration surfaces, not triage semantics. They share this
+    // Vercel function only to stay within the deployment function budget.
+    if (scope === 'capabilities') {
+      if (req.method === 'GET') {
+        return res.status(200).json({ policy: await readTenantCapabilityPolicy(member.orgId) });
+      }
+      if (req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
+      if (!isAdmin(member.role)) return res.status(403).json({ error: 'Administrator membership required' });
+      return res.status(200).json({
+        policy: await saveTenantCapabilityPolicy(member.orgId, req.body?.policy ?? req.body ?? {})
+      });
+    }
+
+    if (scope === 'workspace_resources') {
+      const projectId = String(req.method === 'GET' ? req.query.projectId || '' : req.body?.projectId || '').trim();
+      await requireProjectInTenant(member.orgId, projectId);
+      if (req.method === 'GET') {
+        return res.status(200).json({ resources: await readProjectWorkspaceResources(member.orgId, projectId) });
+      }
+      if (req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' });
+      if (!isAdmin(member.role)) return res.status(403).json({ error: 'Administrator membership required' });
+      return res.status(200).json({
+        resources: await saveProjectWorkspaceResources(member.orgId, projectId, req.body?.resources || [])
+      });
+    }
+
     if (req.method === 'GET') {
       const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
       const [data, digests] = await Promise.all([
@@ -144,6 +179,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return item ? res.status(200).json({ item }) : res.status(404).json({ error: 'Triage item not found' });
   } catch (error: any) {
-    return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    if (error instanceof ApiAuthError) return res.status(error.status).json({ error: error.message });
+    const message = String(error?.message || error);
+    if (/invalid capability|invalid policy|workspace resource|google sheet range/i.test(message)) {
+      return res.status(400).json({ error: message });
+    }
+    return res.status(500).json({ error: message });
   }
 }

@@ -1,20 +1,15 @@
-import { CoachingSession, HumanAsk, NodeType, Project } from '../types.js';
+import { CoachingSession, HumanAsk, type FlowEvent, Project } from '../types.js';
 import { advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
 import { findAskByToken } from './humanAsk.js';
 import { serverExecutor } from './serverExecutor.js';
 import { findProject, upsertCoachingSession, writeProject } from './serverStore.js';
 import { deliverRaisedAsks } from './asks/deliverRaisedAsks.js';
 import { expireAsk } from './asks/expireAsk.js';
-import { coachingCallDisposition, coachingCallNode, coachingRetryMatchesProject, coachingRetryState } from './coachingRetry.js';
+import { syncTimerHoldsFromProject } from './flowHoldStore.js';
+import { applyFlowEvent } from './flowEvents.js';
+import { resetProjectForOccurrence } from './flowOccurrence.js';
 import { settleVisibleCallback } from './visibleFlows/runtime.js';
 export { respondToAsk } from './asks/respondToAsk.js';
-
-/**
- * Server-side flow execution. Actions are executed in-process rather than over
- * HTTP — there is no browser in this path, which is the whole point: a human
- * answering by phone (and, later, email or SMS) moves the flow forward whether
- * or not anyone has the app open.
- */
 
 export interface AdvanceOutcome {
   ok: boolean;
@@ -40,37 +35,7 @@ export const resetProjectForScheduledOccurrence = (
   if (occurrence.resetPolicy !== 'flow' || project.projectData?.schedule_occurrence_id === occurrence.scheduleRunId) {
     return project;
   }
-  const projectData = { ...(project.projectData || {}) };
-  for (const key of occurrence.clearProjectDataKeys || []) delete projectData[key];
-  return {
-    ...project,
-    projectData,
-    milestones: project.milestones.map(node => ({
-      ...node,
-      ...(node.actionConfig ? {
-        actionConfig: {
-          ...node.actionConfig,
-          lastRun: undefined,
-          revision: undefined,
-          runHistory: node.actionConfig.lastRun
-            ? [...(node.actionConfig.runHistory || []), {
-                ...node.actionConfig.lastRun,
-                scheduleOccurrenceId: node.actionConfig.lastRun.scheduleOccurrenceId || project.projectData?.schedule_occurrence_id
-              }]
-            : node.actionConfig.runHistory
-        }
-      } : {}),
-      ...(node.decisionConfig ? {
-        decisionConfig: { ...node.decisionConfig, selectedTargetId: undefined, decidedAt: undefined }
-      } : {}),
-      ...(node.loopConfig ? {
-        loopConfig: { ...node.loopConfig, currentIteration: 0, exited: false }
-      } : {}),
-      ...(node.asks ? {
-        asks: node.asks.map(ask => ask.status === 'open' ? { ...ask, status: 'cancelled' as const } : ask)
-      } : {})
-    }))
-  };
+  return resetProjectForOccurrence(project, occurrence.scheduleRunId, occurrence.clearProjectDataKeys || []);
 };
 
 export const applyScheduledFlowContext = (
@@ -79,42 +44,48 @@ export const applyScheduledFlowContext = (
 ): Project => {
   const reset = resetProjectForScheduledOccurrence(project, occurrence);
   return {
-  ...reset,
-  projectData: {
-    ...(reset.projectData || {}),
-    ...(occurrence.input || {}),
-    schedule_id: occurrence.scheduleId,
-    schedule_run_id: occurrence.scheduleRunId,
-    schedule_occurrence_id: occurrence.scheduleRunId,
-    scheduled_for: new Date(occurrence.scheduledFor).toISOString(),
-    ...(occurrence.flowId ? { flow_id: occurrence.flowId } : {})
-  }
+    ...reset,
+    projectData: {
+      ...(reset.projectData || {}),
+      ...(occurrence.input || {}),
+      schedule_id: occurrence.scheduleId,
+      schedule_run_id: occurrence.scheduleRunId,
+      schedule_occurrence_id: occurrence.scheduleRunId,
+      scheduled_for: new Date(occurrence.scheduledFor).toISOString(),
+      ...(occurrence.flowId ? { flow_id: occurrence.flowId } : {})
+    }
   };
 };
 
+/**
+ * Compatibility projection only. It describes the generic flow for the coaching
+ * UI but never creates retry authority or scheduler state of its own.
+ */
 export const coachingSessionFromProject = (
   orgId: string,
   project: Project,
-  now = Date.now()
+  _now = Date.now()
 ): (Omit<CoachingSession, 'createdAt' | 'updatedAt'> & Partial<Pick<CoachingSession, 'createdAt' | 'updatedAt'>>) | null => {
   const data = project.projectData || {};
   const occurrenceId = typeof data.schedule_occurrence_id === 'string' ? data.schedule_occurrence_id : '';
   if (data.project_template !== 'daily_coaching' || !occurrenceId) return null;
-  const callNode = coachingCallNode(project);
+  const callNode = project.milestones.find(node => node.id === 'COACH_CALL');
   const extractionNode = project.milestones.find(node => node.id === 'COACH_EXTRACT');
   const writeNode = project.milestones.find(node => node.id === 'COACH_WRITE');
+  const retryWait = project.milestones.find(node => node.id === 'COACH_RETRY_WAIT');
   const callRun = callNode?.actionConfig?.lastRun;
   const callOutput = callRun?.output && typeof callRun.output === 'object' ? callRun.output : {};
   const outcome = callRun?.communicationOutcome;
+  const waitingOnGenericTimer = !!retryWait?.waitConfig?.resumeAt && !retryWait.waitConfig.resolvedAt;
   let status: 'scheduled' | 'calling' | 'review_required' | 'completed' | 'failed' = 'scheduled';
-  if (callRun?.status === 'error') status = 'failed';
-  else if (writeNode?.actionConfig?.lastRun?.status === 'success') status = 'completed';
+  if (writeNode?.actionConfig?.lastRun?.status === 'success') status = 'completed';
   else if (extractionNode?.actionConfig?.lastRun?.status === 'success' && data.coaching_requires_review) status = 'review_required';
-  else if (callRun) status = 'calling';
+  else if (callRun?.status === 'pending') status = 'calling';
+  else if (callRun?.status === 'error' && !waitingOnGenericTimer) status = 'failed';
 
-  const retry = coachingRetryState(project, now);
   const scheduledFor = typeof data.scheduled_for === 'string' ? Date.parse(data.scheduled_for) : NaN;
-  const disposition = coachingCallDisposition(callRun);
+  const history = callNode?.actionConfig?.runHistory || [];
+  const attempts = history.filter(run => run.scheduleOccurrenceId === occurrenceId).length + (callRun ? 1 : 0);
 
   return {
     id: occurrenceId,
@@ -130,7 +101,7 @@ export const coachingSessionFromProject = (
     spreadsheetId: typeof data.google_sheet_id === 'string' ? data.google_sheet_id : undefined,
     sheetRange: typeof data.google_sheet_range === 'string' ? data.google_sheet_range : undefined,
     sheetReadAt: typeof data.google_sheet_read_at === 'string' ? data.google_sheet_read_at : undefined,
-    disposition,
+    disposition: outcome?.disposition,
     transcriptId: typeof callOutput.transcript_id === 'string' ? callOutput.transcript_id : undefined,
     status,
     summary: typeof data.coaching_summary === 'string' ? data.coaching_summary : undefined,
@@ -141,9 +112,7 @@ export const coachingSessionFromProject = (
     confidence: Number.isFinite(Number(data.coaching_confidence)) ? Number(data.coaching_confidence) : undefined,
     sheetWrite: data.google_sheet_write && typeof data.google_sheet_write === 'object' ? data.google_sheet_write : undefined,
     failureReason: callRun?.status === 'error' ? callRun.error || outcome?.failureReason : undefined,
-    attemptCount: retry.attempts,
-    nextRetryAt: retry.nextRetryAt,
-    retryStatus: retry.retryStatus
+    attemptCount: attempts
   };
 };
 
@@ -158,45 +127,50 @@ export const syncCoachingSessionFromProject = async (
     await persist(session);
     return undefined;
   } catch (error: any) {
-    // The project is the workflow source of truth. A projection outage must not
-    // turn an already-persisted callback into a provider retry that can no longer
-    // match its completed run. A later advance reconciles the same session id.
     const warning = `Coaching session projection pending reconciliation: ${error?.message || String(error)}`;
     console.error(warning);
     return warning;
   }
 };
 
-/** Loads a project, advances it as far as it will go, and persists the result. */
-export const advanceServerFlow = async (
+const persistAdvancedProject = async (
   orgId: string,
-  projectId: string,
-  options: { expectedCoachingOccurrenceId?: string } = {}
-): Promise<AdvanceOutcome> => {
-  const located = await findProject(orgId, projectId);
-  if (!located) return { ok: false, reason: 'project_not_found' };
-  if (options.expectedCoachingOccurrenceId !== undefined
-      && !coachingRetryMatchesProject(located.project, options.expectedCoachingOccurrenceId)) {
-    return { ok: true, reason: 'stale_coaching_retry', log: ['Skipped coaching retry: occurrence is no longer active'], pending: [] };
-  }
+  index: number,
+  project: Project
+): Promise<string | undefined> => {
+  await writeProject(orgId, index, project);
+  await syncTimerHoldsFromProject(orgId, project);
+  return syncCoachingSessionFromProject(orgId, project);
+};
 
-  const { project, log, pending, askedFor } = await advanceProjectFlow(located.project, serverExecutor, {
+const advanceAndPersist = async (
+  orgId: string,
+  located: Awaited<ReturnType<typeof findProject>> & {},
+  project: Project,
+  initialLog: string[] = []
+): Promise<AdvanceOutcome> => {
+  const advanced = await advanceProjectFlow(project, serverExecutor, {
     orgId,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL
   });
-
-  const delivered = await deliverRaisedAsks(project, orgId, askedFor);
-  await writeProject(orgId, located.index, delivered.project);
-  const projectionWarning = await syncCoachingSessionFromProject(orgId, delivered.project);
-  return { ok: true, log: [...log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending };
+  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
+  const projectionWarning = await persistAdvancedProject(orgId, located.index, delivered.project);
+  return {
+    ok: true,
+    log: [...initialLog, ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])],
+    pending: advanced.pending
+  };
 };
 
-/**
- * Starts or resumes one durable scheduled occurrence. Reserved correlation
- * fields always win over schedule input so a configured payload cannot forge a
- * different occurrence identity. A retry of the same occurrence is safe: the
- * flow engine will not redispatch an action that is already waiting or complete.
- */
+export const advanceServerFlow = async (
+  orgId: string,
+  projectId: string
+): Promise<AdvanceOutcome> => {
+  const located = await findProject(orgId, projectId);
+  if (!located) return { ok: false, reason: 'project_not_found' };
+  return advanceAndPersist(orgId, located, located.project);
+};
+
 export const advanceScheduledServerFlow = async (
   orgId: string,
   projectId: string,
@@ -204,16 +178,29 @@ export const advanceScheduledServerFlow = async (
 ): Promise<AdvanceOutcome> => {
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
-
   const project = applyScheduledFlowContext(located.project, occurrence);
-  const advanced = await advanceProjectFlow(project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-  await writeProject(orgId, located.index, delivered.project);
-  const projectionWarning = await syncCoachingSessionFromProject(orgId, delivered.project);
-  return { ok: true, log: [...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending: advanced.pending };
+  return advanceAndPersist(orgId, located, project);
+};
+
+/**
+ * Starts a normal flow occurrence from one trusted external event. Projects that
+ * have no ready matching EVENT_TRIGGER node are left untouched.
+ */
+export const advanceEventServerFlow = async (
+  orgId: string,
+  projectId: string,
+  event: FlowEvent,
+  clearProjectDataKeys: string[] = []
+): Promise<AdvanceOutcome> => {
+  const located = await findProject(orgId, projectId);
+  if (!located) return { ok: false, reason: 'project_not_found' };
+  const applied = applyFlowEvent(located.project, event, clearProjectDataKeys);
+  if (!applied.matchedNodeIds.length) {
+    return { ok: true, reason: 'no_matching_event_trigger', log: ['No ready event trigger matched the event'], pending: [] };
+  }
+  return advanceAndPersist(orgId, located, applied.project, [
+    `Event ${event.type} triggered ${applied.matchedNodeIds.length} flow node(s)`
+  ]);
 };
 
 export interface AskLookup {
@@ -222,11 +209,6 @@ export interface AskLookup {
   projectName: string;
 }
 
-/**
- * Reads an ask by its token. The token is the capability — it authorises
- * answering this one ask and nothing else, so this deliberately returns only
- * what a reviewer needs to see, never the surrounding project.
- */
 export const readAskByToken = async (
   orgId: string,
   projectId: string,
@@ -234,33 +216,23 @@ export const readAskByToken = async (
 ): Promise<AskLookup | null> => {
   const located = await findProject(orgId, projectId);
   if (!located) return null;
-
   const found = findAskByToken(located.project, token);
   if (!found) return null;
-
   return { ask: expireAsk(found.ask), nodeName: found.node.name, projectName: located.project.name };
 };
 
-/**
- * Resolves an action run that was waiting on a provider callback, then advances
- * the flow so downstream nodes react to whatever the human just told us.
- */
 export const resolveCallbackAndAdvance = async (
   orgId: string,
   projectId: string,
   match: { nodeId?: string; runId?: string; externalId?: string },
   result: { status: 'success' | 'error'; output?: any; logs?: string[]; error?: string; resolvedBy: string }
 ): Promise<AdvanceOutcome> => {
-  if (match.runId?.startsWith('vf:')) return (await settleVisibleCallback(orgId,projectId,match,result))!;
+  if (match.runId?.startsWith('vf:')) return (await settleVisibleCallback(orgId, projectId, match, result))!;
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
   const resolved = resolvePendingRun(located.project, match, result);
   if (!resolved) {
-    // Legacy workflow definitions can put executable task types on subtasks.
-    // They use the same explicit correlation and waiting lifecycle as action
-    // nodes, so complete them deterministically instead of leaving an orphaned
-    // communication behind.
     let found = false;
     const milestones = located.project.milestones.map(m => ({
       ...m,
@@ -288,40 +260,8 @@ export const resolveCallbackAndAdvance = async (
       milestones,
       projectData: { ...(located.project.projectData || {}), ...output }
     };
-    const advanced = await advanceProjectFlow(subtaskProject, serverExecutor, {
-      orgId,
-      webhookBaseUrl: process.env.PUBLIC_BASE_URL
-    });
-    const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-    await writeProject(orgId, located.index, delivered.project);
-    const projectionWarning = await syncCoachingSessionFromProject(orgId, delivered.project);
-    return {
-      ok: true,
-      log: ['Subtask completed from external event', ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])],
-      pending: advanced.pending
-    };
+    return advanceAndPersist(orgId, located, subtaskProject, ['Subtask completed from external event']);
   }
 
-  // Persist terminal provider failures before doing anything else. Advancing a
-  // failed action in the same callback would immediately dispatch a duplicate
-  // call/SMS. Coaching retries are claimed later by the scheduler; other failed
-  // actions remain explicitly retryable by a deliberate flow advance.
-  if (result.status === 'error') {
-    await writeProject(orgId, located.index, resolved.project);
-    const projectionWarning = await syncCoachingSessionFromProject(orgId, resolved.project);
-    return {
-      ok: true,
-      log: [...resolved.log, 'Automatic redispatch suppressed after provider failure', ...(projectionWarning ? [projectionWarning] : [])],
-      pending: []
-    };
-  }
-
-  const advanced = await advanceProjectFlow(resolved.project, serverExecutor, {
-    orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-  await writeProject(orgId, located.index, delivered.project);
-  const projectionWarning = await syncCoachingSessionFromProject(orgId, delivered.project);
-  return { ok: true, log: [...resolved.log, ...advanced.log, ...delivered.log, ...(projectionWarning ? [projectionWarning] : [])], pending: advanced.pending };
+  return advanceAndPersist(orgId, located, resolved.project, resolved.log);
 };
