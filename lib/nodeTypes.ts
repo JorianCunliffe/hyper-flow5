@@ -14,6 +14,7 @@ export const ACTION_NODE_TYPES: NodeType[] = [
   NodeType.GOOGLE_DOC,
   NodeType.GOOGLE_SHEET_READ,
   NodeType.GOOGLE_SHEET_APPEND,
+  NodeType.GOOGLE_SHEET_UPSERT,
   NodeType.COACHING_EXTRACT,
   NodeType.EMAIL_TRIAGE
 ];
@@ -28,6 +29,7 @@ export const ACTION_TASK_TYPE: Partial<Record<NodeType, string>> = {
   [NodeType.GOOGLE_DOC]: 'read_google_doc',
   [NodeType.GOOGLE_SHEET_READ]: 'read_google_sheet',
   [NodeType.GOOGLE_SHEET_APPEND]: 'append_google_sheet',
+  [NodeType.GOOGLE_SHEET_UPSERT]: 'upsert_google_sheet',
   [NodeType.COACHING_EXTRACT]: 'extract_coaching_result',
   [NodeType.EMAIL_TRIAGE]: 'run_email_triage'
 };
