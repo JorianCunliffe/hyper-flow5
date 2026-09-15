@@ -23,26 +23,20 @@ export interface TeamMemberDetails {
 }
 
 export interface CommunicationsSettings {
-  /** Public E.164 service number used as the sender for SMS and voice. */
   fromNumber?: string;
-  /** Non-secret Communications Service identity selected for outbound email. */
   defaultEmailIdentity?: string;
-  /** Optional reply-to address override; omit to use a service-generated reply route. */
   replyServiceIdentity?: string;
-  /** Provider connection selected for this organization. Never a credential. */
   connectionId?: string;
   timezone?: string;
   triagePolicy?: 'all_inbound' | 'human_only' | 'correlated_only';
   sendPolicy?: 'draft_only' | 'allow_approved_send' | 'automatic';
   allowedAutomaticActions?: Array<'classify' | 'link_workflow' | 'progress_ask' | 'create_draft' | 'send_reply'>;
-  /** Tenant-selected mailbox connection. The credential remains in Communications Service. */
   mailboxConnectionId?: string;
 }
 
 export type ConnectionState = 'connected' | 'degraded' | 'expired' | 'revoked' | 'pending';
 export type MailboxProvider = 'gmail' | 'outlook' | 'resend';
 
-/** Non-secret reference to a mailbox connection owned by Communications Service. */
 export interface MailboxConnectionRef {
   id: string;
   provider: MailboxProvider;
@@ -53,7 +47,6 @@ export interface MailboxConnectionRef {
   updatedAt: number;
 }
 
-/** Non-secret reference to Google credentials held by the server-side integration backend. */
 export interface WorkspaceConnectionRef {
   id: string;
   provider: 'google';
@@ -63,20 +56,31 @@ export interface WorkspaceConnectionRef {
   updatedAt: number;
 }
 
+export type WorkspaceResourcePermission = 'read' | 'append' | 'upsert';
+
+export interface WorkspaceNamedResource {
+  name: string;
+  type: 'google_doc' | 'google_sheet_range';
+  documentId?: string;
+  spreadsheetId?: string;
+  range?: string;
+  permissions?: WorkspaceResourcePermission[];
+}
+
 export interface WorkspaceResourceGrant {
   projectId: string;
   connectionId: string;
+  /** Legacy/default resources retained for backwards compatibility. */
   documentId?: string;
   spreadsheetId?: string;
   sheetRange?: string;
-  /** Named ranges within the allowlisted spreadsheet. The legacy sheetRange remains the default. */
-  sheetRanges?: Array<{ name: string; range: string }>;
+  /** Human-named resources selected by action templates via resource_name. */
+  resources?: WorkspaceNamedResource[];
   updatedAt: number;
 }
 
 export type ServiceProjectTemplate = 'email_triage' | 'daily_coaching';
 
-/** Temporary, non-secret setup state. It is scoped to one tenant and user and expires after 24 hours. */
 export interface ServiceSetupDraft {
   id: string;
   orgId: string;
@@ -156,6 +160,8 @@ export interface CoachingSession {
   updatedAt: number;
 }
 
+export type CapabilityPolicyMode = 'automatic' | 'approval' | 'denied';
+
 export interface TenantAgentProfile {
   agentId: string;
   displayName: string;
@@ -173,7 +179,6 @@ export interface TenantAgentProfile {
   contactWindow?: {startHour:number;endHour:number;maxPerDay:number;maxPerContact:number};
   defaultProjectId?: string;
   allowedProjectIds?: string[];
-  /** Optional person-specific grants keyed by the stable Communications person UUID. */
   personProjectAccess?: Array<{
     personId: string;
     projectIds: string[];
@@ -184,7 +189,10 @@ export interface TenantAgentProfile {
     email?: string;
   };
   clarificationPolicy?: 'always' | 'when_ambiguous';
+  /** Legacy policy retained while existing settings migrate. */
   automaticActions?: Array<'draft' | 'send' | 'call' | 'sheet_write'>;
+  /** Provider-neutral authority keyed by capability, e.g. phone.call or sheet.append. */
+  capabilityPolicy?: Record<string, CapabilityPolicyMode>;
 }
 
 export interface CommunicationsPersonRef {
@@ -281,7 +289,6 @@ export interface TriageItem {
   id: string;
   orgId: string;
   communicationId: string;
-  /** Mailbox connection that produced this item. Used to isolate service projects. */
   connectionId?: string;
   threadId?: string;
   channel: 'email' | 'sms' | 'voice' | 'web' | string;
@@ -332,7 +339,6 @@ export interface TenantScheduleBase {
   orgId: string;
   name: string;
   enabled: boolean;
-  /** Retained for backward compatibility; recurrence is authoritative when present. */
   intervalMinutes: number;
   recurrence: ScheduleRecurrence;
   misfirePolicy: ScheduleMisfirePolicy;
@@ -369,7 +375,6 @@ export interface TriageDigest {
 
 export interface CommunicationsTriageSchedule extends TenantScheduleBase {
   activity: 'communications_triage';
-  /** Required for new schedules; omitted only on legacy tenant-wide records. */
   projectId?: string;
   connectionId?: string;
   triagePolicy?: 'all_inbound' | 'human_only' | 'correlated_only';
@@ -431,7 +436,7 @@ export interface AppSettings {
   companies: string[];
   people: string[];
   roles: string[];
-  teamMemberDetails?: Record<string, TeamMemberDetails>; // name -> details
+  teamMemberDetails?: Record<string, TeamMemberDetails>;
   communications?: CommunicationsSettings;
   agent?: TenantAgentProfile;
   mailboxConnections?: Record<string, MailboxConnectionRef>;
@@ -445,7 +450,9 @@ export interface AppSettings {
 
 export interface ReadyCondition {
   variable: string;
-  equals?: boolean;
+  equals?: string | number | boolean | null;
+  notEquals?: string | number | boolean | null;
+  oneOf?: Array<string | number | boolean | null>;
   exists?: boolean;
 }
 
@@ -454,6 +461,8 @@ export enum NodeType {
   DECISION = 'decision',
   LOOP = 'loop',
   WAIT = 'wait',
+  END = 'end',
+  EVENT_TRIGGER = 'event_trigger',
   EMAIL = 'email',
   SMS = 'sms',
   PHONE_CALL = 'phone_call',
@@ -468,9 +477,9 @@ export enum NodeType {
 }
 
 export interface DecisionBranch {
-  targetId: string; // direct child milestone id this branch leads to
-  label: string;    // e.g. 'Yes' / 'No'
-  conditions?: ReadyCondition[]; // all must pass; no conditions = default (else) branch
+  targetId: string;
+  label: string;
+  conditions?: ReadyCondition[];
 }
 
 export interface DecisionConfig {
@@ -480,25 +489,45 @@ export interface DecisionConfig {
 }
 
 export interface LoopConfig {
-  loopStartId?: string; // node the loop jumps back to; body = nodes between it and the loop node
-  exitConditions: ReadyCondition[]; // loop exits when all pass (checked against projectData)
+  loopStartId?: string;
+  exitConditions: ReadyCondition[];
   maxIterations: number;
   currentIteration: number;
   exited?: boolean;
 }
 
-/** A first-class durable hold. Timer is the first supported kind; other hold kinds can reuse the same lifecycle. */
 export interface WaitConfig {
   kind: 'timer';
-  /** Relative delay used when resumeAt is not explicitly provided. */
   durationMinutes?: number;
-  /** Absolute epoch milliseconds. Set when the wait arms and retained for durable recovery. */
   resumeAt?: number;
   reason?: string;
   maxResumes?: number;
   armedAt?: number;
   resolvedAt?: number;
   holdId?: string;
+  occurrenceId?: string;
+}
+
+export interface FlowEvent {
+  id: string;
+  type: string;
+  occurredAt: number;
+  channel?: string;
+  direction?: string;
+  personId?: string;
+  communicationId?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface EventTriggerConfig {
+  eventTypes: string[];
+  channels?: string[];
+  directions?: string[];
+  personIds?: string[];
+  payloadVariable?: string;
+  lastEventId?: string;
+  triggeredAt?: number;
+  occurrenceId?: string;
 }
 
 export interface CommunicationOutcome {
@@ -514,39 +543,32 @@ export interface CommunicationOutcome {
 }
 
 export interface ActionRun {
-  id?: string;       // correlates async provider callbacks back to this exact run
-  scheduleOccurrenceId?: string; // scopes automatic call retries to one occurrence
+  id?: string;
+  scheduleOccurrenceId?: string;
   at: number;
-  /**
-   * 'pending' means the action was dispatched but its result arrives later via an
-   * inbound webhook (e.g. a phone call). A pending run does not complete the node
-   * and its output is not merged into projectData until it resolves.
-   */
   status: 'success' | 'error' | 'pending';
-  /** Provider-neutral execute-until-held lifecycle. Kept alongside status for UI compatibility. */
   executionState?: 'ready' | 'running' | 'waiting' | 'completed' | 'failed';
   output?: any;
   logs?: string[];
   error?: string;
-  externalId?: string;   // legacy alias for externalExecutionId
+  externalId?: string;
   externalExecutionId?: string;
   externalService?: 'communications' | string;
   startedAt?: number;
-  resolvedAt?: number;   // when an async run reached a terminal status
-  resolvedBy?: string;   // e.g. 'event:communications'
-  /** Provider-independent business outcome for asynchronous communications. */
+  resolvedAt?: number;
+  resolvedBy?: string;
   communicationOutcome?: CommunicationOutcome;
 }
 
 export interface ActionConfig {
-  template: string; // JSON or text, supports {{variable}} substitution from projectData
-  autoExecute?: boolean; // run automatically when the node becomes ready during Advance Flow
+  template: string;
+  autoExecute?: boolean;
+  /** Errors block by default. Continue exposes them as graph results for Decisions. */
+  failureMode?: 'block' | 'continue';
+  /** Project-data prefix receiving status/success/output/error/outcome fields. */
+  resultVariable?: string;
   lastRun?: ActionRun;
   runHistory?: ActionRun[];
-  /**
-   * Human feedback carried into the next run after a reviewer sent the work
-   * back. This is what turns "return for revision" into an actual redo.
-   */
   revision?: {
     feedback: string;
     priorOutput?: any;
@@ -557,9 +579,9 @@ export interface ActionConfig {
 
 export interface OutputVariable {
   name: string;
-  type: string; // 'boolean' | 'string' | 'date'
-  write_on: string; // 'approval'
-  value_source: string; // 'static' | 'task_output' | 'system_date'
+  type: string;
+  write_on: string;
+  value_source: string;
   value?: any;
 }
 
@@ -567,31 +589,26 @@ export interface ProjectData {
   [key: string]: any;
 }
 
-// ===== Human-in-the-loop: asks, answers, review gates =====
-
-/** What we need from a person. */
 export type AskKind =
-  | 'approval'  // sign off (or reject / send back) a piece of work
-  | 'question'  // supply missing facts the flow needs to continue
-  | 'choice'    // pick one of a fixed set of options
-  | 'upload';   // provide a file
+  | 'approval'
+  | 'question'
+  | 'choice'
+  | 'upload';
 
 export type AskChannel = 'web' | 'email' | 'sms' | 'voice';
 export type AskStatus = 'open' | 'answered' | 'cancelled' | 'expired';
 export type AskDecision = 'approved' | 'rejected' | 'revise';
 
-/** One field of a structured answer. Drives both the web form and inbound parsing. */
 export interface AskField {
   name: string;
   label?: string;
   type: 'string' | 'boolean' | 'number' | 'date' | 'file';
   required?: boolean;
-  options?: string[]; // for 'choice'
+  options?: string[];
 }
 
 export interface Attachment {
   id: string;
-  /** Declared Ask upload field; set by the validated upload adapter. */
   field?: string;
   url: string;
   storagePath?: string;
@@ -607,53 +624,39 @@ export interface HumanResponse {
   id: string;
   at: number;
   via: AskChannel;
-  /** Resolved identity — never the identity the sender merely claimed. */
   actor: string;
   decision?: AskDecision;
   text?: string;
   values?: Record<string, any>;
   attachments?: Attachment[];
-  /** Set when `values` were inferred from prose rather than entered directly. */
   confidence?: number;
   needsInterpretation?: boolean;
-  /** Provider-neutral delivery identifiers retained for end-to-end audit. */
   communicationId?: string;
   transcriptId?: string;
   intent?: string;
   evidenceExcerpt?: string;
   modelVersion?: string;
   interpretedAt?: number;
-  /** Original provider payload, kept for audit. */
   raw?: any;
 }
 
-/** What the reviewable artifact actually is, so the UI can render it properly. */
 export interface AskArtifact {
   kind: 'markdown' | 'text' | 'json' | 'link' | 'file';
   title?: string;
   content?: string;
   url?: string;
   mime?: string;
-  /** Prior revision, so a re-review can show what changed. */
   previousContent?: string;
-  /** The agent's own critique of its work, if it produced one. */
   evaluation?: any;
 }
 
 export interface ReviewPolicy {
   required: boolean;
-  /** Optional project-data predicate. When it is false, this run needs no review. */
   when?: ReadyCondition[];
   reviewers?: string[];
   channels?: AskChannel[];
   slaHours?: number;
-  /**
-   * What happens when an unanswered ask passes its due date.
-   * Defaults to 'block' — silently auto-approving on a timeout turns a review
-   * gate into a rubber stamp.
-   */
   onExpiry?: 'block' | 'escalate' | 'auto_approve';
-  /** Max times a node may be sent back for revision before the gate gives up. */
   maxRevisions?: number;
   responsePolicy?: 'any' | 'all' | 'quorum';
   quorum?: number;
@@ -670,25 +673,18 @@ export interface AskResponseContract {
 
 export interface HumanAsk {
   id: string;
-  /** Capability to answer this one ask. Never authenticates a session. */
   token: string;
   kind: AskKind;
   status: AskStatus;
   prompt: string;
-
   nodeId: string;
-  /** Durable routing identity. `nodeId` remains the task id for compatibility. */
   projectId?: string;
   personId?: string;
   responseType?: AskKind;
-  /** Binds an approval to one specific action run, so a stale approval cannot
-   *  satisfy a later run of the same node. */
   runId?: string;
   subtaskId?: string;
-
   fields?: AskField[];
   artifact?: AskArtifact;
-
   assignees: string[];
   channels: AskChannel[];
   responsePolicy?: 'any' | 'all' | 'quorum';
@@ -703,18 +699,13 @@ export interface HumanAsk {
     at: number;
     error?: string;
   }[];
-
   createdAt: number;
   dueAt?: number;
   answeredAt?: number;
-  /** When the accepted answer was written into project data. */
   appliedAt?: number;
-
   responses: HumanResponse[];
   writeBack?: OutputVariable[];
   responseContract?: AskResponseContract;
-
-  /** Which revision cycle produced this ask (0 = first attempt). */
   revision?: number;
 }
 
@@ -728,37 +719,31 @@ export interface Subtask {
   notes?: string;
   commentHistory?: { text: string; status: string; timestamp: number }[];
   status: string;
-  link?: string; // optional external resource link
-  completedAt?: number; // timestamp when status became 'Complete'
-  
-  // RACI & Approvals
+  link?: string;
+  completedAt?: number;
   accountable?: string;
   consulted?: string[];
   informed?: string[];
   requiresApproval?: boolean;
   approvalStatus?: 'pending' | 'approved' | 'rejected';
-  
-  // Output and Readiness (Hybrid Human/AI Task System)
-  taskType?: string; // 'send_email', 'outgoing_call', etc
-  templateFile?: string; // Optional path/content of template
-  dependsOn?: string[]; // Array of task IDs this task depends on
+  taskType?: string;
+  templateFile?: string;
+  dependsOn?: string[];
   readyConditions?: ReadyCondition[];
   missingVariables?: string[];
   failedConditions?: ReadyCondition[];
   outputLocation?: string;
   outputVariables?: OutputVariable[];
-  taskOutput?: any; 
+  taskOutput?: any;
   evaluationResult?: string;
   externalRunId?: string;
   externalExecutionId?: string;
   externalService?: string;
   externalStartedAt?: number;
-  
-  // Extended Metadata
   estimatedTime?: number;
   actualTime?: number;
   timeUnit?: 'hours' | 'days' | 'weeks';
-  dueDate?: number; // timestamp
+  dueDate?: number;
   isImportant?: boolean;
   isToday?: boolean;
   recordingUrl?: string;
@@ -770,21 +755,17 @@ export interface Milestone {
   name: string;
   subtasks: Subtask[];
   dependsOn: string[];
-  estimatedDuration: number; // in days
-  completedAt?: number; // timestamp when all subtasks are complete
+  estimatedDuration: number;
+  completedAt?: number;
   x?: number;
   y?: number;
-
-  // Flow node system — defaults to MILESTONE when absent
   nodeType?: NodeType;
-  decisionConfig?: DecisionConfig; // DECISION nodes
-  loopConfig?: LoopConfig;         // LOOP nodes
-  waitConfig?: WaitConfig;         // WAIT nodes
-  actionConfig?: ActionConfig;     // EMAIL / SMS / PHONE_CALL / WEBHOOK / REPORT nodes
-
-  /** Human review gate. Any node type can carry one. */
+  decisionConfig?: DecisionConfig;
+  loopConfig?: LoopConfig;
+  waitConfig?: WaitConfig;
+  eventTriggerConfig?: EventTriggerConfig;
+  actionConfig?: ActionConfig;
   reviewPolicy?: ReviewPolicy;
-  /** Open and historical asks raised against this node. */
   asks?: HumanAsk[];
 }
 
@@ -800,20 +781,16 @@ export interface Project {
   name: string;
   company: string;
   type: string;
-  startDate: number; // timestamp
+  startDate: number;
   timeUnit?: 'hours' | 'days' | 'weeks';
-  timeBuffer?: number; // total allocated buffer in project timeUnit
+  timeBuffer?: number;
   milestones: Milestone[];
   markers?: TimelineMarker[];
   createdAt: number;
-  updatedAt: number; // tracks any modification to the project
+  updatedAt: number;
   revision?: number;
   isArchived?: boolean;
-  
-  // Project Data File
   projectData?: ProjectData;
-  
-  // Financial Fields (in Thousands $K)
   cashRequirement?: number;
   debtRequirement?: number;
   valueAtCompletion?: number;
@@ -829,7 +806,6 @@ export interface ActivityLog {
   userId: string;
   timestamp: number;
   details?: string;
-  // To allow filtering by RACI
   raci?: {
     responsible?: string;
     accountable?: string;
