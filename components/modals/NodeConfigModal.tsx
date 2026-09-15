@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy, AskChannel } from '../../types';
+import { Milestone, NodeType, DecisionBranch, ReadyCondition, ReviewPolicy, AskChannel, AskKind } from '../../types';
 import { NODE_TYPE_META } from '../../constants';
 import { isActionNode, getNodeType } from '../../lib/flowEngine';
+import type { FlowHoldConfig, RuntimeMilestone } from '../../lib/flowRuntimeTypes';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
 import { buildReviewPolicy } from '../../lib/reviewPolicy';
@@ -32,16 +33,39 @@ interface NodeConfigModalProps {
 
 const csv = (value: string): string[] => value.split(',').map(item => item.trim()).filter(Boolean);
 const csvText = (value?: string[]): string => (value || []).join(', ');
+const validVariable = (value: string) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(value);
 
 export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, people = [], onSave, onRun, isRunning, onClose }) => {
+  const runtimeMilestone = milestone as RuntimeMilestone;
+  const initialHold: FlowHoldConfig = runtimeMilestone.holdConfig || {
+    kind: 'timer',
+    durationMinutes: milestone.waitConfig?.durationMinutes ?? 10,
+    reason: milestone.waitConfig?.reason
+  };
+
   const [nodeType, setNodeType] = useState<NodeType>(getNodeType(milestone));
   const [branches, setBranches] = useState<DecisionBranch[]>(milestone.decisionConfig?.branches || []);
   const [loopStartId, setLoopStartId] = useState(milestone.loopConfig?.loopStartId || '');
   const [maxIterations, setMaxIterations] = useState(milestone.loopConfig?.maxIterations ?? 3);
   const [exitConditionsText, setExitConditionsText] = useState(JSON.stringify(milestone.loopConfig?.exitConditions || [], null, 2));
 
-  const [waitMinutes, setWaitMinutes] = useState(milestone.waitConfig?.durationMinutes ?? 10);
-  const [waitReason, setWaitReason] = useState(milestone.waitConfig?.reason || '');
+  const [holdKind, setHoldKind] = useState<FlowHoldConfig['kind']>(initialHold.kind);
+  const [waitMinutes, setWaitMinutes] = useState(initialHold.durationMinutes ?? 10);
+  const [holdTimeoutMinutes, setHoldTimeoutMinutes] = useState<number | ''>(initialHold.timeoutMinutes ?? '');
+  const [waitReason, setWaitReason] = useState(initialHold.reason || '');
+  const [holdResultVariable, setHoldResultVariable] = useState(initialHold.resultVariable || '');
+  const [holdPayloadVariable, setHoldPayloadVariable] = useState(initialHold.payloadVariable || '');
+  const [holdEventTypes, setHoldEventTypes] = useState(csvText(initialHold.match?.eventTypes));
+  const [holdChannels, setHoldChannels] = useState(csvText(initialHold.match?.channels));
+  const [holdDirections, setHoldDirections] = useState(csvText(initialHold.match?.directions));
+  const [holdPeople, setHoldPeople] = useState(csvText(initialHold.match?.personIds));
+  const [holdProviderServices, setHoldProviderServices] = useState(csvText(initialHold.match?.providerServices));
+  const [holdActionRunIds, setHoldActionRunIds] = useState(csvText(initialHold.match?.actionRunIds));
+  const [holdExternalIds, setHoldExternalIds] = useState(csvText(initialHold.match?.externalIds));
+  const [holdHumanKind, setHoldHumanKind] = useState<AskKind>(initialHold.human?.kind || 'question');
+  const [holdHumanPrompt, setHoldHumanPrompt] = useState(initialHold.human?.prompt || '');
+  const [holdHumanAssignees, setHoldHumanAssignees] = useState(csvText(initialHold.human?.assignees));
+  const [holdHumanChannels, setHoldHumanChannels] = useState<AskChannel[]>(initialHold.human?.channels || ['web']);
 
   const [eventTypes, setEventTypes] = useState(csvText(milestone.eventTriggerConfig?.eventTypes || ['communication.received']));
   const [eventChannels, setEventChannels] = useState(csvText(milestone.eventTriggerConfig?.channels));
@@ -87,7 +111,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
   const handleSave = () => {
     setJsonError(null);
-    const updates: Partial<Milestone> = { nodeType };
+    const updates: Partial<RuntimeMilestone> = { nodeType };
 
     updates.reviewPolicy = buildReviewPolicy(milestone.reviewPolicy, {
       required: reviewRequired,
@@ -97,6 +121,11 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
       onExpiry,
       maxRevisions
     });
+
+    if (nodeType !== NodeType.WAIT) {
+      updates.holdConfig = undefined;
+      updates.waitConfig = undefined;
+    }
 
     if (nodeType === NodeType.DECISION) {
       const childIds = new Set(children.map(c => c.id));
@@ -121,11 +150,62 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         exitConditions
       };
     } else if (nodeType === NodeType.WAIT) {
-      updates.waitConfig = {
-        kind: 'timer',
-        durationMinutes: Math.min(Math.max(Number(waitMinutes) || 1, 1), 1440),
-        reason: waitReason.trim() || undefined
+      const resultVar = holdResultVariable.trim();
+      const payloadVar = holdPayloadVariable.trim();
+      if (resultVar && !validVariable(resultVar)) {
+        setJsonError('Hold result variable must be a simple project-data identifier.');
+        return;
+      }
+      if (payloadVar && !validVariable(payloadVar)) {
+        setJsonError('Hold payload variable must be a simple project-data identifier.');
+        return;
+      }
+
+      const timeoutMinutes = holdTimeoutMinutes === ''
+        ? undefined
+        : Math.min(Math.max(Number(holdTimeoutMinutes) || 1, 1), 10080);
+      const holdConfig: FlowHoldConfig = {
+        kind: holdKind,
+        reason: waitReason.trim() || undefined,
+        resultVariable: resultVar || undefined,
+        payloadVariable: payloadVar || undefined
       };
+
+      if (holdKind === 'timer') {
+        holdConfig.durationMinutes = Math.min(Math.max(Number(waitMinutes) || 1, 1), 10080);
+        updates.waitConfig = {
+          kind: 'timer',
+          durationMinutes: holdConfig.durationMinutes,
+          reason: holdConfig.reason
+        };
+      } else {
+        holdConfig.timeoutMinutes = timeoutMinutes;
+        updates.waitConfig = undefined;
+      }
+
+      if (holdKind === 'event') {
+        holdConfig.match = {
+          eventTypes: csv(holdEventTypes).length ? csv(holdEventTypes) : undefined,
+          channels: csv(holdChannels).length ? csv(holdChannels) : undefined,
+          directions: csv(holdDirections).length ? csv(holdDirections) : undefined,
+          personIds: csv(holdPeople).length ? csv(holdPeople) : undefined
+        };
+      } else if (holdKind === 'provider') {
+        holdConfig.match = {
+          providerServices: csv(holdProviderServices).length ? csv(holdProviderServices) : undefined,
+          actionRunIds: csv(holdActionRunIds).length ? csv(holdActionRunIds) : undefined,
+          externalIds: csv(holdExternalIds).length ? csv(holdExternalIds) : undefined
+        };
+      } else if (holdKind === 'human') {
+        holdConfig.human = {
+          kind: holdHumanKind,
+          prompt: holdHumanPrompt.trim() || undefined,
+          assignees: csv(holdHumanAssignees).length ? csv(holdHumanAssignees) : undefined,
+          channels: holdHumanChannels.length ? holdHumanChannels : ['web']
+        };
+      }
+
+      updates.holdConfig = holdConfig;
     } else if (nodeType === NodeType.EVENT_TRIGGER) {
       const types = csv(eventTypes);
       if (!types.length) {
@@ -133,7 +213,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         return;
       }
       const payloadVariable = eventPayloadVariable.trim();
-      if (payloadVariable && !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(payloadVariable)) {
+      if (payloadVariable && !validVariable(payloadVariable)) {
         setJsonError('Event payload variable must be a simple project-data identifier.');
         return;
       }
@@ -145,7 +225,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         payloadVariable: payloadVariable || undefined
       };
     } else if (isActionNode(draftNode)) {
-      if (resultVariable.trim() && !/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(resultVariable.trim())) {
+      if (resultVariable.trim() && !validVariable(resultVariable.trim())) {
         setJsonError('Result variable must be a simple project-data identifier.');
         return;
       }
@@ -236,13 +316,50 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
         {nodeType === NodeType.WAIT && (
           <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-4 mb-5">
-            <div className="text-amber-700 font-bold text-xs uppercase tracking-wider mb-1">Durable Wait</div>
-            <p className="text-[11px] text-slate-500 mb-3">The flow stops here, persists a hold, and resumes on the first scheduler tick after the delay.</p>
+            <div className="text-amber-700 font-bold text-xs uppercase tracking-wider mb-1">Durable Hold</div>
+            <p className="text-[11px] text-slate-500 mb-3">Pause this FlowRun until a timer, trusted event, human response, or provider callback resolves the hold. This is one primitive; the match fields define what may resume it.</p>
             <div className="grid grid-cols-2 gap-3">
-              <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Minutes</span><input type="number" min={1} max={1440} className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value) || 1)} /></label>
-              <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Reason</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={waitReason} onChange={(e) => setWaitReason(e.target.value)} placeholder="Retry delay / follow up later" /></label>
+              <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Hold kind</span><select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdKind} onChange={(e) => setHoldKind(e.target.value as FlowHoldConfig['kind'])}><option value="timer">Timer</option><option value="event">Event</option><option value="human">Human response</option><option value="provider">Provider callback</option></select></label>
+              {holdKind === 'timer' ? (
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delay minutes</span><input type="number" min={1} max={10080} className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value) || 1)} /></label>
+              ) : (
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Timeout minutes</span><input type="number" min={1} max={10080} className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdTimeoutMinutes} onChange={(e) => setHoldTimeoutMinutes(e.target.value === '' ? '' : Number(e.target.value) || 1)} placeholder="blank = no timeout" /></label>
+              )}
+              <label className="col-span-2"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Reason</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={waitReason} onChange={(e) => setWaitReason(e.target.value)} placeholder="Wait for supplier / retry delay / callback" /></label>
+              <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Result variable</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdResultVariable} onChange={(e) => setHoldResultVariable(e.target.value)} placeholder="wait_result" /></label>
+              <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Payload variable</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdPayloadVariable} onChange={(e) => setHoldPayloadVariable(e.target.value)} placeholder="wait_payload" /></label>
             </div>
-            {milestone.waitConfig?.resumeAt && !milestone.waitConfig.resolvedAt && <p className="mt-2 text-[11px] font-bold text-amber-700">Currently held until {new Date(milestone.waitConfig.resumeAt).toLocaleString()}</p>}
+
+            {holdKind === 'event' && (
+              <div className="grid grid-cols-2 gap-3 mt-3 border-t border-amber-100 pt-3">
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Event types</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdEventTypes} onChange={(e) => setHoldEventTypes(e.target.value)} placeholder="communication.received" /></label>
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Channels</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdChannels} onChange={(e) => setHoldChannels(e.target.value)} placeholder="email, sms, voice" /></label>
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Directions</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdDirections} onChange={(e) => setHoldDirections(e.target.value)} placeholder="inbound" /></label>
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Person IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdPeople} onChange={(e) => setHoldPeople(e.target.value)} placeholder="trusted person IDs" /></label>
+              </div>
+            )}
+
+            {holdKind === 'provider' && (
+              <div className="grid grid-cols-2 gap-3 mt-3 border-t border-amber-100 pt-3">
+                <label className="col-span-2"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Provider services</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdProviderServices} onChange={(e) => setHoldProviderServices(e.target.value)} placeholder="communications" /></label>
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Action run IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdActionRunIds} onChange={(e) => setHoldActionRunIds(e.target.value)} placeholder="optional stable IDs" /></label>
+                <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">External IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdExternalIds} onChange={(e) => setHoldExternalIds(e.target.value)} placeholder="optional provider IDs" /></label>
+              </div>
+            )}
+
+            {holdKind === 'human' && (
+              <div className="space-y-3 mt-3 border-t border-amber-100 pt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Response type</span><select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanKind} onChange={(e) => setHoldHumanKind(e.target.value as AskKind)}><option value="question">Question</option><option value="approval">Approval</option><option value="choice">Choice</option><option value="upload">Upload</option></select></label>
+                  <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assignee IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanAssignees} onChange={(e) => setHoldHumanAssignees(e.target.value)} placeholder="person_123" /></label>
+                </div>
+                <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Prompt</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanPrompt} onChange={(e) => setHoldHumanPrompt(e.target.value)} placeholder={`Response required to continue “${milestone.name}”.`} /></label>
+                <fieldset><legend className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delivery channels</legend><div className="flex flex-wrap gap-2">{(['web', 'email', 'sms', 'voice'] as AskChannel[]).map(channel => { const selected = holdHumanChannels.includes(channel); return <label key={channel} className="flex items-center gap-1.5 rounded-lg border border-amber-100 bg-white px-2.5 py-1.5 text-xs font-semibold"><input type="checkbox" checked={selected} onChange={() => setHoldHumanChannels(current => selected ? current.filter(item => item !== channel) : [...current, channel])} />{channel}</label>; })}</div></fieldset>
+              </div>
+            )}
+
+            {initialHold.holdId && !initialHold.resolvedAt && <p className="mt-3 text-[11px] font-bold text-amber-700">Current hold: <code>{initialHold.holdId}</code>{initialHold.availableAt ? ` — due ${new Date(initialHold.availableAt).toLocaleString()}` : ''}</p>}
+            {!initialHold.holdId && milestone.waitConfig?.resumeAt && !milestone.waitConfig.resolvedAt && <p className="mt-3 text-[11px] font-bold text-amber-700">Legacy timer held until {new Date(milestone.waitConfig.resumeAt).toLocaleString()}</p>}
           </div>
         )}
 
