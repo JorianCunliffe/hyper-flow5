@@ -2,6 +2,7 @@ import { executeTask } from './executeTask.js';
 import type { ActionExecutor } from './flowOrchestrator.js';
 import { claimContactDispatch, readTenantAgentProfile, readTenantCommunicationsSettings } from './serverStore.js';
 import { assertCapabilityAllowed, TASK_CAPABILITY } from './capabilityPolicy.js';
+import { readTenantCapabilityPolicy } from './capabilityPolicyStore.js';
 import { resolveGrantedPersonTarget } from './actionTarget.js';
 
 const communicationChannel = (taskType: string): 'email' | 'sms' | 'voice' | undefined => {
@@ -34,6 +35,20 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
   let profile: Awaited<ReturnType<typeof readTenantAgentProfile>> = null;
   if (capability || autonomous) {
     try { profile = ctx.orgId ? await readTenantAgentProfile(ctx.orgId) : null; } catch { profile = null; }
+    if (ctx.orgId) {
+      try {
+        const capabilityPolicy = await readTenantCapabilityPolicy(ctx.orgId);
+        profile = profile ? { ...profile, capabilityPolicy } : {
+          agentId: 'policy-only',
+          displayName: 'Capability Policy',
+          timezone: 'Australia/Brisbane',
+          capabilityPolicy
+        };
+      } catch {
+        // If the policy store is unavailable, autonomous effects fail closed via
+        // the legacy/default approval mode below rather than bypassing authority.
+      }
+    }
   }
   if (capability) assertCapabilityAllowed({ profile, capability, autonomous });
 
@@ -58,8 +73,6 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
       coalesce: false
     });
     if (!claim.allowed) throw new Error(claim.reason || 'Tenant contact policy refused the autonomous communication');
-    // Ignore any address/number embedded in the action or inbound payload. The
-    // resolved granted-person identity is the only autonomous destination.
     safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target });
   }
 
