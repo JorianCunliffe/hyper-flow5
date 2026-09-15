@@ -230,7 +230,7 @@ export interface AdvanceResult {
 const boundedMinutes = (value: unknown, fallback = 5): number => {
   const requested = Number(value);
   if (!Number.isFinite(requested)) return fallback;
-  return Math.min(Math.max(requested, 1), 24 * 60);
+  return Math.min(Math.max(requested, 1), 7 * 24 * 60);
 };
 
 const validVariable = (value: unknown): string | undefined => {
