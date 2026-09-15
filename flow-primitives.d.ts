@@ -6,10 +6,16 @@ declare module './types.js' {
     occurrenceId?: string;
   }
 
+  interface ReadyCondition {
+    /** Generic scalar comparisons for decision nodes without feature-specific branching code. */
+    oneOf?: Array<string | number | boolean>;
+    notEquals?: string | number | boolean;
+  }
+
   interface ActionConfig {
     /** Default is block. Continue makes an error a completed graph result so a Decision can branch on it. */
     failureMode?: 'block' | 'continue';
-    /** Optional project-data key receiving success/error plus companion _output/_error values. */
+    /** Optional project-data prefix receiving terminal status and standard result metadata. */
     resultVariable?: string;
   }
 
