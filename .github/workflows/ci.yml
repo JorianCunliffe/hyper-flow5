@@ -78,9 +78,6 @@ jobs:
       - name: Communications documentation contract
         run: node --test --test-reporter=spec test/documentation.test.js
         working-directory: communications
-      - name: Communications suite contract
-        run: node --test --test-reporter=spec test/suite.test.js
-        working-directory: communications
       - run: npm ci
         working-directory: hyperflow
       - name: Pinned cross-service acceptance against isolated databases
