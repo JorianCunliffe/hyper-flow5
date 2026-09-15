@@ -4,6 +4,7 @@ import { claimContactDispatch, readTenantAgentProfile, readTenantCommunicationsS
 import { assertCapabilityAllowed, TASK_CAPABILITY } from './capabilityPolicy.js';
 import { readTenantCapabilityPolicy } from './capabilityPolicyStore.js';
 import { resolveGrantedPersonTarget } from './actionTarget.js';
+import { withActionExecutionScope } from './actionExecutionScope.js';
 
 const communicationChannel = (taskType: string): 'email' | 'sms' | 'voice' | undefined => {
   if (taskType === 'send_email') return 'email';
@@ -21,10 +22,20 @@ const jsonTemplate = (templateFile: string): Record<string, any> | null => {
   }
 };
 
+const resourceNameFromTemplate = (templateFile: string): string | undefined => {
+  const raw = jsonTemplate(templateFile)?.resource_name;
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const name = String(raw).trim();
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)) {
+    throw new Error('resource_name must be a literal named project resource');
+  }
+  return name;
+};
+
 /**
  * Server-side action boundary. The graph decides what should happen; this layer
- * enforces tenant authority and, for autonomous communications, turns a stable
- * granted person id into the actual destination immediately before the effect.
+ * enforces tenant authority and resolves configured people/resources immediately
+ * before the effect.
  */
 export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
   let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
@@ -45,8 +56,7 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
           capabilityPolicy
         };
       } catch {
-        // If the policy store is unavailable, autonomous effects fail closed via
-        // the legacy/default approval mode below rather than bypassing authority.
+        // Fail closed for autonomous effects through the default approval mode.
       }
     }
   }
@@ -76,7 +86,8 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
     safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target });
   }
 
-  const result = await executeTask(taskType, safeTemplate, projectData, {
+  const resourceName = resourceNameFromTemplate(safeTemplate);
+  const result = await withActionExecutionScope({ resourceName }, () => executeTask(taskType, safeTemplate, projectData, {
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
     communicationsFromNumber: tenantCommunications?.fromNumber,
     communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
@@ -84,7 +95,7 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
     communicationsConnectionId: tenantCommunications?.connectionId,
     correlation: { orgId: ctx.orgId, projectId: ctx.projectId, nodeId: ctx.nodeId, runId: ctx.runId },
     revision: ctx.revision
-  });
+  }));
   const body = result.body || {};
   if (result.httpStatus >= 400 || (body.status && body.status !== 'success')) {
     return { status: 'error', error: body.error || `Action failed (HTTP ${result.httpStatus})`, logs: body.logs };
