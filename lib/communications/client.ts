@@ -14,6 +14,16 @@ export interface MailboxDraftResult {
   updated_at?: string;
 }
 
+export type CommunicationsClientWithDraftUpdate = CommunicationsClient & {
+  updateMailboxDraft(
+    tenantId: string,
+    connectionId: string,
+    draftId: string,
+    request: MailboxDraftRequest,
+    idempotencyKey: string
+  ): Promise<MailboxDraftResult>;
+};
+
 export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
   private readonly draftBaseUrl: string;
   private readonly draftApiKey: string;
@@ -92,5 +102,5 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
   }
 }
 
-export const createCommunicationsClient = (options?: CommunicationsClientOptions): CommunicationsClient =>
+export const createCommunicationsClient = (options?: CommunicationsClientOptions): CommunicationsClientWithDraftUpdate =>
   new HttpCommunicationsClient(options);
