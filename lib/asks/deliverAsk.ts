@@ -1,6 +1,7 @@
 import type { AskChannel, HumanAsk } from '../../types.js';
 import { createCommunicationsClient } from '../communications/client.js';
 import type { CommunicationResult, CommunicationsClient, HyperFlowCallOverrides } from '../communications/types.js';
+import { askFieldPrompt, askSchemaSummary, nextAskField } from './askSteps.js';
 
 export interface DeliverAskInput {
   ask: HumanAsk;
@@ -31,12 +32,37 @@ const callbackUrl = (baseUrl: string): string => {
   return `${parsed.toString().replace(/\/$/, '')}/api/events`;
 };
 
-const callOverrides = (question: string): HyperFlowCallOverrides => ({
-  systemMessage: `You are making an outbound call for HyperFlow. Ask the following question, keep the conversation focused on obtaining a clear answer, and do not claim the workflow is resolved: ${question}`,
-  greetingText: `Begin by introducing the call briefly, then ask: ${question}`,
-  aiSpeaksFirst: true,
-  liveTranscript: true
-});
+const callOverrides = (ask: HumanAsk): HyperFlowCallOverrides => {
+  const schema = askSchemaSummary(ask);
+  const first = nextAskField(ask);
+  const questions = schema ? `\nCollect these fields in order, one at a time:\n${schema}` : '';
+  return {
+    systemMessage: `You are making an outbound call for HyperFlow. Explain the request, collect only the information requested, confirm each answer before moving on, and do not claim the workflow is resolved. Request: ${ask.prompt}${questions}`,
+    greetingText: first
+      ? `Introduce the call briefly. Explain: ${ask.prompt} Then ask: ${askFieldPrompt(first)}`
+      : `Begin by introducing the call briefly, then ask: ${ask.prompt}`,
+    aiSpeaksFirst: true,
+    liveTranscript: true
+  };
+};
+
+const emailBody = (ask: HumanAsk, formUrl: string): { text: string; html: string } => {
+  const schema = askSchemaSummary(ask);
+  const schemaText = schema ? `\n\nInformation requested:\n${schema}` : '';
+  const schemaHtml = schema
+    ? `<ol>${(ask.fields || []).map(field => `<li>${escapeHtml(askFieldPrompt(field))}</li>`).join('')}</ol>`
+    : '';
+  return {
+    text: `${ask.prompt}${schemaText}\n\nSecure response form: ${formUrl}`,
+    html: `<p>${escapeHtml(ask.prompt)}</p>${schemaHtml}<p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`
+  };
+};
+
+const smsBody = (ask: HumanAsk, formUrl: string): string => {
+  const field = nextAskField(ask);
+  if (!field) return `${ask.prompt}\n\nSecure response form: ${formUrl}`;
+  return `${ask.prompt}\n\n${askFieldPrompt(field)}\n\nReply to this message, or use the secure form: ${formUrl}`;
+};
 
 /** Delivers an already-created ask without creating a second channel identity. */
 export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationResult> => {
@@ -63,14 +89,15 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
   if (input.channel === 'email') {
     const identity = (input.emailIdentity || process.env.COMMUNICATIONS_EMAIL_IDENTITY || '').trim();
     if (!identity) throw new Error('A Communications email service identity is required');
+    const body = emailBody(input.ask, formUrl);
     return client.sendEmail({
       to: [input.recipient],
       service_identity_id: identity,
       provider_connection_id: input.connectionId || process.env.COMMUNICATIONS_CONNECTION_ID || undefined,
       reply_to: input.replyIdentity ? [input.replyIdentity] : undefined,
       subject: `HyperFlow response requested: ${input.ask.prompt.slice(0, 80)}`,
-      text: `${input.ask.prompt}\n\nSecure response form: ${formUrl}`,
-      html: `<p>${escapeHtml(input.ask.prompt)}</p><p><a href="${escapeHtml(formUrl)}">Open the secure response form</a></p>`,
+      text: body.text,
+      html: body.html,
       purpose,
       correlation,
       callback_url
@@ -82,8 +109,8 @@ export const deliverAsk = async (input: DeliverAskInput): Promise<CommunicationR
   if (!e164.test(input.recipient)) throw new Error(`Person identity "${input.personId}" phone number must use E.164 format`);
 
   return input.channel === 'sms'
-    ? client.sendSms({ to: input.recipient, from, body: input.ask.prompt, purpose, correlation, callback_url })
+    ? client.sendSms({ to: input.recipient, from, body: smsBody(input.ask, formUrl), purpose, correlation, callback_url })
     : client.startCall({
-        to: input.recipient, from, overrides: callOverrides(input.ask.prompt), purpose, correlation, callback_url
+        to: input.recipient, from, overrides: callOverrides(input.ask), purpose, correlation, callback_url
       });
 };
