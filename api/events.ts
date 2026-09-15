@@ -3,7 +3,7 @@ import { externalEventHttpStatus, receiveExternalEvent } from '../lib/externalEv
 import { createHash } from 'node:crypto';
 import { readVoiceContextResponse, saveVoiceContextResponse, serverStoreStatus } from '../lib/serverStore.js';
 import { buildVoiceAgentContext, type VoiceAgentContextRequest } from '../lib/voiceAgentContext.js';
-import { advanceEventServerFlow } from '../lib/serverFlow.js';
+import { advanceEventServerFlow, type AdvanceOutcome } from '../lib/serverFlow.js';
 import { waitUntil } from '@vercel/functions';
 import { processAgentInbox } from '../lib/agentRouter.js';
 
@@ -23,11 +23,11 @@ const eventFlowTarget = (body: any): { orgId: string; projectId: string } | null
   return { orgId, projectId };
 };
 
-const dispatchEventFlow = (body: any): void => {
+const dispatchEventFlow = async (body: any): Promise<AdvanceOutcome | null> => {
   const target = eventFlowTarget(body);
   const eventId = text(body?.event_id);
   const type = text(body?.type);
-  if (!target || !eventId || !type) return;
+  if (!target || !eventId || !type) return null;
   const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)
     ? body.payload as Record<string, unknown>
     : {};
@@ -37,7 +37,7 @@ const dispatchEventFlow = (body: any): void => {
   const personId = text(body?.correlation?.person_id || body?.correlation?.personId);
   const communicationId = text(body?.communication_id);
 
-  waitUntil(advanceEventServerFlow(target.orgId, target.projectId, {
+  return advanceEventServerFlow(target.orgId, target.projectId, {
     id: eventId,
     type,
     occurredAt: Number.isFinite(occurred) ? occurred : Date.now(),
@@ -46,15 +46,7 @@ const dispatchEventFlow = (body: any): void => {
     personId,
     communicationId,
     payload
-  }).catch(error => {
-    console.error('Event-triggered flow failed', {
-      orgId: target.orgId,
-      projectId: target.projectId,
-      eventId,
-      type,
-      error: error?.message || String(error)
-    });
-  }));
+  });
 };
 
 // Vercel's Web Request handler exposes the untouched body stream. Reading it as
@@ -108,15 +100,34 @@ export const POST = async (request: Request): Promise<Response> => {
     }
 
     const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });
-    if (outcome.ok && !outcome.duplicate) dispatchEventFlow(body);
 
     if (outcome.ok && outcome.reason === 'agent_job_queued') {
       const orgId = String(body.tenant_id || body.correlation?.tenant_id || '');
       const jobId = String(body.communication_id || '');
-      if (orgId && jobId) waitUntil(processAgentInbox(1, {orgId, jobId}).catch(error => {
-        console.error('Immediate agent inbox processing failed', {orgId, jobId, error: error?.message});
+      if (orgId && jobId) {
+        // Preserve ordering inside one background task. A correlated Event flow
+        // gets first refusal; the inbox worker then observes flow_trigger_event_id
+        // and closes the job without producing a second AI response.
+        waitUntil((async () => {
+          if (!outcome.duplicate) await dispatchEventFlow(body);
+          await processAgentInbox(1, { orgId, jobId });
+        })().catch(error => {
+          console.error('Event flow / agent inbox processing failed', {
+            orgId, jobId, eventId: body.event_id, error: error?.message || String(error)
+          });
+        }));
+      }
+    } else if (outcome.ok && !outcome.duplicate) {
+      waitUntil(dispatchEventFlow(body).catch(error => {
+        console.error('Event-triggered flow failed', {
+          eventId: body.event_id,
+          type: body.type,
+          error: error?.message || String(error)
+        });
+        return null;
       }));
     }
+
     if (!outcome.ok) {
       console.warn('External event was not accepted', {
         event_id: body.event_id,
