@@ -46,6 +46,12 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
     }
     await assertFails(set(ref(runtime, 'flow_hold_pending/paused'), { orgId: 'scheduler_paused', availableAt: now }));
     await assertFails(set(ref(runtime, 'flow_hold_pending/missing-owner'), { availableAt: now }));
+    await assertSucceeds(remove(ref(runtime, 'coaching_retry_pending/absent')));
+    await assertFails(remove(ref(browsers[1], 'coaching_retry_pending/absent')));
+    await env.withSecurityRulesDisabled(async c => {
+      await set(ref(c.database(), 'coaching_retry_pending/paused'), { orgId: 'scheduler_paused' });
+    });
+    await assertFails(remove(ref(runtime, 'coaching_retry_pending/paused')));
     // Run the complete tick with the production auth override, not an admin bypass.
     await recordSchedulerTick('started');
     await tickSchedules(now);
