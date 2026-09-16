@@ -1431,6 +1431,7 @@ export const App: React.FC = () => {
     
     const duplicatedProject: Project = { 
       ...p, 
+      emailSendingEnabled: false,
       id: Date.now().toString(), 
       displayId: `P-${projectIdNum}`,
       name: `${p.name} (Copy)`, 
