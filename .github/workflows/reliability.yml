@@ -1,0 +1,45 @@
+name: Coaching reliability
+
+on:
+  push:
+    branches: [fix/coaching-dispatch-reliability]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only (no credentials or environment)
+        run: git archive --format=tar.gz -o /tmp/reliability-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reliability-source
+          path: /tmp/reliability-source.tar.gz
+          retention-days: 3
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:rules
+      - name: Scheduler and dispatch recovery against isolated Firebase
+        run: npx --yes firebase-tools emulators:exec --project demo-hyperflow --only database --config firebase.test.json "node --import tsx --test --test-concurrency=1 tests/integration/scheduler-runtime.test.ts tests/integration/dispatch-reliability.test.ts"
