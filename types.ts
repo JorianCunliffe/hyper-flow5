@@ -420,7 +420,8 @@ export interface ScheduleRun {
   projectId?: string;
   flowId?: string;
   scheduledFor: number;
-  status: 'running' | 'partial' | 'completed' | 'failed';
+  status: 'running' | 'partial' | 'waiting' | 'recoverable' | 'completed' | 'failed';
+  flowRunId?: string;
   claimId: string;
   startedAt: number;
   attempt?: number;
@@ -494,6 +495,8 @@ export interface LoopConfig {
   maxIterations: number;
   currentIteration: number;
   exited?: boolean;
+  /** Absolute retry window measured from the persisted FlowRun start. */
+  maxDurationMinutes?: number;
 }
 
 export interface WaitConfig {
@@ -531,6 +534,7 @@ export interface EventTriggerConfig {
 }
 
 export interface CommunicationOutcome {
+  conversationCompleted?: boolean;
   businessStatus?: 'pending' | 'success' | 'failed' | string;
   disposition?: string;
   successful?: boolean;

@@ -884,7 +884,7 @@ export const beginExternalEventProcessingAtRef = async (
   });
   const stored = result.snapshot.val() as ExternalEventRecord | null;
   const claimed = Boolean(result.committed && stored?.processing_claim_id === claimId);
-  return { claimed, record: claimed && stored ? stored : undefined };
+  return { claimed, record: stored || undefined };
 };
 
 export const beginExternalEventProcessing = async (
@@ -899,15 +899,27 @@ export const finishExternalEventProcessing = async (
   orgId: string,
   eventId: string,
   status: Extract<ExternalEventProcessingStatus, 'processed' | 'processing_failed'>,
-  error?: string
+  error?: string,
+  claimId?: string
 ): Promise<void> => {
-  await externalEventRef(orgId, eventId).update({
+  const patch = {
     processing_status: status,
     processed_at: new Date().toISOString(),
     processing_error: error || null,
     processing_claim_id: null,
     processing_started_at: null
-  });
+  };
+  const reference = externalEventRef(orgId, eventId);
+  if (!claimId) { await reference.update(patch); return; }
+  const listener = () => {};
+  try {
+    await new Promise<void>((resolve, reject) => {
+      reference.on('value', listener, reject);
+      reference.once('value', () => resolve(), reject);
+    });
+    await reference.transaction(current => current?.processing_claim_id === claimId
+      ? { ...current, ...patch } : undefined, undefined, false);
+  } finally { reference.off('value', listener); }
 };
 
 const askResolutionRef = (orgId: string, askId: string, communicationId: string) => {
@@ -1928,7 +1940,7 @@ export const claimScheduleRun = async (
     const stale = scheduleRunIsStale(current, startedAt);
     // Completed occurrences are immutable. Failed occurrences and expired
     // leases may be claimed again without advancing the schedule or cursor.
-    if (current && !['failed', 'partial'].includes(current.status) && !stale) return undefined;
+    if (current && !['failed', 'partial', 'waiting', 'recoverable'].includes(current.status) && !stale) return undefined;
     claimed = {
       ...(current || {}),
       id: `${schedule.id}:${scheduledFor}`,
@@ -1956,6 +1968,9 @@ export const claimScheduleRun = async (
   }
   return { ...persisted, claimId };
 };
+
+export const readScheduleRun = async (schedule: TenantSchedule, scheduledFor = schedule.nextRunAt): Promise<ScheduleRun | null> =>
+  (await getDb().ref(`schedule_runs/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}/${scheduledFor}`).get()).val();
 
 export const SCHEDULE_RUN_LEASE_MS = 2 * 60_000;
 
@@ -1987,7 +2002,7 @@ export const finishScheduleRun = async (
     transactionInvocation += 1;
     const persisted = seededScheduleTransactionValue(current, initial, transactionInvocation);
     if (!persisted || persisted.claimId !== run.claimId) return undefined;
-    return { ...persisted, ...JSON.parse(JSON.stringify(patch)), completedAt: Date.now() };
+    return { ...persisted, ...JSON.parse(JSON.stringify(patch)), completedAt: ['completed', 'failed'].includes(patch.status) ? Date.now() : null };
   });
   if (!result.committed) {
     const current = (await ref.get()).val() as ScheduleRun | null;

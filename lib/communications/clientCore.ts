@@ -33,6 +33,7 @@ export interface CommunicationsClientOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   projectLookup?: EmailProjectLookup;
+  freezeRequest?: (path: string, key: string, body: unknown) => Promise<any>;
 }
 
 export class HttpCommunicationsClient implements CommunicationsClient {
@@ -46,9 +47,11 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   private readonly projectLookup?: EmailProjectLookup;
+  private readonly freezeRequest?: CommunicationsClientOptions['freezeRequest'];
 
   constructor(options: CommunicationsClientOptions = {}) {
     this.projectLookup = options.projectLookup;
+    this.freezeRequest = options.freezeRequest;
     const baseUrl = options.baseUrl ?? process.env.COMMUNICATIONS_API_URL;
     const apiKey = options.apiKey ?? process.env.COMMUNICATIONS_API_KEY;
     if (!baseUrl) throw new CommunicationsConfigurationError('COMMUNICATIONS_API_URL environment variable is required');
@@ -361,6 +364,9 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       tenantId?: string;
     }
   ): Promise<CommunicationResult> {
+    if (options.method === 'POST' && options.idempotencyKey && this.freezeRequest) {
+      options = { ...options, body: await this.freezeRequest(path, options.idempotencyKey, options.body) };
+    }
     const tenantId = options.tenantId || options.body?.correlation?.tenant_id;
     const body = await this.rawRequest(path, { ...options, tenantId });
     const result = body?.communication ?? body;
@@ -418,6 +424,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
 
   private operationKey(channel: 'email' | 'sms' | 'voice', request: SendSmsRequest | StartCallRequest | SendEmailRequest): string {
     const correlation = request.correlation;
+    if (correlation.run_id?.startsWith('op:') && !request.purpose?.ask_id) return correlation.run_id;
     const purpose = request.purpose?.ask_id || 'action';
     return `hyperflow:${correlation.tenant_id}:${correlation.external_project_id || correlation.project_id}:${correlation.run_id}:${correlation.task_id}:${channel}:${purpose}`;
   }

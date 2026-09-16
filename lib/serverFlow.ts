@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { CoachingSession, HumanAsk, type FlowEvent, Project } from '../types.js';
+import { CoachingSession, HumanAsk, type FlowEvent, Project, NodeType } from '../types.js';
 import { activeOccurrenceId, getHoldConfig } from './flowEngine.js';
-import { advanceProjectFlow, resolvePendingRun } from './flowOrchestrator.js';
+import { actionAttemptIdentity, advanceProjectFlow, applyActionRun, resolvePendingRun } from './flowOrchestrator.js';
+import { ActionRecoveryRequired, listRunDispatches, readActionDispatch, settleActionDispatch, type ActionDispatch } from './actionDispatch.js';
 import { findAskByToken } from './humanAsk.js';
 import { serverExecutor } from './serverExecutor.js';
 import { findProject, upsertCoachingSession, writeProject } from './serverStore.js';
@@ -21,6 +22,7 @@ import {
 } from './flowRunStore.js';
 import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } from './flowRuntimeTypes.js';
 import { settleVisibleCallback } from './visibleFlows/runtime.js';
+import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 export { respondToAsk } from './asks/respondToAsk.js';
 
 export interface AdvanceOutcome {
@@ -29,6 +31,7 @@ export interface AdvanceOutcome {
   flowRunId?: string;
   log?: string[];
   pending?: string[];
+  status?: FlowRun['status'];
 }
 
 export interface ScheduledFlowContext {
@@ -160,19 +163,62 @@ const persistProjectProjection = async (
   }
 };
 
-const advanceRunAndPersist = async (
+export const reconcileDispatchResults = (project: Project, rows: ActionDispatch[]): Project => {
+  let current = project;
+  for (const row of rows) {
+    if (row.projectId !== project.id) continue;
+    const outcome = row.terminal || row.outcome;
+    if (!outcome) continue;
+    const node = current.milestones.find(item => item.id === row.nodeId);
+    if (!node) continue;
+    const prior = node.actionConfig?.lastRun;
+    if (prior?.id !== row.id && (prior || actionAttemptIdentity(current, node.id).runId !== row.id)) continue;
+    if (prior?.id === row.id && prior.status === outcome.status) continue;
+    if (prior?.status === 'success') continue;
+    // A late verified success supersedes a failure and invalidates its control routing.
+    if (prior?.status === 'error' && outcome.status === 'success') {
+      const descendants = new Set([node.id]);
+      for (let pass = 0; pass < current.milestones.length; pass++) {
+        for (const item of current.milestones) if (item.dependsOn.some(id => descendants.has(id))) descendants.add(item.id);
+      }
+      current = { ...current, milestones: current.milestones.map(item => {
+        if (!descendants.has(item.id)) return item;
+        return { ...item,
+          ...(item.decisionConfig ? { decisionConfig: { ...item.decisionConfig, selectedTargetId: undefined, decidedAt: undefined } } : {}),
+          ...(item.waitConfig ? { waitConfig: { ...item.waitConfig, resolvedAt: Date.now() } } : {}),
+          ...(item.loopConfig ? { loopConfig: { ...item.loopConfig, exited: true } } : {}),
+          ...(item.nodeType === NodeType.END ? { completedAt: undefined } : {}) };
+      }) };
+    }
+    current = applyActionRun(current, row.nodeId, {
+      ...prior, id: row.id, at: row.createdAt, startedAt: row.createdAt,
+      scheduleOccurrenceId: row.occurrenceId, ...outcome,
+      error: outcome.error, communicationOutcome: communicationOutcomeFromOutput(outcome.output),
+      executionState: outcome.status === 'pending' ? 'waiting' : outcome.status === 'success' ? 'completed' : 'failed',
+      resolvedAt: outcome.status === 'pending' ? undefined : row.updatedAt
+    });
+  }
+  return current;
+};
+
+const advanceRunOnce = async (
   orgId: string,
   located: Awaited<ReturnType<typeof findProject>> & {},
   run: FlowRun,
   initialLog: string[] = []
 ): Promise<AdvanceOutcome> => {
-  const runtimeProject = materializeFlowRunProject(located.project, run);
+  const runtimeProject = reconcileDispatchResults(materializeFlowRunProject(located.project, run), await listRunDispatches(orgId, run.id));
+  let checkpoint = run;
   const advanced = await advanceProjectFlow(runtimeProject, serverExecutor, {
     orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
+    webhookBaseUrl: process.env.PUBLIC_BASE_URL,
+    checkpoint: async project => { checkpoint = await saveFlowRun(updateFlowRunFromProject(checkpoint, project)); }
   });
-  const delivered = await deliverRaisedAsks(advanced.project, orgId, advanced.askedFor);
-  const nextRun = updateFlowRunFromProject(run, delivered.project);
+  checkpoint = await saveFlowRun(updateFlowRunFromProject(checkpoint, advanced.project));
+  const openAsks = advanced.project.milestones.flatMap(node => (node.asks || [])
+    .filter(ask => ask.status === 'open').map(ask => ({ nodeId: node.id, ask })));
+  const delivered = await deliverRaisedAsks(advanced.project, orgId, openAsks);
+  const nextRun = updateFlowRunFromProject(checkpoint, delivered.project);
   const savedRun = await saveFlowRun(nextRun);
   await syncFlowHoldsFromRun(savedRun, delivered.project);
 
@@ -183,6 +229,7 @@ const advanceRunAndPersist = async (
   return {
     ok: true,
     flowRunId: savedRun.id,
+    status: savedRun.status,
     log: [
       ...initialLog,
       ...advanced.log,
@@ -192,6 +239,22 @@ const advanceRunAndPersist = async (
     ],
     pending: advanced.pending
   };
+};
+
+const advanceRunAndPersist = async (
+  orgId: string, located: Awaited<ReturnType<typeof findProject>> & {}, run: FlowRun, initialLog: string[] = []
+): Promise<AdvanceOutcome> => {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (run.status === 'cancelled') return { ok: true, reason: 'cancelled_run_event_recorded', flowRunId: run.id, status: run.status };
+    try { return await advanceRunOnce(orgId, located, run, initialLog); }
+    catch (error) {
+      if (!/FlowRun changed concurrently/.test(error instanceof Error ? error.message : String(error))) throw error;
+      const latest = await readFlowRun(orgId, run.projectId, run.id);
+      if (!latest) throw error;
+      run = latest;
+    }
+  }
+  throw new ActionRecoveryRequired('FlowRun is busy; retry reconciliation');
 };
 
 const ensureOccurrenceRun = async (
@@ -458,19 +521,41 @@ export const resolveCallbackAndAdvance = async (
   orgId: string,
   projectId: string,
   match: { nodeId?: string; runId?: string; externalId?: string },
-  result: { status: 'success' | 'error'; output?: any; logs?: string[]; error?: string; resolvedBy: string }
+  result: { status: 'success' | 'error'; output?: any; logs?: string[]; error?: string; resolvedBy: string; eventId?: string }
 ): Promise<AdvanceOutcome> => {
   if (match.runId?.startsWith('vf:')) return (await settleVisibleCallback(orgId, projectId, match, result))!;
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
+  // The operation exists BEFORE dispatch, including when the callback beats the
+  // provider response or the last FlowRun write failed. Never use the projection.
+  const operation = match.runId ? await readActionDispatch(orgId, match.runId) : null;
+  if (operation) {
+    if (operation.projectId !== projectId || (match.nodeId && operation.nodeId !== match.nodeId)) {
+      return { ok: false, reason: 'invalid_action_correlation' };
+    }
+    const external = operation.outcome?.externalExecutionId || operation.outcome?.externalId;
+    if (external && match.externalId && external !== match.externalId) return { ok: false, reason: 'invalid_external_id' };
+    await settleActionDispatch(orgId, operation.id, result.eventId || `${result.resolvedBy}:${result.status}`, {
+      status: result.status, output: result.output, logs: result.logs, error: result.error,
+      externalId: match.externalId, externalExecutionId: match.externalId
+    });
+    const durableRun = operation.flowRunId ? await readFlowRun(orgId, projectId, operation.flowRunId) : null;
+    if (durableRun) return advanceRunAndPersist(orgId, located, durableRun, ['Provider event durably recorded']);
+  }
+
   const run = await findFlowRunByAction(orgId, projectId, match);
   if (run) {
     const runtime = materializeFlowRunProject(located.project, run);
     const resolved = resolvePendingRun(runtime, match, result);
-    if (!resolved) return { ok: false, reason: 'no_matching_pending_run', flowRunId: run.id };
-    const saved = await saveFlowRun(updateFlowRunFromProject(run, resolved.project));
-    return advanceRunAndPersist(orgId, located, saved, resolved.log);
+    if (!resolved) return advanceRunAndPersist(orgId, located, run, ['Already resolved callback acknowledged']);
+    try {
+      const saved = await saveFlowRun(updateFlowRunFromProject(run, resolved.project));
+      return advanceRunAndPersist(orgId, located, saved, resolved.log);
+    } catch (error) {
+      if (!/FlowRun changed concurrently/.test(error instanceof Error ? error.message : String(error))) throw error;
+      throw new ActionRecoveryRequired('Concurrent legacy callback; retry reconciliation');
+    }
   }
 
   // Legacy fallback for an in-flight action created before FlowRun migration.

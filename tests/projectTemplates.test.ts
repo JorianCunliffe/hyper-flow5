@@ -104,7 +104,7 @@ describe('Daily Coaching project template', () => {
     assert.deepEqual(retryBranch?.conditions, [{
       variable: 'coaching_call_result_disposition',
       oneOf: [
-        'voicemail', 'no_meaningful_response', 'hangup', 'hang_up', 'hung_up',
+        'voicemail', 'no_meaningful_response',
         'no_answer', 'busy', 'provider_failed', 'provider_failure', 'failed'
       ]
     }]);

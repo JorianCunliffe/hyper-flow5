@@ -99,6 +99,7 @@ export interface FlowRunState {
  * milestones remain the editable definition; mutable execution state lives here.
  */
 export interface FlowRun {
+  dispatchVersion?: 1;
   id: string;
   orgId: string;
   projectId: string;

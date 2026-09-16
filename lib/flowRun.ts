@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Milestone, Project } from '../types.js';
 import { getNodeType, isActionNode, isAwaitingReview, resolveNodeStates } from './flowEngine.js';
 import { resetProjectForOccurrence } from './flowOccurrence.js';
+import { safeCoachingRetryGraph } from './projectTemplates.js';
 import type { FlowRun, FlowRunStatus, FlowRunTrigger, NodeRun, NodeRunStatus, RuntimeMilestone } from './flowRuntimeTypes.js';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -9,11 +10,11 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export const flowRunIdForOccurrence = (orgId: string, projectId: string, occurrenceId: string): string =>
   `fr_${createHash('sha256').update(`${orgId}:${projectId}:${occurrenceId}`).digest('hex').slice(0, 28)}`;
 
-export const materializeFlowRunProject = (definition: Project, run: FlowRun): Project => ({
+export const materializeFlowRunProject = (definition: Project, run: FlowRun): Project => safeCoachingRetryGraph({
   ...definition,
   updatedAt: run.updatedAt,
   milestones: clone(run.state.milestones),
-  projectData: clone(run.state.projectData)
+  projectData: { ...clone(run.state.projectData), flow_started_at: run.startedAt, flow_dispatch_version: run.dispatchVersion || 0 }
 });
 
 const waitConfig = (node: Milestone): any =>
@@ -142,10 +143,13 @@ export const createFlowRun = (input: NewFlowRunInput): FlowRun => {
       ...(input.input || {}),
       flow_occurrence_id: input.occurrenceId,
       flow_run_id: flowRunIdForOccurrence(input.orgId, input.project.id, input.occurrenceId),
+      flow_started_at: now,
+      flow_dispatch_version: 1,
       ...(input.flowId ? { flow_id: input.flowId } : {})
     }
   };
   const run: FlowRun = {
+    dispatchVersion: 1,
     id: String(project.projectData!.flow_run_id),
     orgId: input.orgId,
     projectId: input.project.id,

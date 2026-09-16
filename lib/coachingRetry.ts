@@ -35,9 +35,6 @@ export const coachingRetryPolicy = (data: ProjectData = {}): {
     5,
     1440
   );
-  const windowMinutes = Math.max(
-    delayMinutes,
-    boundedInteger(data.coaching_retry_window_minutes, COACHING_RETRY_WINDOW_MINUTES, 5, 1440)
-  );
+  const windowMinutes = boundedInteger(data.coaching_retry_window_minutes, COACHING_RETRY_WINDOW_MINUTES, 1, 1440);
   return { maxAttempts, delayMinutes, windowMinutes };
 };

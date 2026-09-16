@@ -17,6 +17,7 @@ import {
   claimScheduleRun,
   completeScheduleRunAndAdvance,
   finishScheduleRun,
+  readScheduleRun,
   listDueSchedules
 } from './serverStore.js';
 
@@ -52,11 +53,16 @@ export const runTenantSchedule = async (
   options: { advanceSchedule?: boolean } = {}
 ): Promise<ScheduleExecutionResult> => {
   const run = await claimScheduleRun(schedule, scheduledFor, randomUUID());
-  if (!run) return { scheduleId: schedule.id, status: 'duplicate' };
+  if (!run) {
+    const existing = await readScheduleRun(schedule, scheduledFor);
+    if (existing?.status === 'completed' && options.advanceSchedule !== false) await advanceTenantSchedule(schedule, scheduledFor);
+    return { scheduleId: schedule.id, status: 'duplicate' };
+  }
   let cursorBefore: string | undefined;
 
   if (schedule.activity === 'flow_start') {
     let actionError: unknown;
+    let flowOutcome: Awaited<ReturnType<typeof advanceScheduledServerFlow>> | undefined;
     try {
       const outcome = schedule.flowId?.startsWith('visible:') ? await runVisibleRoutine(schedule,run.id) : await advanceScheduledServerFlow(schedule.orgId, schedule.projectId, {
         scheduleId: schedule.id,
@@ -68,18 +74,23 @@ export const runTenantSchedule = async (
         clearProjectDataKeys: schedule.clearProjectDataKeys
       });
       if (!outcome.ok) throw new Error(outcome.reason || 'Scheduled flow could not be started');
+      flowOutcome = outcome;
     } catch (error) {
       actionError = error;
     }
     if (actionError) {
       const message = actionError instanceof Error ? actionError.message : String(actionError);
-      await finishScheduleRun(run, { status: 'failed', error: message });
+      await finishScheduleRun(run, { status: 'recoverable', error: message });
       console.error('[scheduler] flow occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
       return { scheduleId: schedule.id, status: 'failed', error: message };
     }
+    if (flowOutcome?.status === 'waiting' || flowOutcome?.status === 'running') {
+      await finishScheduleRun(run, { status: flowOutcome.status === 'waiting' ? 'waiting' : 'partial', flowRunId: flowOutcome.flowRunId });
+      return { scheduleId: schedule.id, status: 'deferred', projectId: schedule.projectId, runId: run.id };
+    }
     await completeScheduleOccurrence(
       schedule, run, scheduledFor,
-      { status: 'completed', processedCount: 1 },
+      { status: flowOutcome?.status === 'failed' ? 'failed' : 'completed', flowRunId: flowOutcome?.flowRunId, processedCount: 1 },
       options.advanceSchedule !== false
     );
     console.info('[scheduler] occurrence completed', {
@@ -87,7 +98,7 @@ export const runTenantSchedule = async (
     });
     return {
       scheduleId: schedule.id,
-      status: 'completed',
+      status: flowOutcome?.status === 'failed' ? 'failed' : 'completed',
       processedCount: 1,
       projectId: schedule.projectId,
       runId: run.id
@@ -201,7 +212,7 @@ export const tickSchedules = async (now = Date.now()): Promise<ScheduleExecution
   for (const schedule of due) {
     const overdueBy = now - schedule.nextRunAt;
     const occurrenceWindow = Math.max(5, schedule.intervalMinutes) * 60_000;
-    if (schedule.misfirePolicy === 'skip' && overdueBy >= occurrenceWindow) {
+    if (schedule.misfirePolicy === 'skip' && overdueBy >= occurrenceWindow && !(await readScheduleRun(schedule))) {
       await advanceTenantSchedule(schedule, schedule.nextRunAt, now);
       results.push({ scheduleId: schedule.id, status: 'skipped' });
       continue;

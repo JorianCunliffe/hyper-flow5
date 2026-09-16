@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { executeTask } from '../../lib/executeTask.js';
-import { readTenantCommunicationsSettings } from '../../lib/serverStore.js';
+import { executeDurableTask } from '../../lib/serverExecutor.js';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -13,23 +12,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const member = await requireAppMember(req, requestedOrgId);
     await requireProjectInTenant(member.orgId, correlation?.projectId);
     const trustedCorrelation = { ...correlation, orgId: member.orgId };
-    let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
-    if (trustedCorrelation.orgId) {
-      try { tenantCommunications = await readTenantCommunicationsSettings(trustedCorrelation.orgId); } catch { /* project/env fallback */ }
-    }
-    // The callback secret and public base URL stay server-side; callers only
-    // supply the correlation ids that identify the run.
-    const result = await executeTask(taskType, templateFile, projectData, {
-      webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-      communicationsFromNumber: tenantCommunications?.fromNumber,
-      communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
-      communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
-      communicationsConnectionId: tenantCommunications?.connectionId,
-      correlation: trustedCorrelation,
-      revision
+    const result = await executeDurableTask(taskType, templateFile, projectData, {
+      orgId: member.orgId, projectId: trustedCorrelation.projectId,
+      nodeId: trustedCorrelation.nodeId, runId: trustedCorrelation.runId, revision
     });
     res.status(result.httpStatus).json(result.body);
   } catch (e: any) {
-    res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e?.message || String(e) });
+    res.status(e instanceof ApiAuthError ? e.status : e?.recoverable ? 503 : 500).json({ error: e?.message || String(e) });
   }
 }

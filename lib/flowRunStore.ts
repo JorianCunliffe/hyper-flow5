@@ -52,8 +52,8 @@ export const createFlowRunIfAbsent = async (run: FlowRun): Promise<FlowRun> => {
 };
 
 /**
- * Compare-and-swap persistence. Runtime effects happen before this write, so a
- * stale worker must fail rather than overwrite a newer callback/signal result.
+ * Compare-and-swap persistence. Stale workers reconcile from the latest state;
+ * durable action dispatch records protect effects during those retries.
  */
 export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
   const db = await runtimeDatabase();
@@ -72,6 +72,7 @@ export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
       reference.once('value', () => resolve(), reject);
     });
     result = await reference.transaction(current => {
+      stale = false;
       if (!current) {
         if (expected !== 0) { stale = true; return undefined; }
         return persisted;
