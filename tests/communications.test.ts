@@ -91,8 +91,12 @@ describe('HttpCommunicationsClient current Communications Service contract', () 
       calls.push({ url: String(url), init });
       return new Response(JSON.stringify({ communication_id: 'email_1', channel: 'email', thread_id: 'thread_1' }), { status: 201 });
     };
-    const client = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl });
-    const result = await client.sendEmail({
+    const enabledClient = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl,
+      projectLookup: async (tenant, project) => {
+        assert.equal(tenant, 'org_1'); assert.equal(project, 'p1');
+        return { project: { emailSendingEnabled: true } };
+      } });
+    const result = await enabledClient.sendEmail({
       to: ['person@example.com'], service_identity_id: 'identity_1', subject: 'Question', text: 'Can you attend?',
       correlation: { tenant_id: 'org_1', external_project_id: 'p1', run_id: 'r1', task_id: 'EMAIL' },
       purpose: { type: 'human_ask', ask_id: 'ask_1' }
@@ -214,7 +218,10 @@ describe('executeTask communications routing', () => {
       const result = await executeTask('send_email', '{"to":"person@example.com","subject":"Meeting","body":"Can you attend?"}', {}, {
         communicationsEmailIdentity: 'identity_1', communicationsConnectionId: 'connection_1', communicationsReplyIdentity: 'reply@example.com',
         correlation: { orgId: 'tenant_1', projectId: 'project_1', runId: 'run_1', nodeId: 'EMAIL_1' }
-      });
+      }, { emailClient: new HttpCommunicationsClient({ projectLookup: async (tenant, project) => {
+        assert.equal(tenant, 'tenant_1'); assert.equal(project, 'project_1');
+        return { project: { emailSendingEnabled: true } };
+      } }) });
       assert.equal(result.httpStatus, 200);
       assert.equal(request.service_identity_id, 'identity_1');
       assert.equal(request.provider_connection_id, 'connection_1');

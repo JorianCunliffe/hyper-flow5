@@ -113,6 +113,20 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
               Archive this project (removes from active view)
             </label>
           </div>
+          <div className="col-span-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+            <label className="flex items-center gap-3 text-sm font-bold text-indigo-950">
+              <input type="checkbox" role="switch" className="h-5 w-5"
+                checked={editedProject.emailSendingEnabled === true}
+                onChange={e => setEditedProject({ ...editedProject, emailSendingEnabled: e.target.checked })} />
+              Enable email sending for this project
+            </label>
+            <p className="mt-2 text-xs text-indigo-900">
+              Off by default while testing. Mailbox drafts remain available. When enabled, email actions,
+              Ask notifications and automatic email replies or digests can send if organization policy
+              and the sending identity also permit it. Save Changes to apply.
+            </p>
+            <p className="mt-1 text-xs text-indigo-900">Turning this off blocks future sends; it cannot recall an email already submitted.</p>
+          </div>
         </div>
 
         <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-8">

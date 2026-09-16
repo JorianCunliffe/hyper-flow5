@@ -1,6 +1,14 @@
 # HyperFlow implementation programme status
 
-Last updated: 9 September 2026.
+Last updated: 16 September 2026.
+
+## 16 September repository and live-readiness update
+
+- Main includes durable FlowRun execution/holds, dynamic Ask schemas and stepped SMS Ask delivery.
+- Mailbox draft-update integration PR40 is merged. The live Communications service is healthy at v2.8.2/build `9e3e2d0ae799`, but its draft PATCH route still returns route-not-found. The separate Communications release is blocked by Replit's database-publishing step; source integration is not live provider acceptance.
+- PR41 adds `Project.emailSendingEnabled`, default off, to Edit Project Settings. The shared server client checks the saved tenant/project on each email dispatch, beneath the organization policy ceiling. Drafts remain available; copies start disabled. No live project was enabled and no email was sent for this work.
+- The signed-in Diary now successfully lists the CEO Google calendars. The older missing-calendar-read-consent observation below is superseded. No configured calendar was shown; project/calendar booking policy and a controlled create/update/cancel test remain pending. Read access does not establish write access.
+- The older phase records below retain their dated evidence. Full Phase11/12 acceptance remains open.
 
 **Current state:** Phases 01–09 implementations are merged and deployed. Phase 06's controlled live request compilation, approval, evidence/report execution and version-promotion checks pass. Phase 07 cockpit reads accepted live work; Phase 08 live calendar booking acceptance awaits consent and policy; Phase 09 controlled live slide-report generation and review pass; live Google export awaits a target. SMS and call receipt were confirmed by the user; the fresh human call and final spoken turn are verified in P12. Historical baseline observations below remain dated snapshots.
 

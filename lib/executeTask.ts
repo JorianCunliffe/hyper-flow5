@@ -2,7 +2,7 @@ import { outboundConversationContext } from './outboundConversationContext.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createCommunicationsClient } from './communications/client.js';
 import { CommunicationsApiError } from './communications/errors.js';
-import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides } from './communications/types.js';
+import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides, CommunicationsClient } from './communications/types.js';
 import { safeWebhookFetch } from './safeWebhook.js';
 import { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 import { appendGrantedGoogleSheet, readGrantedGoogleDoc, readGrantedGoogleSheet, upsertGrantedGoogleSheet } from './integrations/googleWorkspace.js';
@@ -155,7 +155,8 @@ export async function executeTask(
   rawTaskType: string,
   templateFile: string | undefined,
   projectData: Record<string, any> | undefined,
-  ctx?: ExecuteContext
+  ctx?: ExecuteContext,
+  dependencies: { emailClient?: Pick<CommunicationsClient, 'sendEmail'> } = {}
 ): Promise<TaskExecutionResult> {
   const taskType = normalizeTaskType(rawTaskType);
   if (!taskType) {
@@ -239,7 +240,7 @@ export async function executeTask(
       if (!from && !serviceIdentityId) {
         throw new Error('A Communications email from address or service identity is required');
       }
-      const result = await createCommunicationsClient().sendEmail({
+      const result = await (dependencies.emailClient || createCommunicationsClient()).sendEmail({
         to: to.map(String),
         cc: Array.isArray(templateData.cc) ? templateData.cc.map(String) : undefined,
         bcc: Array.isArray(templateData.bcc) ? templateData.bcc.map(String) : undefined,

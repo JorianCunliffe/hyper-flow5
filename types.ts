@@ -776,6 +776,8 @@ export interface TimelineMarker {
 }
 
 export interface Project {
+  /** Outbound email master switch. Missing/false keeps email sending disabled. */
+  emailSendingEnabled?: boolean;
   id: string;
   displayId?: string;
   name: string;

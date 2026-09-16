@@ -2,6 +2,7 @@ import type { MemoryRequest, MemoryEnvelope } from './memoryTypes.js';
 import type { MeetingInput, MeetingRecord } from './meetingTypes.js';
 import { CommunicationsApiError, CommunicationsConfigurationError } from './errors.js';
 import { assertEmailSendAllowed } from './emailPolicy.js';
+import { assertProjectEmailSendAllowed, type EmailProjectLookup } from './projectEmailPolicy.js';
 import type {
   CommunicationResult,
   CommunicationListOptions,
@@ -31,6 +32,7 @@ export interface CommunicationsClientOptions {
   apiKey?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  projectLookup?: EmailProjectLookup;
 }
 
 export class HttpCommunicationsClient implements CommunicationsClient {
@@ -43,8 +45,10 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   private readonly apiKey: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly projectLookup?: EmailProjectLookup;
 
   constructor(options: CommunicationsClientOptions = {}) {
+    this.projectLookup = options.projectLookup;
     const baseUrl = options.baseUrl ?? process.env.COMMUNICATIONS_API_URL;
     const apiKey = options.apiKey ?? process.env.COMMUNICATIONS_API_KEY;
     if (!baseUrl) throw new CommunicationsConfigurationError('COMMUNICATIONS_API_URL environment variable is required');
@@ -102,6 +106,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async sendEmail(request: SendEmailRequest): Promise<CommunicationResult> {
     const policy = await this.getEmailPolicy(request.correlation?.tenant_id);
     assertEmailSendAllowed(request.correlation?.tenant_id, policy.mode);
+    await assertProjectEmailSendAllowed(request.correlation?.tenant_id, request.correlation?.external_project_id, this.projectLookup);
     return this.communicationRequest('/v1/emails', {
       method: 'POST', body: request, idempotencyKey: this.operationKey('email', request)
     });
