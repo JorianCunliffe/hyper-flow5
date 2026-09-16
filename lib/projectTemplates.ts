@@ -1,4 +1,24 @@
 import { NodeType, type ActionConfig, type Milestone, type Project, type ProjectData } from '../types.js';
+import { coachingRetryPolicy } from './coachingRetry.js';
+
+/** Upgrade generated coaching controls in existing definitions and in-flight runs. */
+export const safeCoachingRetryGraph = (project: Project): Project => {
+  if (project.projectData?.project_template !== 'daily_coaching') return project;
+  const policy = coachingRetryPolicy(project.projectData);
+  return { ...project, milestones: project.milestones.map(node => {
+    if (node.id === 'COACH_CALL_ROUTE' && node.decisionConfig) return { ...node, decisionConfig: {
+      ...node.decisionConfig, branches: node.decisionConfig.branches.map(branch => ({ ...branch,
+        conditions: branch.conditions?.map(condition => condition.variable === 'coaching_call_result_disposition' && condition.oneOf
+          ? { ...condition, oneOf: condition.oneOf.filter(value => !['hangup', 'hang_up', 'hung_up'].includes(String(value))) } : condition)
+      }))
+    } };
+    if (node.id === 'COACH_RETRY_LOOP' && node.loopConfig) return { ...node, loopConfig: {
+      ...node.loopConfig, maxDurationMinutes: policy.windowMinutes,
+      maxIterations: Math.min(node.loopConfig.maxIterations, policy.maxAttempts - 1)
+    } };
+    return node;
+  }) };
+};
 
 export type HyperFlowProjectTemplate = 'blank' | 'daily_coaching' | 'email_triage';
 
@@ -43,7 +63,7 @@ const control = (
 });
 
 const RETRYABLE_CALL_DISPOSITIONS = [
-  'voicemail', 'no_meaningful_response', 'hangup', 'hang_up', 'hung_up',
+  'voicemail', 'no_meaningful_response',
   'no_answer', 'busy', 'provider_failed', 'provider_failure', 'failed'
 ];
 
@@ -53,6 +73,7 @@ export const dailyCoachingTemplate = (options: {
   email?: string;
   retryAttempts?: number;
   retryDelayMinutes?: number;
+  retryWindowMinutes?: number;
 } = {}): { milestones: Milestone[]; projectData: ProjectData } => {
   const totalAttempts = Math.min(Math.max(Math.floor(Number(options.retryAttempts ?? 2)), 1), 5);
   const retryDelayMinutes = Math.min(Math.max(Math.floor(Number(options.retryDelayMinutes ?? 10)), 1), 24 * 60);
@@ -130,6 +151,7 @@ export const dailyCoachingTemplate = (options: {
           loopStartId: 'COACH_CALL',
           exitConditions: [],
           maxIterations: totalAttempts - 1,
+          maxDurationMinutes: Math.min(Math.max(Number(options.retryWindowMinutes ?? 180), 1), 1440),
           currentIteration: 0,
           exited: false
         }
@@ -147,6 +169,7 @@ export const dailyCoachingTemplate = (options: {
       contact_email: options.email || '',
       coaching_retry_attempts: totalAttempts,
       coaching_retry_delay_minutes: retryDelayMinutes,
+      coaching_retry_window_minutes: Math.min(Math.max(Number(options.retryWindowMinutes ?? 180), 1), 1440),
       coaching_transient_keys: COACHING_TRANSIENT_KEYS
     }
   };

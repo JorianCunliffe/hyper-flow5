@@ -16,6 +16,9 @@ export interface ActionExecutionContext {
   projectId: string;
   nodeId: string;
   runId: string;
+  flowRunId?: string;
+  occurrenceId?: string;
+  attempt?: number;
   webhookBaseUrl?: string;
   revision?: { feedback: string; priorOutput?: any; count: number };
 }
@@ -49,6 +52,17 @@ let runCounter = 0;
 export const newRunId = (): string =>
   `run_${Date.now().toString(36)}_${(++runCounter).toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
+export const actionAttemptIdentity = (project: Project, nodeId: string): { runId: string; attempt: number } => {
+  const node = project.milestones.find(item => item.id === nodeId);
+  const occurrence = activeOccurrenceId(project.projectData);
+  const history = [...(node?.actionConfig?.runHistory || []), ...(node?.actionConfig?.lastRun ? [node.actionConfig.lastRun] : [])];
+  const attempt = history.filter(run => run.scheduleOccurrenceId === occurrence).length + 1;
+  const flowRunId = project.projectData?.flow_run_id;
+  return { attempt, runId: flowRunId
+    ? `op:${encodeURIComponent(String(flowRunId))}:${encodeURIComponent(nodeId)}:${attempt}`
+    : newRunId() };
+};
+
 const validResultVariable = (value: unknown): string | undefined => {
   const key = typeof value === 'string' ? value.trim() : '';
   return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
@@ -80,7 +94,7 @@ export const applyActionRun = (project: Project, nodeId: string, run: ActionRun)
     milestones: project.milestones.map(m => {
       if (m.id !== nodeId) return m;
       const prior = m.actionConfig?.lastRun;
-      const isResolutionOfPrior = !!prior && prior.status === 'pending' && !!run.id && prior.id === run.id;
+      const isResolutionOfPrior = !!prior && !!run.id && prior.id === run.id;
       return {
         ...m,
         actionConfig: {
@@ -120,13 +134,16 @@ export const runActionNode = async (
   const taskType = ACTION_TASK_TYPE[getNodeType(node)];
   if (!taskType) return { project, log: [`${node.name}: not an executable action node`] };
 
-  const runId = newRunId();
+  const { runId, attempt } = actionAttemptIdentity(project, nodeId);
   const revision = node.actionConfig?.revision;
   const ctx: ActionExecutionContext = {
     orgId: opts.orgId,
     projectId: project.id,
     nodeId,
     runId,
+    flowRunId: project.projectData?.flow_run_id,
+    occurrenceId: activeOccurrenceId(project.projectData),
+    attempt,
     webhookBaseUrl: opts.webhookBaseUrl,
     revision: revision ? { feedback: revision.feedback, priorOutput: revision.priorOutput, count: revision.count } : undefined
   };
@@ -135,6 +152,7 @@ export const runActionNode = async (
   try {
     outcome = await executor(taskType, node.actionConfig?.template || '', project.projectData || {}, ctx);
   } catch (e: any) {
+    if (e?.recoverable) throw e;
     outcome = { status: 'error', error: e?.message || String(e) };
   }
 
@@ -200,7 +218,7 @@ export const resolvePendingRun = (
 export const advanceProjectFlow = async (
   project: Project,
   executor: ActionExecutor,
-  opts: { orgId?: string; webhookBaseUrl?: string; maxRounds?: number } = {}
+  opts: { orgId?: string; webhookBaseUrl?: string; maxRounds?: number; checkpoint?: (project: Project) => Promise<void> } = {}
 ): Promise<OrchestrationResult> => {
   const maxRounds = opts.maxRounds ?? 5;
   let current = project;
@@ -233,8 +251,11 @@ export const advanceProjectFlow = async (
     if (runnable.length === 0) break;
 
     for (const nodeId of runnable) {
+      // Persist routing, loop iteration and input state before an action can claim dispatch.
+      await opts.checkpoint?.(current);
       const res = await runActionNode(current, nodeId, executor, opts);
       current = res.project;
+      await opts.checkpoint?.(current);
       log.push(...res.log);
       if (res.run?.status === 'pending') pending.add(nodeId);
     }

@@ -27,7 +27,7 @@ import { WebSocketServer } from "ws";
 import { createHash } from 'node:crypto';
 
 import { GoogleGenAI, Type, Modality, LiveServerMessage } from "@google/genai";
-import { executeTask } from "./lib/executeTask";
+import { executeDurableTask } from "./lib/serverExecutor.js";
 import { advanceServerFlow, readAskByToken, respondToAsk } from "./lib/serverFlow";
 import { externalEventHttpStatus, receiveExternalEvent } from "./lib/externalEvents";
 import { processAgentInbox } from "./lib/agentRouter";
@@ -758,22 +758,13 @@ async function startServer() {
       const member = await requireAppMember(req as any, typeof correlation?.orgId === 'string' ? correlation.orgId : undefined);
       await requireProjectInTenant(member.orgId, correlation?.projectId);
       const trustedCorrelation = { ...correlation, orgId: member.orgId };
-      let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
-      if (trustedCorrelation.orgId && isServerStoreConfigured()) {
-        try { tenantCommunications = await readTenantCommunicationsSettings(trustedCorrelation.orgId); } catch { /* project/env fallback */ }
-      }
-      const result = await executeTask(taskType, templateFile, projectData, {
-        webhookBaseUrl: process.env.PUBLIC_BASE_URL,
-        communicationsFromNumber: tenantCommunications?.fromNumber,
-        communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
-        communicationsReplyIdentity: tenantCommunications?.replyServiceIdentity,
-        communicationsConnectionId: tenantCommunications?.connectionId,
-        correlation: trustedCorrelation,
-        revision
+      const result = await executeDurableTask(taskType, templateFile, projectData, {
+        orgId: member.orgId, projectId: trustedCorrelation.projectId,
+        nodeId: trustedCorrelation.nodeId, runId: trustedCorrelation.runId, revision
       });
       res.status(result.httpStatus).json(result.body);
     } catch(e: any) {
-      res.status(e instanceof ApiAuthError ? e.status : 500).json({ error: e?.message || String(e) });
+      res.status(e instanceof ApiAuthError ? e.status : e?.recoverable ? 503 : 500).json({ error: e?.message || String(e) });
     }
   });
 

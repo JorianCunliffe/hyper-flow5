@@ -7,9 +7,10 @@ export const communicationOutcomeFromOutput = (output: unknown): CommunicationOu
   if (!output || typeof output !== 'object' || Array.isArray(output)) return undefined;
   const row = output as Record<string, unknown>;
   const outcome: CommunicationOutcome = {
+    ...(typeof row.conversation_completed === 'boolean' ? { conversationCompleted: row.conversation_completed } : {}),
     businessStatus: stringValue(row.business_status),
     disposition: stringValue(row.disposition),
-    successful: typeof row.successful === 'boolean' ? row.successful : undefined,
+    successful: row.conversation_completed === true ? true : typeof row.successful === 'boolean' ? row.successful : undefined,
     memoryEligible: typeof row.memory_eligible === 'boolean' ? row.memory_eligible : undefined,
     failureCode: stringValue(row.failure_code),
     failureReason: stringValue(row.failure_reason) || stringValue(row.error),

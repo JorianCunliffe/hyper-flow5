@@ -1,4 +1,5 @@
 import { resolveCallbackAndAdvance } from './serverFlow.js';
+import { findDispatchByExternalId } from './actionDispatch.js';
 import { respondToAsk } from './asks/respondToAsk.js';
 import type { AskChannel, CommunicationsSettings } from '../types.js';
 import { createCommunicationsClient } from './communications/client.js';
@@ -134,7 +135,7 @@ export const normalizeExternalEvent = (raw: any, defaultSource?: 'communications
     correlation: {
       tenant_id: correlation.tenant_id || correlation.org_id || correlation.orgId || raw.tenant_id,
       project_id: correlation.external_project_id || correlation.project_id || correlation.projectId,
-      run_id: correlation.run_id || correlation.runId,
+      run_id: correlation.run_id || correlation.runId || correlation.operation_id || correlation.idempotency_id,
       task_id: correlation.task_id || correlation.node_id || correlation.nodeId,
       person_id: correlation.person_id || correlation.personId
     },
@@ -200,6 +201,7 @@ export const isStandaloneTerminalCommunication = (event: ExternalEventEnvelope):
   && !event.correlation.run_id && !event.correlation.task_id
   && !event.ask_id && event.purpose?.type !== 'human_ask'
   && event.purpose?.type !== 'agent_conversation'
+  && event.purpose?.type !== 'workflow_action' && event.purpose?.type !== 'coaching_session'
   && terminalExternalEventStatus(event.type, event.payload) !== null;
 
 export const terminalExternalEventResult = (event: ExternalEventEnvelope): {
@@ -213,7 +215,10 @@ export const terminalExternalEventResult = (event: ExternalEventEnvelope): {
 
   // A contradictory producer payload must fail closed even if its event name
   // says completed. Provider completion is not verified human success.
-  if (event.type.toLowerCase() === 'call.completed' && (
+  const completedConversation = event.payload.conversation_completed === true ||
+    (event.payload.conversation_completed !== false && successful === true && memoryEligible !== false);
+  if (event.type.toLowerCase().startsWith('call.') && completedConversation) status = 'success';
+  else if (event.type.toLowerCase() === 'call.completed' && (
     successful === false || memoryEligible === false || (disposition && disposition !== 'human_completed')
   )) status = 'error';
 
@@ -236,14 +241,18 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
   const orgId = incomingEvent.correlation.tenant_id;
   if (!orgId) throw new Error('tenant_id is required');
   const claim = await beginExternalEventProcessing(createExternalEventRecord(incomingEvent));
-  if (!claim.claimed) return { ok: true, duplicate: true };
+  if (!claim.claimed) return claim.record?.processing_status === 'processed'
+    ? { ok: true, duplicate: true }
+    : { ok: false, retryable: true, reason: 'event_processing_in_progress' };
   // A replay with the same event_id must process the originally persisted
   // envelope, never a later body that merely reused its idempotency key.
   const event = claim.record?.payload || incomingEvent;
+  const finishProcessing = (tenant: string, eventId: string, status: 'processed' | 'processing_failed', error?: string) =>
+    finishExternalEventProcessing(tenant, eventId, status, error, claim.record?.processing_claim_id);
 
   try {
     if (event.source !== 'communications') {
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, ignored: true, reason: 'unsupported_source' };
     }
 
@@ -265,7 +274,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
     if (isInboundCommunicationEvent(event.type)) {
       const item = triageItemFromEvent(event, communication);
       if (tenantSettings.triagePolicy === 'correlated_only' && !item.askId && !item.projectId) {
-        await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+        await finishProcessing(orgId, event.event_id, 'processed');
         return { ok: true, ignored: true, reason: 'tenant_triage_policy' };
       }
       await upsertTriageItem(item);
@@ -281,7 +290,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
           trustedProjectId: item.projectId
         });
       }
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, reason: item.memoryEligible === false ? 'triage_item_recorded' : 'agent_job_queued' };
     }
 
@@ -310,7 +319,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
           trustedProjectId: item.projectId
         });
       }
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return {
         ok: true,
         ignored: event.type === 'call.failed' || undefined,
@@ -326,7 +335,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         payload: event.payload
       });
       if (event.type === 'email.failed') await upsertTriageItem(triageItemFromEvent(event, communication));
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, reason: 'delivery_state_updated' };
     }
 
@@ -334,14 +343,14 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       const { tenant_id: tenantId, project_id: projectId, person_id: personId } = event.correlation;
       if (!event.ask_id || !tenantId || !projectId) {
         const reason = 'missing ask_id, tenant_id or project_id correlation';
-        await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
+        await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
         return { ok: false, reason };
       }
 
       const candidateTriage = triageItemFromEvent(event, communication);
       if (!candidateTriage.memoryEligible) {
         await upsertTriageItem({ ...candidateTriage, disposition: 'spam_automatic' });
-        await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+        await finishProcessing(orgId, event.event_id, 'processed');
         return { ok: true, ignored: true, reason: 'ineligible_email_response' };
       }
 
@@ -349,7 +358,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         event.payload.successful === false || event.payload.memory_eligible === false ||
         (typeof event.payload.disposition === 'string' && event.payload.disposition !== 'human_completed')
       )) {
-        await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+        await finishProcessing(orgId, event.event_id, 'processed');
         return { ok: true, ignored: true, reason: 'ineligible_voice_response' };
       }
 
@@ -374,7 +383,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
 
       if (!outcome.ok && outcome.reason !== 'already_answered') {
         const reason = outcome.reason || 'ask_response_not_applied';
-        await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
+        await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
         return { ok: false, reason };
       }
 
@@ -408,7 +417,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         await enqueueAskResolution(orgId, event.ask_id, event.communication_id!);
         const claimedResolution = await claimAskResolution(orgId, event.ask_id, event.communication_id!);
         if (!claimedResolution) {
-          await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+          await finishProcessing(orgId, event.event_id, 'processed');
           return { ok: true, ignored: true, reason: 'ask_resolution_already_claimed' };
         }
         try {
@@ -417,12 +426,12 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         } catch (error: any) {
           const reason = `Communications Ask resolution failed: ${error?.message || String(error)}`;
           await finishAskResolution(orgId, event.ask_id, event.communication_id!, 'failed', reason);
-          await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
+          await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
           return { ok: false, retryable: true, reason };
         }
       }
 
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return {
         ok: true,
         ignored: outcome.reason === 'already_answered' || undefined,
@@ -432,6 +441,11 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       };
     }
 
+    if (!event.correlation.run_id && event.communication_id && event.correlation.project_id) {
+      const operation = await findDispatchByExternalId(orgId, event.correlation.project_id, event.communication_id);
+      if (operation) event.correlation = { ...event.correlation, run_id: operation.id, task_id: operation.nodeId };
+    }
+
     if (isStandaloneTerminalCommunication(event)) {
       await writeCommunicationDeliveryState(orgId, event.communication_id!, {
         eventId: event.event_id,
@@ -439,7 +453,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         occurredAt: event.occurred_at || Date.now(),
         payload: event.payload
       });
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, reason: 'standalone_delivery_recorded' };
     }
 
@@ -450,15 +464,16 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
 
     const terminal = terminalExternalEventResult(event);
     if (!terminal) {
-      await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+      await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, ignored: true, reason: 'non_terminal_event' };
     }
 
     const { tenant_id: tenantId, project_id: projectId, run_id: runId, task_id: taskId } = event.correlation;
     if (!tenantId || !projectId || !runId || !taskId) {
       const reason = 'missing tenant_id, project_id, run_id or task_id correlation';
-      await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
-      return { ok: false, reason };
+      await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
+      const age = Date.now() - Date.parse(claim.record?.received_at || new Date().toISOString());
+      return { ok: false, reason, retryable: Boolean(tenantId && projectId && event.communication_id && age < 24 * 60 * 60_000) };
     }
 
     const outcome = await resolveCallbackAndAdvance(
@@ -473,21 +488,24 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
           terminal.log
         ],
         error: terminal.error,
-        resolvedBy: `event:${event.source}`
+        resolvedBy: `event:${event.source}`,
+        eventId: event.event_id
       }
     );
 
     if (!outcome.ok) {
       const reason = outcome.reason || 'event_not_applied';
-      await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
-      return { ok: false, retryable: reason === 'no_matching_pending_run', reason };
+      await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
+      const age = Date.now() - Date.parse(claim.record?.received_at || new Date().toISOString());
+      return { ok: false, retryable: reason === 'no_matching_pending_run' && age < 24 * 60 * 60_000, reason };
     }
 
-    await finishExternalEventProcessing(orgId, event.event_id, 'processed');
+    await finishProcessing(orgId, event.event_id, 'processed');
     return { ok: true, log: outcome.log, pending: outcome.pending };
   } catch (error: any) {
     const reason = error?.message || String(error);
-    await finishExternalEventProcessing(orgId, event.event_id, 'processing_failed', reason);
+    await finishProcessing(orgId, event.event_id, 'processing_failed', reason);
+    if (error?.recoverable) return { ok: false, retryable: true, reason };
     throw error;
   }
 };

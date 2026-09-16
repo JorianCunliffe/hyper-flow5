@@ -2,6 +2,7 @@ import { HttpCommunicationsClient as CoreHttpCommunicationsClient } from './clie
 import type { CommunicationsClientOptions } from './clientCore.js';
 import type { CommunicationsClient, MailboxDraftRequest } from './types.js';
 import { CommunicationsApiError, CommunicationsConfigurationError } from './errors.js';
+import { currentCommunicationRequestRecorder } from '../actionExecutionScope.js';
 
 export type { CommunicationsClientOptions } from './clientCore.js';
 
@@ -31,7 +32,7 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
   private readonly draftTimeoutMs: number;
 
   constructor(options: CommunicationsClientOptions = {}) {
-    super(options);
+    super({ ...options, freezeRequest: options.freezeRequest || currentCommunicationRequestRecorder() });
     const baseUrl = options.baseUrl ?? process.env.COMMUNICATIONS_API_URL;
     const apiKey = options.apiKey ?? process.env.COMMUNICATIONS_API_KEY;
     if (!baseUrl) throw new CommunicationsConfigurationError('COMMUNICATIONS_API_URL environment variable is required');

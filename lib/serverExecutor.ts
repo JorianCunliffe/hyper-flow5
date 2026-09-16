@@ -5,6 +5,8 @@ import { assertCapabilityAllowed, TASK_CAPABILITY } from './capabilityPolicy.js'
 import { readTenantCapabilityPolicy } from './capabilityPolicyStore.js';
 import { resolveGrantedPersonTarget } from './actionTarget.js';
 import { withActionExecutionScope } from './actionExecutionScope.js';
+import { ActionRecoveryRequired, durableActionExecutor } from './actionDispatch.js';
+import { normalizeTaskType } from './taskTypes.js';
 
 const communicationChannel = (taskType: string): 'email' | 'sms' | 'voice' | undefined => {
   if (taskType === 'send_email') return 'email';
@@ -37,7 +39,7 @@ const resourceNameFromTemplate = (templateFile: string): string | undefined => {
  * enforces tenant authority and resolves configured people/resources immediately
  * before the effect.
  */
-export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
+const executeServerAction: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
   let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
   try { tenantCommunications = await readTenantCommunicationsSettings(ctx.orgId); } catch { /* use project/env fallback */ }
 
@@ -82,7 +84,8 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
       channel,
       coalesce: false
     });
-    if (!claim.allowed) throw new Error(claim.reason || 'Tenant contact policy refused the autonomous communication');
+    // The durable operation owns an existing budget reservation during recovery.
+    if (!claim.allowed && claim.existingOperationId !== ctx.runId) throw new Error(claim.reason || 'Tenant contact policy refused the autonomous communication');
     safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target });
   }
 
@@ -105,4 +108,28 @@ export const serverExecutor: ActionExecutor = async (taskType, templateFile, pro
     externalId: body.externalId, externalExecutionId: body.externalExecutionId,
     externalService: body.externalService, startedAt: body.startedAt
   };
+};
+
+const dispatchServerAction = durableActionExecutor(executeServerAction);
+export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
+  if (ctx.flowRunId && projectData.flow_dispatch_version !== 1 &&
+      !['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result'].includes(taskType)) {
+    throw new ActionRecoveryRequired('Legacy occurrence requires provider reconciliation before new external effects');
+  }
+  return dispatchServerAction(taskType, templateFile, projectData, ctx);
+};
+
+/** HTTP/manual execution uses the same ledger; callers must retain their run ID on retries. */
+export const executeDurableTask = async (
+  taskType: string, template: string, data: Record<string, any>, context: Parameters<ActionExecutor>[3]
+) => {
+  if (!context.orgId || !context.projectId || !context.nodeId || !context.runId) {
+    return { httpStatus: 400, body: { error: 'orgId, projectId, nodeId and runId are required for durable action execution' } };
+  }
+  const normalized = normalizeTaskType(taskType);
+  if (!normalized) return { httpStatus: 400, body: { error: 'Unknown task type' } };
+  const outcome = await serverExecutor(normalized, template, data || {}, context);
+  return { httpStatus: outcome.status === 'error' ? 422 : 200, body: {
+    ...outcome, status: outcome.status === 'error' ? 'error' : 'success', pending: outcome.status === 'pending'
+  } };
 };

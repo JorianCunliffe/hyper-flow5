@@ -163,7 +163,8 @@ describe('standalone terminal delivery routing', () => {
   });
   test('keeps Asks, agent conversations and missing identity outside standalone handling', () => {
     for (const extra of [{ ask_id: 'ask_1' }, { purpose: { type: 'human_ask' } },
-      { purpose: { type: 'agent_conversation' } }, { communication_id: undefined },
+      { purpose: { type: 'agent_conversation' } }, { purpose: { type: 'workflow_action' } },
+      { purpose: { type: 'coaching_session' } }, { communication_id: undefined },
       { correlation: {} }, { source: 'other' }, { type: 'sms.received' }]) {
       assert.equal(isStandaloneTerminalCommunication(event({}, extra)), false);
     }

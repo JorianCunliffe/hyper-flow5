@@ -20,6 +20,9 @@ const eventFlowTarget = (body: any): { orgId: string; projectId: string } | null
   // Provider callbacks already belong to an in-flight action. Let callback
   // correlation resolve that run rather than resetting the project as a new occurrence.
   if (correlation.run_id || correlation.runId || correlation.task_id || correlation.node_id || correlation.nodeId) return null;
+  if (correlation.operation_id || correlation.idempotency_id) return null;
+  if (['workflow_action', 'coaching_session'].includes(body?.purpose?.type) &&
+      ['call.completed', 'call.failed', 'sms.delivered', 'sms.failed'].includes(body?.type)) return null;
   return { orgId, projectId };
 };
 
