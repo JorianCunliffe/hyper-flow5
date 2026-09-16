@@ -37,6 +37,13 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci
+      - name: Archive installed test dependencies only
+        run: tar -czf /tmp/reliability-dependencies.tar.gz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reliability-dependencies
+          path: /tmp/reliability-dependencies.tar.gz
+          retention-days: 1
       - run: npm run lint
       - run: npm test
       - run: npm run build
