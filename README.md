@@ -55,6 +55,17 @@ Settings stores only non-secret tenant routing, resource grants, and policy: ser
 
 ## Configure the two daily services
 
+Project email sending starts disabled, including for existing projects. In the project list,
+open **Edit project settings**, select **Enable email sending for this project** after testing,
+and save. The server reads the saved switch on every email dispatch, including flow actions,
+Ask notifications, agent replies and email digests. Turning it off blocks subsequent dispatches;
+it cannot recall an email already submitted. Mailbox draft creation and revision remain available.
+Blocked send actions report an error and are not silently converted to drafts or marked sent.
+Organization email authority, configured sending identities and existing action permissions still
+apply. This switch does not add Gmail/Outlook mailbox sending or bypass an organization draft-only
+policy. API users set the boolean `emailSendingEnabled` on the project through the revision-checked
+workspace API; missing or non-boolean values do not enable sending.
+
 1. In **Settings > Agent & Connections**, select the stable primary Communications person, grant that person only the projects they may use, then save the default project, channel identities, and action permissions. Inbound people fail closed until a primary person or explicit grants are configured; once any person grants exist, unlisted people are denied.
 2. Open **New Project → Daily Email Triage** or **Settings → Service Projects**. The shared wizard selects the Communications people permitted to use the project, connects or selects Gmail/Outlook, runs an authoritative health check, configures policy/drafts/digest and schedule, and creates the project only after every readiness check passes. Each triage project owns exactly one mailbox and an independent cursor.
 3. Open the same wizard for **Daily Coaching**. Select the Communications person and phone/voice identity, Google Workspace connection, Doc, Sheet/range, retry policy, reviewer and review channels. The wizard verifies Doc/Sheet read access and Sheet edit capability before it creates the project.
