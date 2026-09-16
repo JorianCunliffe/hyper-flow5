@@ -4,6 +4,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { ref, get, set, remove } from 'firebase/database';
+import type { Project } from '../../types.js';
 
 test('scheduler and durable holds work with runtime rules while browsers and suspended tenants remain denied', async () => {
   assert.equal(process.env.FIREBASE_DATABASE_EMULATOR_HOST, '127.0.0.1:9010');
@@ -16,7 +17,7 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
   const { recordSchedulerTick, readSchedulerHealth } = await import('../../lib/serverStore.js');
   const { tickSchedules } = await import('../../lib/scheduler.js');
   const { createFlowRunIfAbsent, saveFlowRun, readFlowRun } = await import('../../lib/flowRunStore.js');
-  const { claimDueFlowHolds, finishFlowHold } = await import('../../lib/flowHoldStore.js');
+  const { claimDueFlowHolds, finishFlowHold, syncFlowHoldsFromRun } = await import('../../lib/flowHoldStore.js');
   const runtime = env.authenticatedContext('hyperflow-runtime-v1', { hyperflow_runtime: true }).database();
   const browsers = [env.unauthenticatedContext().database(), env.authenticatedContext('scheduler_member').database(), env.authenticatedContext('hyperflow-runtime-v1').database()];
   const roots = ['flow_runs', 'flow_holds', 'flow_hold_open', 'capability_policy', 'workspace_resource_catalog'];
@@ -64,6 +65,12 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
     assert.deepEqual(saved.state.projectData.nested, { kept: 'yes' });
     assert.equal((await readFlowRun(run.orgId, run.projectId, run.id))?.revision, 1);
     await assert.rejects(saveFlowRun(run), /changed concurrently/);
+    await syncFlowHoldsFromRun(saved, { milestones: [{ id: 'wait', waitConfig: {
+      holdId: 'optional-hold', armedAt: now, resumeAt: now + 60_000
+    } }] } as Project);
+    const persistedHold = await get(ref(runtime, 'flow_holds/scheduler_active/project/serialization/optional-hold'));
+    assert.equal(persistedHold.val().status, 'waiting');
+    assert.equal(persistedHold.val().availableAt, now + 60_000);
 
     const hold = { id: 'hold', orgId: 'scheduler_active', projectId: 'project', flowRunId: 'run', nodeId: 'wait', source: 'wait', kind: 'timer', status: 'waiting', availableAt: now - 1, createdAt: now - 100, updatedAt: now };
     const key = (org: string) => encodeURIComponent(`${org}:project:run:hold`);

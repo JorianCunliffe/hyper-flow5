@@ -180,7 +180,7 @@ export const syncFlowHoldsFromRun = async (run: FlowRun, project: Project): Prom
     }
   }
 
-  if (Object.keys(updates).length) await db.ref().update(updates);
+  if (Object.keys(updates).length) await db.ref().update(JSON.parse(JSON.stringify(updates)));
 };
 
 const listMatches = (allowed: string[] | undefined, value: string | undefined): boolean =>
