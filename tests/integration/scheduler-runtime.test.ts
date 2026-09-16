@@ -71,6 +71,10 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
     const persistedHold = await get(ref(runtime, 'flow_holds/scheduler_active/project/serialization/optional-hold'));
     assert.equal(persistedHold.val().status, 'waiting');
     assert.equal(persistedHold.val().availableAt, now + 60_000);
+    await syncFlowHoldsFromRun(saved, { milestones: [{ id: 'wait', waitConfig: {
+      holdId: 'resolved-hold', armedAt: now, resolvedAt: now
+    } }] } as Project);
+    assert.equal((await get(ref(runtime, 'flow_holds/scheduler_active/project/serialization/resolved-hold'))).val().status, 'resolved');
 
     const hold = { id: 'hold', orgId: 'scheduler_active', projectId: 'project', flowRunId: 'run', nodeId: 'wait', source: 'wait', kind: 'timer', status: 'waiting', availableAt: now - 1, createdAt: now - 100, updatedAt: now };
     const key = (org: string) => encodeURIComponent(`${org}:project:run:hold`);
