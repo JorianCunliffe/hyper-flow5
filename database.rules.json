@@ -103,29 +103,53 @@
       "$orgId": {
         "$projectId": {
           ".indexOn": "updatedAt"
-        }
+        },
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
       }
     },
     "flow_holds": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
+      }
     },
     "flow_hold_open": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
+      }
     },
     "flow_hold_pending": {
-      ".read": false,
+      ".read": "auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true",
       ".write": false,
-      ".indexOn": "availableAt"
+      ".indexOn": [
+        "availableAt",
+        "orgId"
+      ],
+      "$key": {
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && ((!newData.exists() && data.child('orgId').isString() && (!root.child('tenant_lifecycle').child(data.child('orgId').val()).child('state').exists() || root.child('tenant_lifecycle').child(data.child('orgId').val()).child('state').val() === 'active')) || (newData.child('orgId').isString() && (!root.child('tenant_lifecycle').child(newData.child('orgId').val()).child('state').exists() || root.child('tenant_lifecycle').child(newData.child('orgId').val()).child('state').val() === 'active')))"
+      }
     },
     "capability_policy": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
+      }
     },
     "workspace_resource_catalog": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "$orgId": {
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
+      }
     },
     "scheduler_health": {
       ".read": "auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true",
