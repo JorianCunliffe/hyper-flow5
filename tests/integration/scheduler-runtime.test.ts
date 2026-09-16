@@ -65,6 +65,8 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
     assert.deepEqual(saved.state.projectData.nested, { kept: 'yes' });
     assert.equal((await readFlowRun(run.orgId, run.projectId, run.id))?.revision, 1);
     await assert.rejects(saveFlowRun(run), /changed concurrently/);
+    await Promise.all(getApps().map(deleteApp));
+    assert.equal((await saveFlowRun(saved)).revision, 2);
     await syncFlowHoldsFromRun(saved, { milestones: [{ id: 'wait', waitConfig: {
       holdId: 'optional-hold', armedAt: now, resumeAt: now + 60_000
     } }] } as Project);
