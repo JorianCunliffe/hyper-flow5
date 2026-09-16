@@ -245,22 +245,44 @@ export const claimDueFlowHolds = async (now = Date.now(), limit = 10): Promise<F
       id: String(candidate.holdId || '')
     };
     if (!stub.orgId || !stub.projectId || !stub.flowRunId || !stub.id) continue;
+    // The global queue contains metadata for suspended tenants too. Do not let
+    // one paused tenant prevent the scheduler from serving every active tenant.
+    const tenantActive = async () => {
+      const state = await db.ref(`tenant_lifecycle/${safeKey(stub.orgId)}/state`).get();
+      return !state.exists() || state.val() === 'active';
+    };
+    if (!await tenantActive()) continue;
     const reference = db.ref(holdPath(stub));
-    const result = await reference.transaction(current => {
-      if (!current) return undefined;
-      const due = current.status === 'waiting' && Number(current.availableAt || 0) <= now;
-      const stale = current.status === 'processing' && Number(current.leaseExpiresAt || 0) <= now;
-      if (!due && !stale) return undefined;
-      return {
-        ...current,
-        status: 'processing',
-        claimedAt: now,
-        leaseExpiresAt: now + 2 * 60_000,
-        attemptCount: Number(current.attemptCount || 0) + 1,
-        updatedAt: now,
-        error: null
-      };
-    });
+    const keepCurrent = () => {};
+    let result;
+    try {
+      // Cold Admin SDK transactions may first see null. Keep an authoritative
+      // value listener until the claim completes instead of aborting that claim.
+      await new Promise<void>((resolve, reject) => {
+        reference.on('value', keepCurrent, reject);
+        reference.once('value', () => resolve(), reject);
+      });
+      result = await reference.transaction(current => {
+        if (!current) return undefined;
+        const due = current.status === 'waiting' && Number(current.availableAt || 0) <= now;
+        const stale = current.status === 'processing' && Number(current.leaseExpiresAt || 0) <= now;
+        if (!due && !stale) return undefined;
+        return {
+          ...current,
+          status: 'processing',
+          claimedAt: now,
+          leaseExpiresAt: now + 2 * 60_000,
+          attemptCount: Number(current.attemptCount || 0) + 1,
+          updatedAt: now,
+          error: null
+        };
+      });
+    } catch (error) {
+      if (!await tenantActive()) continue;
+      throw error;
+    } finally {
+      reference.off('value', keepCurrent);
+    }
     if (result.committed) {
       const hold = result.snapshot.val() as FlowHold;
       claimed.push(hold);
