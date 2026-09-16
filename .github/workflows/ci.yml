@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: JorianCunliffe/communications-service
-          ref: 4d572b760af4fd8243d1aba7057ff4d1ef03eef1
+          ref: 660ec39d670d14827ce60283267dcbf3bba8f6ee
           path: communications
       - uses: actions/setup-node@v4
         with:
@@ -68,6 +68,15 @@ jobs:
           writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
           NODE
       - run: npm ci
+        working-directory: communications
+      - name: Communications draft update tests
+        run: node --test --test-reporter=spec test/mailboxDraftUpdate.test.js
+        working-directory: communications
+      - name: Communications core regression tests
+        run: node --test --test-reporter=spec test/database.test.js test/transcripts.test.js test/context.test.js test/communications.test.js test/email.test.js test/emailPolicy.test.js test/mailbox.test.js test/callOutcome.test.js test/tools.test.js test/voiceTurns.test.js test/eventOutbox.test.js test/hyperflowScheduler.test.js test/memory.test.js test/security.test.js test/tenantClient.test.js test/contractFixtures.test.js
+        working-directory: communications
+      - name: Communications documentation contract
+        run: node --test --test-reporter=spec test/documentation.test.js
         working-directory: communications
       - run: npm ci
         working-directory: hyperflow
