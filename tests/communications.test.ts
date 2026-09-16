@@ -91,7 +91,6 @@ describe('HttpCommunicationsClient current Communications Service contract', () 
       calls.push({ url: String(url), init });
       return new Response(JSON.stringify({ communication_id: 'email_1', channel: 'email', thread_id: 'thread_1' }), { status: 201 });
     };
-    const client = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl });
     const enabledClient = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'secret', fetchImpl,
       projectLookup: async (tenant, project) => {
         assert.equal(tenant, 'org_1'); assert.equal(project, 'p1');
