@@ -15,6 +15,7 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
   const { getApps, deleteApp } = await import('firebase-admin/app');
   const { recordSchedulerTick, readSchedulerHealth } = await import('../../lib/serverStore.js');
   const { tickSchedules } = await import('../../lib/scheduler.js');
+  const { createFlowRunIfAbsent, saveFlowRun, readFlowRun } = await import('../../lib/flowRunStore.js');
   const { claimDueFlowHolds, finishFlowHold } = await import('../../lib/flowHoldStore.js');
   const runtime = env.authenticatedContext('hyperflow-runtime-v1', { hyperflow_runtime: true }).database();
   const browsers = [env.unauthenticatedContext().database(), env.authenticatedContext('scheduler_member').database(), env.authenticatedContext('hyperflow-runtime-v1').database()];
@@ -49,6 +50,20 @@ test('scheduler and durable holds work with runtime rules while browsers and sus
     await tickSchedules(now);
     await recordSchedulerTick('success');
     assert.ok((await readSchedulerHealth()).lastSuccessfulTickAt);
+
+    const run = await createFlowRunIfAbsent({
+      id: 'serialization', orgId: 'scheduler_active', projectId: 'project',
+      occurrenceId: 'fixture', trigger: 'schedule', status: 'running',
+      state: { milestones: [], projectData: {} }, nodeRuns: {}, revision: 0,
+      startedAt: now, updatedAt: now
+    });
+    const saved = await saveFlowRun({ ...run, completedAt: undefined, error: undefined,
+      state: { ...run.state, projectData: { nested: { optional: undefined, kept: 'yes' } } } });
+    assert.equal(saved.revision, 1);
+    assert.equal(saved.completedAt, undefined);
+    assert.deepEqual(saved.state.projectData.nested, { kept: 'yes' });
+    assert.equal((await readFlowRun(run.orgId, run.projectId, run.id))?.revision, 1);
+    await assert.rejects(saveFlowRun(run), /changed concurrently/);
 
     const hold = { id: 'hold', orgId: 'scheduler_active', projectId: 'project', flowRunId: 'run', nodeId: 'wait', source: 'wait', kind: 'timer', status: 'waiting', availableAt: now - 1, createdAt: now - 100, updatedAt: now };
     const key = (org: string) => encodeURIComponent(`${org}:project:run:hold`);

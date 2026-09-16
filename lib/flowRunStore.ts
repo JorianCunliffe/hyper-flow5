@@ -61,14 +61,16 @@ export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
   let stale = false;
   const expected = Number(run.revision || 0);
   const nextRevision = expected + 1;
+  // Match creation serialization: Firebase rejects optional undefined fields.
+  const persisted = JSON.parse(JSON.stringify({ ...run, revision: nextRevision }));
   const result = await reference.transaction(current => {
     if (!current) {
       if (expected !== 0) { stale = true; return undefined; }
-      return { ...run, revision: nextRevision };
+      return persisted;
     }
     const currentRevision = Number(current.revision || 0);
     if (currentRevision !== expected) { stale = true; return undefined; }
-    return { ...run, revision: nextRevision };
+    return persisted;
   }, undefined, false);
   if (!result.committed || stale) throw new Error('FlowRun changed concurrently; refusing stale write');
   return normalizeFlowRun(result.snapshot.val());
