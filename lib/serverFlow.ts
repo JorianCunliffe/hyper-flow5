@@ -1,3 +1,4 @@
+import { collapseCollections } from './flowCollections.js';
 import { randomUUID } from 'node:crypto';
 import { CoachingSession, HumanAsk, type FlowEvent, Project, NodeType } from '../types.js';
 import { activeOccurrenceId, getHoldConfig } from './flowEngine.js';
@@ -154,7 +155,7 @@ const persistProjectProjection = async (
   project: Project
 ): Promise<string | undefined> => {
   try {
-    await writeProject(orgId, index, project);
+    await writeProject(orgId, index, collapseCollections(project));
     return undefined;
   } catch (error: any) {
     const warning = `Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`;
@@ -398,12 +399,17 @@ export const resumeFlowRunFromHold = async (
     await finishFlowHold(hold, 'cancelled', 'run_not_available', 'cancelled');
     return { ok: true, reason: 'stale_flow_hold', flowRunId: hold.flowRunId };
   }
+  if (hold.source === 'continuation') return advanceRunAndPersist(hold.orgId, located, run, ['Resuming checkpointed automatic work']);
   if (hold.source !== 'wait') {
     await finishFlowHold(hold, 'cancelled', 'non_wait_hold_cannot_be_time_resumed', 'cancelled');
     return { ok: true, reason: 'stale_flow_hold', flowRunId: hold.flowRunId };
   }
 
   const runtime = materializeFlowRunProject(located.project, run);
+  const retryNode = runtime.milestones.find(node => node.id === hold.nodeId);
+  if ((retryNode as RuntimeMilestone | undefined)?.holdConfig?.human?.escalation) {
+    return advanceRunAndPersist(hold.orgId, located, run, ['Checking human Ask escalation; answers remain required']);
+  }
   const resolved = writeResolvedHold(runtime, hold, resolution, signal);
   if (!resolved) {
     await finishFlowHold(hold, 'cancelled', 'wait_no_longer_active', 'cancelled');

@@ -1,3 +1,4 @@
+import { normalizeScheduleDays } from './scheduleDays.js';
 import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { getAuth } from 'firebase-admin/auth';
@@ -1121,9 +1122,10 @@ export const normalizeTenantSchedule = (
   const existingRecurrence = existing?.recurrence;
   const recurrence = normalizeScheduleRecurrence(input.recurrence ?? existingRecurrence, intervalMinutes);
   const defaultNextRun = recurrence.kind === 'daily'
-    ? nextDailyScheduleOccurrence(now, recurrence.localTime, timezone)
+    ? nextDailyScheduleOccurrence(now, recurrence.localTime, timezone, recurrence.daysOfWeek)
     : now;
-  const requestedNextRun = Number(input.nextRunAt ?? existing?.nextRunAt ?? defaultNextRun);
+  const timingChanged = !!existing && ((input.recurrence !== undefined && JSON.stringify(recurrence) !== JSON.stringify(existing.recurrence)) || (input.timezone !== undefined && timezone !== existing.timezone));
+  const requestedNextRun = Number(input.nextRunAt ?? (timingChanged ? defaultNextRun : existing?.nextRunAt) ?? defaultNextRun);
   const misfirePolicy = ['run_once', 'catch_up', 'skip'].includes(String(input.misfirePolicy ?? existing?.misfirePolicy))
     ? (input.misfirePolicy ?? existing?.misfirePolicy) as TenantSchedule['misfirePolicy']
     : 'run_once';
@@ -1231,7 +1233,7 @@ export const normalizeTenantAgentProfile = (
 ): TenantAgentProfile => {
   const timezone = normalizeTimeZone(input.timezone ?? existing?.timezone ?? 'Australia/Brisbane');
   const automaticActions = cleanStringList(input.automaticActions ?? existing?.automaticActions)
-    ?.filter(action => ['draft', 'send', 'call', 'sheet_write'].includes(action)) as TenantAgentProfile['automaticActions'];
+    ?.filter(action => ['draft', 'send', 'sms', 'call', 'sheet_write'].includes(action)) as TenantAgentProfile['automaticActions'];
   const phone = cleanOptionalString(input.serviceIdentities?.phone ?? existing?.serviceIdentities?.phone);
   const sms = cleanOptionalString(input.serviceIdentities?.sms ?? existing?.serviceIdentities?.sms);
   const email = cleanOptionalString(input.serviceIdentities?.email ?? existing?.serviceIdentities?.email);
@@ -1854,7 +1856,8 @@ const normalizeScheduleRecurrence = (
     const localTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(recurrence.localTime)
       ? recurrence.localTime
       : '09:00';
-    return { kind: 'daily', localTime };
+    const daysOfWeek = normalizeScheduleDays(recurrence.daysOfWeek);
+    return { kind: 'daily', localTime, ...(daysOfWeek ? { daysOfWeek } : {}) };
   }
   return { kind: 'interval', intervalMinutes };
 };
@@ -1892,21 +1895,19 @@ const zonedDateTimeToUtc = (
 };
 
 /** Returns the first local daily occurrence strictly after `after`. */
-export const nextDailyScheduleOccurrence = (after: number, localTime: string, timezone: string): number => {
+export const nextDailyScheduleOccurrence = (after: number, localTime: string, timezone: string, daysOfWeek?: number[]): number => {
+  const days = normalizeScheduleDays(daysOfWeek);
   const safeTimezone = normalizeTimeZone(timezone);
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(localTime);
-  const hour = Number(match?.[1] ?? 9);
-  const minute = Number(match?.[2] ?? 0);
+  if (!match || !Number.isFinite(after)) throw new Error('Invalid daily schedule time');
   const local = zonedParts(after, safeTimezone);
-  let candidate = zonedDateTimeToUtc(local.year, local.month, local.day, hour, minute, safeTimezone);
-  if (candidate <= after) {
-    const nextDate = new Date(Date.UTC(local.year, local.month - 1, local.day + 1));
-    candidate = zonedDateTimeToUtc(
-      nextDate.getUTCFullYear(), nextDate.getUTCMonth() + 1, nextDate.getUTCDate(),
-      hour, minute, safeTimezone
-    );
+  for (let offset = 0; offset <= 7; offset++) {
+    const date = new Date(Date.UTC(local.year, local.month - 1, local.day + offset));
+    if (days && !days.includes(date.getUTCDay())) continue;
+    const candidate = zonedDateTimeToUtc(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), Number(match[1]), Number(match[2]), safeTimezone);
+    if (candidate > after) return candidate;
   }
-  return candidate;
+  throw new Error('No next schedule occurrence');
 };
 
 export const deleteTenantSchedule = async (orgId: string, scheduleId: string): Promise<void> => {
@@ -2032,9 +2033,9 @@ const advancedTenantScheduleValue = (
   const misfirePolicy = current.misfirePolicy || schedule.misfirePolicy || 'run_once';
   let nextRunAt: number;
   if (recurrence.kind === 'daily') {
-    nextRunAt = nextDailyScheduleOccurrence(from, recurrence.localTime, current.timezone || schedule.timezone);
+    nextRunAt = nextDailyScheduleOccurrence(from, recurrence.localTime, current.timezone || schedule.timezone, recurrence.daysOfWeek);
     if (misfirePolicy !== 'catch_up' && nextRunAt <= now) {
-      nextRunAt = nextDailyScheduleOccurrence(now, recurrence.localTime, current.timezone || schedule.timezone);
+      nextRunAt = nextDailyScheduleOccurrence(now, recurrence.localTime, current.timezone || schedule.timezone, recurrence.daysOfWeek);
     }
   } else {
     const interval = Math.max(5, Number(recurrence.intervalMinutes || schedule.intervalMinutes)) * 60_000;

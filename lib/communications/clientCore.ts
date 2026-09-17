@@ -344,7 +344,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   ): Promise<Record<string, unknown>> {
     this.requireTenant(tenantId);
     return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts`, {
-      method: 'POST', tenantId, body: request, idempotencyKey
+      method: 'POST', tenantId, body: this.freezeRequest ? await this.freezeRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts`, idempotencyKey, request) : request, idempotencyKey
     });
   }
 

@@ -55,6 +55,7 @@ export const applyFlowEvent = (
       ...(current.projectData || {}),
       ...payloadWrites,
       flow_occurrence_id: occurrenceId,
+      flow_entry_node_ids: matchedNodeIds,
       flow_trigger_event_id: event.id,
       flow_trigger_event_type: event.type,
       flow_triggered_at: new Date(event.occurredAt).toISOString(),

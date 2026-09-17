@@ -215,7 +215,7 @@ export const agentReplyMode = (
   if (channel === 'email' && settings.mailboxConnectionId) {
     return profile.automaticActions?.includes('draft') ? 'draft' : 'none';
   }
-  return profile.automaticActions?.includes('send') ? 'send' : 'none';
+  return profile.automaticActions?.includes('send') || (channel === 'sms' && profile.automaticActions?.includes('sms')) ? 'send' : 'none';
 };
 
 interface AgentReplyDelivery {

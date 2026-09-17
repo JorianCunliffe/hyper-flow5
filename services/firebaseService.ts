@@ -3,6 +3,7 @@ import { getDatabase, ref as dbRef, onValue, get, runTransaction } from 'firebas
 import { uploadManagedFile } from './managedFiles';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { Project, AppSettings, ScratchTask, ActivityLog } from '../types';
+import { mergeCloudEdits } from '../lib/cloudMerge';
 import { projectCollectionsShareRevisions } from '../lib/projectRevisionGuard';
 
 const CONFIG_STORAGE_KEY = 'hyperflow_firebase_config';
@@ -386,7 +387,8 @@ export const firebaseService = {
 
   save: async (
     data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[] },
-    scheduledAtRevision = currentDataRevision
+    scheduledAtRevision = currentDataRevision,
+    base?: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[] }
   ) => {
     if (!db) return;
     const cleanData = JSON.parse(JSON.stringify({
@@ -402,16 +404,20 @@ export const firebaseService = {
     const expectedRevision = scheduledAtRevision;
     const result = await runTransaction(dataRef, current => {
       const remoteRevision = Number(current?.dataRevision || 0);
-      if (
-        remoteRevision !== expectedRevision
-        || !projectCollectionsShareRevisions(current?.projects, cleanData.projects)
-      ) return;
+      if (!base && (remoteRevision !== expectedRevision || !projectCollectionsShareRevisions(current?.projects, cleanData.projects))) return;
+      const remoteProjects: Project[] = Array.isArray(current?.projects) ? current.projects : Object.values(current?.projects || {});
+      const merged = base && current ? mergeCloudEdits(JSON.parse(JSON.stringify(base)), cleanData, {
+        projects: remoteProjects, settings: current?.settings || base.settings,
+        scratchTasks: current?.scratchTasks || [], activityLogs: current?.activityLogs || [],
+        lastUpdated: current?.lastUpdated
+      }) : cleanData;
+      const revisions = new Map(remoteProjects.map((project: Project) => [String(project.id), Number(project.revision || 0)]));
       return {
         ...(current || {}),
-        ...cleanData,
-        projects: cleanData.projects.map((project: Project) => ({
+        ...merged,
+        projects: merged.projects.map((project: Project) => ({
           ...project,
-          revision: Number(project.revision || 0) + 1
+          revision: Number(revisions.get(String(project.id)) || 0) + 1
         })),
         dataRevision: remoteRevision + 1
       };

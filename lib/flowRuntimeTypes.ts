@@ -39,6 +39,14 @@ export interface FlowHoldConfig {
      * raised, so later project-data edits cannot mutate an in-flight Ask schema.
      */
     fieldsSource?: string;
+    escalation?: {
+      primaryPersonId: string;
+      fallbackPersonId: string;
+      retryMinutes: number;
+      repeatLocalTime: string;
+      timezone: string;
+      daysOfWeek: number[];
+    };
     assignees?: string[];
     channels?: AskChannel[];
     responsePolicy?: 'any' | 'all' | 'quorum';
@@ -124,7 +132,7 @@ export interface FlowHold {
   projectId: string;
   flowRunId: string;
   nodeId: string;
-  source: 'wait' | 'action' | 'review';
+  source: 'wait' | 'action' | 'review' | 'continuation';
   kind: FlowHoldKind;
   status: 'waiting' | 'processing' | 'resolved' | 'cancelled';
   occurrenceId: string;

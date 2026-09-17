@@ -1,5 +1,6 @@
+import { expandCollection } from './flowCollections.js';
 import { ActionRun, HumanAsk, Milestone, Project, NodeType } from '../types.js';
-import { ACTION_TASK_TYPE, activeOccurrenceId, advanceFlow, getHoldConfig, getNodeType, isActionNode } from './flowEngine.js';
+import { ACTION_TASK_TYPE, activeOccurrenceId, advanceFlow, getHoldConfig, getLoopBody, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 import { createHumanHoldAsk } from './flowHoldAsk.js';
@@ -134,6 +135,15 @@ export const runActionNode = async (
   const taskType = ACTION_TASK_TYPE[getNodeType(node)];
   if (!taskType) return { project, log: [`${node.name}: not an executable action node`] };
 
+  if (node.actionConfig?.forEach && !node.actionConfig.collection) {
+    try {
+      if (project.milestones.some(candidate => candidate.nodeType === NodeType.LOOP && getLoopBody(project, candidate).includes(node.id))) throw new Error('For each cannot be nested inside a control-flow Loop');
+      return { project: expandCollection(project, node), log: [`${node.name}: froze collection inputs before dispatch`] };
+    } catch (error: any) {
+      const run: ActionRun = { id: actionAttemptIdentity(project, nodeId).runId, at: Date.now(), status: 'error', error: error.message, scheduleOccurrenceId: activeOccurrenceId(project.projectData) };
+      return { project: applyActionRun(project, nodeId, run), log: [error.message], run };
+    }
+  }
   const { runId, attempt } = actionAttemptIdentity(project, nodeId);
   const revision = node.actionConfig?.revision;
   const ctx: ActionExecutionContext = {
@@ -150,7 +160,15 @@ export const runActionNode = async (
 
   let outcome: ActionOutcome;
   try {
-    outcome = await executor(taskType, node.actionConfig?.template || '', project.projectData || {}, ctx);
+    if (node.actionConfig?.collection) {
+      const children = node.actionConfig.collection.childIds.map(id => project.milestones.find(m => m.id === id));
+      if (children.some(child => child?.actionConfig?.lastRun?.status !== 'success')) throw new Error('Collection still has incomplete items');
+      outcome = { status: 'success', output: { items: children.map(child => ({ item: child!.actionConfig!.collectionItem, output: child!.actionConfig!.lastRun!.output })), count: children.length } };
+    } else {
+      const parent = node.actionConfig?.collectionParentId ? project.milestones.find(candidate => candidate.id === node.actionConfig!.collectionParentId) : undefined;
+      const data = parent ? { ...parent.actionConfig?.collection?.data, ...node.actionConfig?.collectionData } : project.projectData || {};
+      outcome = await executor(taskType, node.actionConfig?.template || '', data, ctx);
+    }
   } catch (e: any) {
     if (e?.recoverable) throw e;
     outcome = { status: 'error', error: e?.message || String(e) };

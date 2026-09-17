@@ -8,7 +8,7 @@ import { handleCommitments } from '../../lib/commitments/api.js';
 import { CommitmentError } from '../../lib/commitments/model.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { CommunicationsPersonRef } from '../../lib/communications/types.js';
-import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
+import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import { createCommunicationsClient } from '../../lib/communications/client.js';
 import { accountEmailPolicy } from '../../lib/communications/accountEmailPolicy.js';
 import { CommunicationsApiError } from '../../lib/communications/errors.js';
@@ -110,6 +110,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'workspace_grant') {
       const projectId = String(req.query.projectId || req.body?.projectId || '');
       if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+      await requireProjectInTenant(member.orgId, projectId);
+      if (req.method === 'PUT' && !['owner', 'admin'].includes(member.role)) return res.status(403).json({ error: 'Administrator membership required' });
       if (req.method === 'GET') return res.status(200).json({ grant: await readWorkspaceResourceGrant(member.orgId, projectId) });
       if (req.method === 'PUT') return res.status(200).json({ grant: await saveWorkspaceResourceGrant(member.orgId, projectId, req.body || {}) });
       return res.status(405).json({ error: 'Method not allowed' });

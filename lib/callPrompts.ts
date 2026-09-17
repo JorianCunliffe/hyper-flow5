@@ -1,3 +1,4 @@
+import { renderActionTemplate } from './flowData.js';
 import type { HyperFlowCallOverrides } from './communications/types.js';
 
 export const COACHING_CONVERSATION = `Run a focused daily coaching conversation, asking one question at a time and waiting for the answer.
@@ -12,19 +13,7 @@ export const COACHING_PROMPT = `${COACHING_CONVERSATION}\n\nCoaching source:\n{{
 
 /** Parse before substitution so multiline source data cannot destroy purpose/to fields. */
 export function resolveCallTemplate(template: string, data: Record<string, any> = {}): Record<string, any> {
-  const interpolate = (text: string) => text.replace(/\{\{([^{}]+)\}\}/g, (match, key) => {
-    if (!Object.prototype.hasOwnProperty.call(data, key)) return match;
-    const value = data[key];
-    return value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value);
-  });
-  const walk = (value: any): any => typeof value === 'string' ? interpolate(value)
-    : Array.isArray(value) ? value.map(walk)
-    : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, walk(item)])) : value;
-  try {
-    const parsed = JSON.parse(template);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return walk(parsed);
-  } catch { /* Plain instructions remain supported. */ }
-  return { body: interpolate(template) };
+  return renderActionTemplate(template, data).templateData;
 }
 
 export function buildCallOverrides(instruction: string, purpose: string, greeting?: string): HyperFlowCallOverrides {
