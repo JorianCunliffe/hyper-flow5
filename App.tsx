@@ -1,3 +1,4 @@
+import { mergeCloudEdits } from './lib/cloudMerge';
 import { GlassNavigation } from './components/GlassNavigation';
 import { TenantLifecyclePanel } from './components/TenantLifecyclePanel';
 import { ManagedFilesPanel } from './components/ManagedFilesPanel';
@@ -356,6 +357,11 @@ export const App: React.FC = () => {
   const isRemoteUpdate = useRef(false);
   const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
   const localUpdatedAt = useRef(0);
+  type CloudSnapshot = { projects: Project[]; settings: AppSettings; scratchTasks: ScratchTask[]; activityLogs: ActivityLog[] };
+  const cloudBase = useRef<CloudSnapshot | null>(null);
+  const cloudConflict = useRef(false);
+  const currentCloudDraft = useRef<CloudSnapshot>({ projects, settings, scratchTasks, activityLogs });
+  currentCloudDraft.current = { projects, settings, scratchTasks, activityLogs };
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -431,42 +437,37 @@ export const App: React.FC = () => {
 
     setCloudStatus('syncing');
 
+    cloudBase.current = null;
+    cloudConflict.current = false;
     const unsubscribe = firebaseService.subscribe((data) => {
-      setCloudStatus('connected');
-      setSyncError(null);
-      isDbInitialized.current = true; 
-
+      isDbInitialized.current = true;
       if (data) {
         localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
-        isRemoteUpdate.current = true;
-        
         const migratedSettings = migrateSettings(data.settings);
         const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(data.projects, migratedSettings);
-        setProjects(sanitizedProjects);
-        
-        if (data.settings) {
-          setSettings(prev => ({
-            ...prev,
-            ...migratedSettings,
-            nextProjectId,
-            nextTaskId,
-            // Ensure lists are merged if missing in cloud data but present in defaults
-            projectTypes: data.settings.projectTypes || prev.projectTypes || DEFAULT_SETTINGS.projectTypes,
-            companies: data.settings.companies || prev.companies || DEFAULT_SETTINGS.companies,
-            people: data.settings.people || prev.people || DEFAULT_SETTINGS.people,
-            roles: data.settings.roles || prev.roles || DEFAULT_SETTINGS.roles || [],
-            teamMemberDetails: data.settings.teamMemberDetails || prev.teamMemberDetails || DEFAULT_SETTINGS.teamMemberDetails,
-          }));
-        }
-        if (data.scratchTasks && Array.isArray(data.scratchTasks)) {
-          setScratchTasks(data.scratchTasks);
-        } else {
-          setScratchTasks([]);
-        }
-        if (data.activityLogs && Array.isArray(data.activityLogs)) {
-          setActivityLogs(data.activityLogs);
-        } else {
-          setActivityLogs([]);
+        const remote: CloudSnapshot = {
+          projects: sanitizedProjects,
+          settings: { ...migratedSettings, nextProjectId, nextTaskId },
+          scratchTasks: Array.isArray(data.scratchTasks) ? data.scratchTasks : [],
+          activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs : []
+        };
+        try {
+          const merged = cloudBase.current ? mergeCloudEdits(cloudBase.current, currentCloudDraft.current, remote) : remote;
+          cloudBase.current = remote;
+          cloudConflict.current = false;
+          isRemoteUpdate.current = JSON.stringify(merged) === JSON.stringify(remote);
+          currentCloudDraft.current = merged;
+          setProjects(merged.projects);
+          setSettings(merged.settings);
+          setScratchTasks(merged.scratchTasks);
+          setActivityLogs(merged.activityLogs);
+          setCloudStatus('connected');
+          setSyncError(null);
+        } catch (error: any) {
+          cloudConflict.current = true;
+          localStorage.setItem('hyperflow_unsaved_conflict', JSON.stringify(currentCloudDraft.current));
+          setCloudStatus('error');
+          setSyncError(error.message);
         }
       } else {
         isRemoteUpdate.current = true;
@@ -497,16 +498,18 @@ export const App: React.FC = () => {
     // it later inside the debounce would let a callback advance the revision
     // while this closure still holds an older pending project snapshot.
     const scheduledAtRevision = firebaseService.getDataRevision();
+    const scheduledBase = cloudBase.current;
 
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
-        if (cloudStatus === 'error') return; 
+        if (cloudConflict.current || cloudStatus === 'error') return;
 
         setCloudStatus('syncing');
         try {
           await firebaseService.save(
             { projects, settings, scratchTasks, activityLogs },
-            scheduledAtRevision
+            scheduledAtRevision,
+            scheduledBase || undefined
           );
           setCloudStatus('connected');
           setSyncError(null);
@@ -2134,6 +2137,11 @@ export const App: React.FC = () => {
       {syncError && cloudStatus === 'error' && (
         <div className="bg-red-600 text-white px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-pulse z-[60]">
           <ShieldAlert size={16} /> CRITICAL SYNC ERROR: Data is NOT saving to cloud. ({syncError})
+          {cloudConflict.current && <button className="underline ml-2" onClick={() => {
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([JSON.stringify(currentCloudDraft.current, null, 2)], { type: 'application/json' }));
+            link.download = 'hyperflow-unsaved-edits.json'; link.click(); URL.revokeObjectURL(link.href);
+          }}>Download local edits</button>}
           <button onClick={() => setIsCloudSetupOpen(true)} className="underline ml-2 hover:text-red-100">Check Settings</button>
         </div>
       )}

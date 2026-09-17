@@ -2,6 +2,8 @@ import type { CapabilityPolicyMode, TenantAgentProfile } from '../types.js';
 
 export const TASK_CAPABILITY: Record<string, string> = {
   send_email: 'email.send',
+  create_mailbox_draft: 'email.draft',
+  update_mailbox_draft: 'email.draft',
   send_sms: 'sms.send',
   outgoing_call: 'phone.call',
   append_google_sheet: 'sheet.append',
@@ -11,8 +13,10 @@ export const TASK_CAPABILITY: Record<string, string> = {
 
 const legacyAutomatic = (profile: TenantAgentProfile | null | undefined, capability: string): boolean => {
   const actions = profile?.automaticActions || [];
+  if (capability === 'email.draft') return actions.includes('draft');
   if (capability === 'phone.call') return actions.includes('call');
-  if (capability === 'email.send' || capability === 'sms.send') return actions.includes('send');
+  if (capability === 'sms.send') return actions.includes('sms') || actions.includes('send');
+  if (capability === 'email.send') return actions.includes('send');
   if (capability === 'sheet.append' || capability === 'sheet.upsert') return actions.includes('sheet_write');
   return false;
 };

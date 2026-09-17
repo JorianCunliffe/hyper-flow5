@@ -41,6 +41,7 @@ export interface RunEmailTriageResult {
   hasMore: boolean;
   remainingCount: number;
   digest: TriageDigest;
+  items: TriageItem[];
 }
 
 export const occurredMs = (value: string | undefined): number => {
@@ -215,7 +216,7 @@ export const runEmailTriage = async (
 
   for (const communication of batch) {
     const detailed = await client.getCommunication(input.orgId, communication.id);
-    let item = { ...triageItemFromCommunication(input.orgId, detailed), projectId: input.projectId, connectionId: input.connectionId };
+    let item = { ...triageItemFromCommunication(input.orgId, detailed), projectId: input.projectId, connectionId: input.connectionId, sourceMessage: { messageId: detailed.messageId, providerThreadId: detailed.providerThreadId, content: String(detailed.content || '').slice(0, 24000), truncated: String(detailed.content || '').length > 24000 } };
     if (!matchesProjectTriagePolicy(detailed, item, policy, input.projectId)) {
       skippedCount += 1;
       completedIds.add(communication.id);
@@ -268,7 +269,7 @@ export const runEmailTriage = async (
     const stored = await upsertTriageItem({
       ...item,
       proposedAction: input.sendPolicy === 'draft_only' && item.disposition !== 'draft_prepared' ? `${item.proposedAction || 'Review this message'}; automatic sending is disabled` : item.proposedAction,
-      audit: [...item.audit, { at: Date.now(), action: 'project_reconciliation', actor: input.actor || input.runId }]
+      audit: [...item.audit, { at: Date.now(), action: 'project_reconciliation', actor: input.actor || input.runId, detail: input.runId }]
     });
     processedItems.push(stored);
     completedIds.add(communication.id);
@@ -298,6 +299,7 @@ export const runEmailTriage = async (
     cursorAfter,
     hasMore: contiguousCount < candidates.length,
     remainingCount: Math.max(0, candidates.length - contiguousCount),
-    digest
+    digest,
+    items: current.filter(item => item.projectId === input.projectId && item.connectionId === input.connectionId && item.audit?.some(entry => entry.action === 'project_reconciliation' && entry.detail === input.runId))
   };
 };

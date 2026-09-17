@@ -1,3 +1,4 @@
+import { advanceFlow } from './flowEngine.js';
 import type { HumanAsk, Milestone, Project } from '../types.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
 import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } from './flowRuntimeTypes.js';
@@ -61,7 +62,7 @@ const waitHold = (run: FlowRun, project: Project, node: Milestone, now: number):
     match: cfg.match,
     askId: ask?.id,
     askToken: ask?.token,
-    availableAt: cfg.availableAt,
+    availableAt: ask?.status === 'open' && cfg.human?.escalation ? ask.escalationState?.nextAt : cfg.availableAt,
     resolution: cfg.resolution,
     createdAt: cfg.armedAt,
     updatedAt: now
@@ -126,10 +127,21 @@ const reviewHolds = (run: FlowRun, node: Milestone, now: number): FlowHold[] => 
  * Reconciles all durable waits for one FlowRun. This includes explicit WAIT
  * nodes plus implicit provider/human waits created by action and review nodes.
  */
+export const continuationHold = (run: FlowRun, project: Project, now = Date.now()): FlowHold | null => {
+  if (run.status !== 'running') return null;
+  const ready = advanceFlow(project);
+  if (!ready.actionsToRun.length && !ready.asksToOpen.length && !ready.log.length) return null;
+  return { id: `continue_${run.id}`, orgId: run.orgId, projectId: run.projectId, flowRunId: run.id,
+    nodeId: '__continue__', source: 'continuation', kind: 'timer', status: 'waiting', occurrenceId: run.occurrenceId,
+    availableAt: now + 1000, createdAt: now, updatedAt: now, reason: 'Continue checkpointed automatic work' };
+};
+
 export const syncFlowHoldsFromRun = async (run: FlowRun, project: Project): Promise<void> => {
   const db = await runtimeDatabase();
   const now = Date.now();
   const desired = new Map<string, FlowHold>();
+  const continuation = continuationHold(run, project, now);
+  if (continuation) desired.set(continuation.id, continuation);
   for (const node of project.milestones) {
     const wait = waitHold(run, project, node, now);
     if (wait) desired.set(wait.id, wait);

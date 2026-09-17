@@ -5,9 +5,12 @@ import { isActionNode, getNodeType } from '../../lib/flowEngine';
 import type { FlowHoldConfig, RuntimeMilestone } from '../../lib/flowRuntimeTypes';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
+import { validateOutputSchema } from '../../lib/flowData';
 import { buildReviewPolicy } from '../../lib/reviewPolicy';
 
 const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
+  [NodeType.MAILBOX_DRAFT]: '{"to": ["{{item.email}}"], "subject": "{{item.subject}}", "text": "{{item.reply}}", "in_reply_to": "{{item.message_id}}"}',
+  [NodeType.MAILBOX_DRAFT_UPDATE]: '{"provider_draft_id": "{{item.provider_draft_id}}", "to": ["{{item.email}}"], "subject": "{{item.subject}}", "text": "{{item.reply}}"}',
   [NodeType.EMAIL]: '{"to": "{{contact_email}}", "subject": "Update on {{project_name}}", "body": "Hi..."}',
   [NodeType.SMS]: '{"to": "{{contact_phone}}", "body": "Your project {{project_name}} has an update."}',
   [NodeType.PHONE_CALL]: '{"to": "{{contact_phone}}", "prompt": "You are calling to confirm the proposal..."}',
@@ -64,6 +67,11 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [holdExternalIds, setHoldExternalIds] = useState(csvText(initialHold.match?.externalIds));
   const [holdHumanKind, setHoldHumanKind] = useState<AskKind>(initialHold.human?.kind || 'question');
   const [holdHumanPrompt, setHoldHumanPrompt] = useState(initialHold.human?.prompt || '');
+  const [escalationEnabled, setEscalationEnabled] = useState(Boolean(initialHold.human?.escalation));
+  const [primaryPerson, setPrimaryPerson] = useState(initialHold.human?.escalation?.primaryPersonId || '');
+  const [fallbackPerson, setFallbackPerson] = useState(initialHold.human?.escalation?.fallbackPersonId || '');
+  const [retryMinutes, setRetryMinutes] = useState(initialHold.human?.escalation?.retryMinutes || 10);
+  const [repeatLocalTime, setRepeatLocalTime] = useState(initialHold.human?.escalation?.repeatLocalTime || '09:15');
   const [holdHumanFieldsSource, setHoldHumanFieldsSource] = useState(initialHold.human?.fieldsSource || '');
   const [holdHumanAssignees, setHoldHumanAssignees] = useState(csvText(initialHold.human?.assignees));
   const [holdHumanChannels, setHoldHumanChannels] = useState<AskChannel[]>(initialHold.human?.channels || ['web']);
@@ -75,6 +83,9 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [eventPayloadVariable, setEventPayloadVariable] = useState(milestone.eventTriggerConfig?.payloadVariable || '');
 
   const [template, setTemplate] = useState(milestone.actionConfig?.template || '');
+  const [eachSource, setEachSource] = useState(milestone.actionConfig?.forEach?.source || '');
+  const [eachKey, setEachKey] = useState(milestone.actionConfig?.forEach?.key || '');
+  const [eachLimit, setEachLimit] = useState(milestone.actionConfig?.forEach?.maxItems || 100);
   const [autoExecute, setAutoExecute] = useState(milestone.actionConfig?.autoExecute ?? false);
   const [failureMode, setFailureMode] = useState<'block' | 'continue'>(milestone.actionConfig?.failureMode || 'block');
   const [resultVariable, setResultVariable] = useState(milestone.actionConfig?.resultVariable || '');
@@ -105,6 +116,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const actionConfig = () => ({
     ...(milestone.actionConfig || {}),
     template,
+    forEach: eachSource.trim() ? { source: eachSource.trim(), key: eachKey.trim(), maxItems: eachLimit } : undefined,
     autoExecute,
     failureMode,
     resultVariable: resultVariable.trim() || undefined
@@ -151,6 +163,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         exitConditions
       };
     } else if (nodeType === NodeType.WAIT) {
+      if (holdKind === 'human' && escalationEnabled && (!primaryPerson.trim() || !fallbackPerson.trim() || !Number.isInteger(retryMinutes) || retryMinutes < 1 || retryMinutes > 1440 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(repeatLocalTime))) { setJsonError('Escalation needs two person IDs, a valid retry delay and a repeat time.'); return; }
       const resultVar = holdResultVariable.trim();
       const payloadVar = holdPayloadVariable.trim();
       if (resultVar && !validVariable(resultVar)) {
@@ -180,7 +193,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
           reason: holdConfig.reason
         };
       } else {
-        holdConfig.timeoutMinutes = timeoutMinutes;
+        holdConfig.timeoutMinutes = holdKind === 'human' && escalationEnabled ? undefined : timeoutMinutes;
         updates.waitConfig = undefined;
       }
 
@@ -202,8 +215,9 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
           kind: holdHumanKind,
           prompt: holdHumanPrompt.trim() || undefined,
           fieldsSource: holdHumanFieldsSource.trim() || undefined,
+          escalation: escalationEnabled ? { primaryPersonId: primaryPerson.trim(), fallbackPersonId: fallbackPerson.trim(), retryMinutes, repeatLocalTime, timezone: 'Australia/Brisbane', daysOfWeek: [1,2,3,4,5] } : undefined,
           assignees: csv(holdHumanAssignees).length ? csv(holdHumanAssignees) : undefined,
-          channels: holdHumanChannels.length ? holdHumanChannels : ['web']
+          channels: escalationEnabled ? ['web', 'voice', 'sms'] : holdHumanChannels.length ? holdHumanChannels : ['web']
         };
       }
 
@@ -230,6 +244,18 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
       if (resultVariable.trim() && !validVariable(resultVariable.trim())) {
         setJsonError('Result variable must be a simple project-data identifier.');
         return;
+      }
+      if (eachSource.trim() && (!eachKey.trim() || !Number.isInteger(eachLimit) || eachLimit < 1 || eachLimit > 100)) {
+        setJsonError('For each needs an item key and a limit from 1 to 100.');
+        return;
+      }
+      if (nodeType === NodeType.REPORT) {
+        try {
+          const parsed = JSON.parse(template);
+          if (parsed.output_schema) validateOutputSchema(parsed.output_schema);
+        } catch (error: any) {
+          setJsonError(error.message); return;
+        }
       }
       updates.actionConfig = actionConfig();
     }
@@ -356,8 +382,18 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
                   <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assignee IDs</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanAssignees} onChange={(e) => setHoldHumanAssignees(e.target.value)} placeholder="person_123" /></label>
                 </div>
                 <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Prompt</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdHumanPrompt} onChange={(e) => setHoldHumanPrompt(e.target.value)} placeholder={`Response required to continue “${milestone.name}”.`} /></label>
+                <fieldset className="border rounded p-3 space-y-2">
+                  <label className="flex gap-2 text-xs"><input type="checkbox" checked={escalationEnabled} onChange={e => setEscalationEnabled(e.target.checked)} />Retry and escalate until answered</label>
+                  {escalationEnabled && <>
+                    <label className="block text-xs">Primary Communications person ID<input className="w-full border rounded px-2 py-1" value={primaryPerson} onChange={e => setPrimaryPerson(e.target.value)} /></label>
+                    <label className="block text-xs">Fallback Communications person ID<input className="w-full border rounded px-2 py-1" value={fallbackPerson} onChange={e => setFallbackPerson(e.target.value)} /></label>
+                    <label className="block text-xs">Retry primary after minutes<input type="number" min={1} max={1440} value={retryMinutes} onChange={e => setRetryMinutes(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></label>
+                    <label className="block text-xs">Repeat weekdays at (Brisbane)<input type="time" value={repeatLocalTime} onChange={e => setRepeatLocalTime(e.target.value)} className="w-full border rounded px-2 py-1" /></label>
+                    <p className="text-xs">Primary call → timed retry → fallback call → SMS both. The same question set stays open until answered. Project grants, automatic call/SMS permission and contact limits apply.</p>
+                  </>}
+                </fieldset>
                 <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Question fields source</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdHumanFieldsSource} onChange={(e) => setHoldHumanFieldsSource(e.target.value)} placeholder="daily_plan.open_questions" /><span className="mt-1 block text-[10px] text-slate-500">Dot path to an upstream project-data array. The schema is frozen when this Ask opens.</span></label>
-                <fieldset><legend className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delivery channels</legend><div className="flex flex-wrap gap-2">{(['web', 'email', 'sms', 'voice'] as AskChannel[]).map(channel => { const selected = holdHumanChannels.includes(channel); return <label key={channel} className="flex items-center gap-1.5 rounded-lg border border-amber-100 bg-white px-2.5 py-1.5 text-xs font-semibold"><input type="checkbox" checked={selected} onChange={() => setHoldHumanChannels(current => selected ? current.filter(item => item !== channel) : [...current, channel])} />{channel}</label>; })}</div></fieldset>
+                <fieldset><legend className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delivery channels</legend><div className="flex flex-wrap gap-2">{(['web', 'email', 'sms', 'voice'] as AskChannel[]).map(channel => { const selected = escalationEnabled ? ['web', 'voice', 'sms'].includes(channel) : holdHumanChannels.includes(channel); return <label key={channel} className="flex items-center gap-1.5 rounded-lg border border-amber-100 bg-white px-2.5 py-1.5 text-xs font-semibold"><input type="checkbox" checked={selected} disabled={escalationEnabled} onChange={() => setHoldHumanChannels(current => selected ? current.filter(item => item !== channel) : [...current, channel])} />{channel}</label>; })}</div></fieldset>
               </div>
             )}
 
@@ -387,9 +423,29 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         {isActionNode(draftNode) && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5">
             <div className="font-bold text-xs uppercase tracking-wider mb-1" style={{ color: NODE_TYPE_META[nodeType].color }}>{NODE_TYPE_META[nodeType].label} Action</div>
-            <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Template supports {'{{variable}}'} substitution from Project Data.</p>
+            <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Templates support {'{{variable.path}}'} from Project Data. Whole placeholders preserve arrays and objects.</p>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Template (JSON supported)</label>
             <textarea placeholder={TEMPLATE_PLACEHOLDERS[nodeType] || ''} className="w-full h-32 bg-white border border-slate-200 rounded-lg px-3 py-2 text-[11px] font-mono resize-none" value={template} onChange={(e) => setTemplate(e.target.value)} />
+            {nodeType === NodeType.SMS && <p className="mt-2 text-xs text-slate-500">For a reply to a verified inbound sender, set target_source to event_person. The sender must have project access. Team calls always require a configured person_id.</p>}
+            {nodeType === NodeType.REPORT && <div className="mt-3 text-xs text-slate-600">
+              <button type="button" className="text-indigo-700 underline" onClick={() => {
+                try {
+                  const value = template.trim() ? JSON.parse(template) : { prompt: 'Build a plan from the supplied source data.' };
+                  setTemplate(JSON.stringify({ ...value, source_data: value.source_data || {}, output_schema: value.output_schema || { type: 'object', properties: { open_questions: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' }, type: { type: 'string', enum: ['string', 'boolean', 'number', 'date'] } }, required: ['name', 'label', 'type'] } } }, required: ['open_questions'] } }, null, 2));
+                  setJsonError(null);
+                } catch { setJsonError('Enter a valid JSON object before adding structured output.'); }
+              }}>Add structured output schema</button>
+              <p>Define source_data and output_schema in the template. Validated results are available at {resultVariable || 'result'}_output.structured_output.</p>
+            </div>}
+            <fieldset className="mt-3 border rounded-lg p-3">
+              <legend className="text-xs font-bold">For each item (optional)</legend>
+              <label className="block text-xs">Array source<input className="w-full border rounded px-2 py-1 font-mono" value={eachSource} onChange={e => setEachSource(e.target.value)} placeholder="plan_output.structured_output.enquiries" /></label>
+              {eachSource.trim() && <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="text-xs">Stable item key<input className="w-full border rounded px-2 py-1" value={eachKey} onChange={e => setEachKey(e.target.value)} placeholder="source_message_id" /></label>
+                <label className="text-xs">Maximum items<input type="number" min={1} max={100} className="w-full border rounded px-2 py-1" value={eachLimit} onChange={e => setEachLimit(Number(e.target.value))} /></label>
+                <p className="col-span-2 text-xs text-slate-500">Use {'{{item.field}}'} and {'{{item_key}}'} in the template. Items run in order; a failed item blocks the batch. Results: {resultVariable || 'result'}_output.items.</p>
+              </div>}
+            </fieldset>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">On failure</span><select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={failureMode} onChange={(e) => setFailureMode(e.target.value as 'block' | 'continue')}><option value="block">Block here</option><option value="continue">Expose error and continue</option></select></label>
               <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Result variable</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={resultVariable} onChange={(e) => setResultVariable(e.target.value)} placeholder="call_result" /></label>

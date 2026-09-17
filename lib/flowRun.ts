@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Milestone, Project } from '../types.js';
+import { NodeType, type Milestone, type Project } from '../types.js';
 import { getNodeType, isActionNode, isAwaitingReview, resolveNodeStates } from './flowEngine.js';
 import { resetProjectForOccurrence } from './flowOccurrence.js';
 import { safeCoachingRetryGraph } from './projectTemplates.js';
@@ -104,7 +104,7 @@ export const reconcileNodeRuns = (run: FlowRun, project: Project, now = Date.now
 export const deriveFlowRunStatus = (project: Project): FlowRunStatus => {
   const states = resolveNodeStates(project);
   const active = project.milestones.filter(node => states.get(node.id) !== 'skipped');
-  if (active.length && active.every(node => states.get(node.id) === 'complete')) return 'completed';
+  if (project.milestones.length && active.every(node => states.get(node.id) === 'complete')) return 'completed';
 
   const blockedFailure = active.some(node =>
     isActionNode(node) && node.actionConfig?.lastRun?.status === 'error' && node.actionConfig.failureMode !== 'continue'
@@ -145,6 +145,9 @@ export const createFlowRun = (input: NewFlowRunInput): FlowRun => {
       flow_run_id: flowRunIdForOccurrence(input.orgId, input.project.id, input.occurrenceId),
       flow_started_at: now,
       flow_dispatch_version: 1,
+      flow_entry_node_ids: input.trigger === 'event'
+        ? reset.milestones.filter(node => node.nodeType === NodeType.EVENT_TRIGGER && node.eventTriggerConfig?.lastEventId === input.triggerId).map(node => node.id)
+        : reset.milestones.filter(node => !node.dependsOn?.length && node.nodeType !== NodeType.EVENT_TRIGGER).map(node => node.id),
       ...(input.flowId ? { flow_id: input.flowId } : {})
     }
   };

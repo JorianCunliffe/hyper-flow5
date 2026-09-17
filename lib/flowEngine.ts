@@ -99,8 +99,18 @@ const getChildren = (milestones: Milestone[], id: string): Milestone[] =>
 export const resolveNodeStates = (project: Project): Map<string, NodeResolution> => {
   const milestones = project.milestones;
   const states = new Map<string, NodeResolution>();
+  const entries = project.projectData?.flow_entry_node_ids;
+  const reachable = Array.isArray(entries) ? new Set<string>(entries.filter(id => typeof id === 'string')) : undefined;
+  if (reachable) {
+    for (let pass = 0; pass < milestones.length; pass++) {
+      const priorSize = reachable.size;
+      for (const node of milestones) if (node.dependsOn?.some(id => reachable.has(id))) reachable.add(node.id);
+      if (reachable.size === priorSize) break;
+    }
+  }
 
   const resolve = (id: string, visiting: Set<string>): NodeResolution => {
+    if (reachable && !reachable.has(id)) { states.set(id, 'skipped'); return 'skipped'; }
     const cached = states.get(id);
     if (cached) return cached;
     if (visiting.has(id)) return 'pending';
@@ -120,7 +130,7 @@ export const resolveNodeStates = (project: Project): Map<string, NodeResolution>
         if (
           getNodeType(p) === NodeType.DECISION &&
           p.decisionConfig?.selectedTargetId &&
-          p.decisionConfig.selectedTargetId !== id &&
+          p.decisionConfig.selectedTargetId !== (m.actionConfig?.collectionParentId || id) &&
           resolve(p.id, visiting) !== 'skipped'
         ) {
           skipped = true;
@@ -332,7 +342,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
         const sameOccurrence = !occurrenceId || existing.occurrenceId === occurrenceId;
         const availableAt = sameOccurrence ? Number(existing.availableAt || 0) : 0;
 
-        if (availableAt > 0 && availableAt <= now) {
+        if (!existing.human?.escalation && availableAt > 0 && availableAt <= now) {
           const resolution = existing.kind === 'timer' ? 'timer' as const : 'timeout' as const;
           const resolved = { ...existing, occurrenceId, resolvedAt: now, resolution, resolvedBy: 'scheduler/time' };
           current = {

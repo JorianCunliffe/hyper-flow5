@@ -1,3 +1,6 @@
+import { CapabilityPolicyEditor } from '../CapabilityPolicyEditor';
+import { WorkspaceResourcesEditor } from '../WorkspaceResourcesEditor';
+import { WEEKDAYS, scheduleDaysLabel } from '../../lib/scheduleDays';
 import { ServiceStatusNotices } from '../ServiceStatusNotices';
 import { MemoryContextPanel } from '../MemoryContextPanel';
 import React, { useEffect, useRef, useState } from 'react';
@@ -240,7 +243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [scheduleStatus, setScheduleStatus] = useState<{ loading: boolean; items: TenantSchedule[]; error?: string }>({ loading: false, items: [] });
   const [scheduleDraft, setScheduleDraft] = useState({
     name: 'Daily coaching', activity: 'flow_start' as TenantSchedule['activity'], projectId: '',
-    localTime: '09:00', timezone: settings.communications?.timezone || 'Australia/Brisbane',
+    localTime: '09:00', daysOfWeek: [1, 2, 3, 4, 5], enabled: false, timezone: settings.communications?.timezone || 'Australia/Brisbane',
     misfirePolicy: 'run_once' as TenantSchedule['misfirePolicy'],
     digestChannel: 'web' as 'web' | 'email' | 'sms', digestRecipient: ''
   });
@@ -459,7 +462,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const payload = {
         name: scheduleDraft.name,
         activity: scheduleDraft.activity,
-        recurrence: { kind: 'daily', localTime: scheduleDraft.localTime },
+        recurrence: { kind: 'daily', localTime: scheduleDraft.localTime, daysOfWeek: scheduleDraft.daysOfWeek },
+        enabled: scheduleDraft.enabled,
         timezone: scheduleDraft.timezone,
         misfirePolicy: scheduleDraft.misfirePolicy,
         ...(scheduleDraft.activity === 'flow_start'
@@ -667,21 +671,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </select>
                   {scheduleDraft.activity === 'flow_start' ? <select aria-label="Scheduled project" value={scheduleDraft.projectId} onChange={event => setScheduleDraft(current => ({ ...current, projectId: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="">Select project</option>{projects.filter(project => !project.isArchived).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select> : <div className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-600">Mailbox: {integrationStatus.mailboxes.find(item => item.id === settings.communications?.mailboxConnectionId)?.mailboxAddress || 'not connected'}</div>}
                   <input aria-label="Daily local time" type="time" value={scheduleDraft.localTime} onChange={event => setScheduleDraft(current => ({ ...current, localTime: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
+                  <fieldset className="col-span-full flex flex-wrap gap-3"><legend>Run on</legend>{WEEKDAYS.map((day, index) => <label key={day}><input type="checkbox" checked={scheduleDraft.daysOfWeek.includes(index)} onChange={event => setScheduleDraft(current => ({ ...current, daysOfWeek: event.target.checked ? [...current.daysOfWeek, index].sort() : current.daysOfWeek.filter(value => value !== index) }))} /> {day}</label>)}</fieldset>
+                  <label><input type="checkbox" checked={scheduleDraft.enabled} onChange={event => setScheduleDraft(current => ({ ...current, enabled: event.target.checked }))} />Enable schedule after saving</label>
                   <input aria-label="Schedule timezone" value={scheduleDraft.timezone} onChange={event => setScheduleDraft(current => ({ ...current, timezone: event.target.value }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />
                   <select aria-label="Misfire policy" value={scheduleDraft.misfirePolicy} onChange={event => setScheduleDraft(current => ({ ...current, misfirePolicy: event.target.value as TenantSchedule['misfirePolicy'] }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="run_once">Run once after downtime</option><option value="catch_up">Catch up every occurrence</option><option value="skip">Skip missed occurrences</option></select>
                   {scheduleDraft.activity === 'communications_triage' && <select aria-label="Digest channel" value={scheduleDraft.digestChannel} onChange={event => setScheduleDraft(current => ({ ...current, digestChannel: event.target.value as 'web' | 'email' | 'sms' }))} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm"><option value="web">Show in HyperFlow</option><option value="email">Email digest</option><option value="sms">SMS digest</option></select>}
                   {scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && <input aria-label="Digest recipient" type={scheduleDraft.digestChannel === 'email' ? 'email' : 'tel'} value={scheduleDraft.digestRecipient} onChange={event => setScheduleDraft(current => ({ ...current, digestRecipient: event.target.value }))} placeholder={scheduleDraft.digestChannel === 'email' ? 'you@example.com' : '+61411111111'} className="bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm" />}
                 </div>
                 {scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && <p className="mt-3 text-xs text-slate-500">Connected Gmail creates a draft for review. Automatic SMS or transactional email delivery also requires Automatic send policy and the send_reply permission.</p>}
-                <button type="button" onClick={() => void createDailySchedule()} disabled={automationStatus.working || !scheduleDraft.name.trim() || (scheduleDraft.activity === 'flow_start' && !scheduleDraft.projectId) || (scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && !scheduleDraft.digestRecipient.trim())} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">Create schedule</button>
+                <button type="button" onClick={() => void createDailySchedule()} disabled={automationStatus.working || !scheduleDraft.daysOfWeek.length || !scheduleDraft.name.trim() || (scheduleDraft.activity === 'flow_start' && !scheduleDraft.projectId) || (scheduleDraft.activity === 'communications_triage' && scheduleDraft.digestChannel !== 'web' && !scheduleDraft.digestRecipient.trim())} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">Create schedule</button>
               </div>
 
               <div>
                 <h5 className="font-black text-slate-800 mb-3">Active schedules</h5>
-                {scheduleStatus.loading ? <p className="text-sm text-slate-500">Loading schedules…</p> : scheduleStatus.error ? <p className="text-sm text-red-600">{scheduleStatus.error}</p> : scheduleStatus.items.length === 0 ? <p className="text-sm text-slate-500">No schedules configured.</p> : <div className="space-y-2">{scheduleStatus.items.map(schedule => <div key={schedule.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-bold text-slate-800">{schedule.name}</div><div className="text-xs text-slate-500">{schedule.activity.replaceAll('_', ' ')} · {schedule.recurrence?.kind === 'daily' ? `${schedule.recurrence.localTime} ${schedule.timezone}` : `every ${schedule.intervalMinutes} minutes`} · next {new Date(schedule.nextRunAt).toLocaleString()}{schedule.activity === 'communications_triage' ? ` · digest ${schedule.digestChannel || 'web'}` : ''}</div></div><div className="flex gap-2"><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">Run now</button><button type="button" onClick={() => void deleteSchedule(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700">Delete</button></div></div>)}</div>}
+                {scheduleStatus.loading ? <p className="text-sm text-slate-500">Loading schedules…</p> : scheduleStatus.error ? <p className="text-sm text-red-600">{scheduleStatus.error}</p> : scheduleStatus.items.length === 0 ? <p className="text-sm text-slate-500">No schedules configured.</p> : <div className="space-y-2">{scheduleStatus.items.map(schedule => <div key={schedule.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-bold text-slate-800">{schedule.name}</div><div className="text-xs text-slate-500">{schedule.activity.replaceAll('_', ' ')} · {schedule.recurrence?.kind === 'daily' ? `${scheduleDaysLabel(schedule.recurrence.daysOfWeek)} ${schedule.recurrence.localTime} ${schedule.timezone}` : `every ${schedule.intervalMinutes} minutes`} · next {new Date(schedule.nextRunAt).toLocaleString()}{schedule.activity === 'communications_triage' ? ` · digest ${schedule.digestChannel || 'web'}` : ''}</div></div><div className="flex gap-2"><button type="button" disabled={automationStatus.working} onClick={() => void toggleServiceSchedule(schedule)}>{schedule.enabled ? 'Pause' : 'Enable'}</button><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">Run now</button><button type="button" onClick={() => void deleteSchedule(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700">Delete</button></div></div>)}</div>}
               </div>
 
               <div className="border-t border-slate-200 pt-6">
+                <CapabilityPolicyEditor key={`capabilities-${currentOrgId}`} />
+                <WorkspaceResourcesEditor projects={projects} connections={integrationStatus.workspaces} />
                 <h5 className="font-black text-slate-800 mb-1">Project Google resources</h5>
                 <p className="mb-4 text-xs text-slate-500">Allowlist one coaching Doc and one Sheet range for a project. Flow nodes cannot supply arbitrary file IDs.</p>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -794,7 +802,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <fieldset>
                 <legend className="text-sm font-bold text-slate-700 mb-2">Agent automatic-action policy</legend>
                 <div className="flex flex-wrap gap-3">
-                  {(['draft', 'send', 'call', 'sheet_write'] as const).map(action => {
+                  {(['draft', 'send', 'sms', 'call', 'sheet_write'] as const).map(action => {
                     const selected = (agentDraft.automaticActions || []).includes(action);
                     return <label key={action} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"><input type="checkbox" checked={selected} onChange={() => setAgentDraft(current => ({ ...current, automaticActions: selected ? (current.automaticActions || []).filter(item => item !== action) : [...(current.automaticActions || []), action] }))} />{action.replaceAll('_', ' ')}</label>;
                   })}

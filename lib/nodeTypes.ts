@@ -16,7 +16,9 @@ export const ACTION_NODE_TYPES: NodeType[] = [
   NodeType.GOOGLE_SHEET_APPEND,
   NodeType.GOOGLE_SHEET_UPSERT,
   NodeType.COACHING_EXTRACT,
-  NodeType.EMAIL_TRIAGE
+  NodeType.EMAIL_TRIAGE,
+  NodeType.MAILBOX_DRAFT,
+  NodeType.MAILBOX_DRAFT_UPDATE
 ];
 
 // Maps action node types to the taskType handled by /api/tasks/execute
@@ -31,6 +33,8 @@ export const ACTION_TASK_TYPE: Partial<Record<NodeType, string>> = {
   [NodeType.GOOGLE_SHEET_APPEND]: 'append_google_sheet',
   [NodeType.GOOGLE_SHEET_UPSERT]: 'upsert_google_sheet',
   [NodeType.COACHING_EXTRACT]: 'extract_coaching_result',
+  [NodeType.MAILBOX_DRAFT]: 'create_mailbox_draft',
+  [NodeType.MAILBOX_DRAFT_UPDATE]: 'update_mailbox_draft',
   [NodeType.EMAIL_TRIAGE]: 'run_email_triage'
 };
 

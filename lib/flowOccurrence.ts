@@ -1,3 +1,4 @@
+import { collapseCollections } from './flowCollections.js';
 import type { Project } from '../types.js';
 import type { RuntimeMilestone } from './flowRuntimeTypes.js';
 
@@ -9,7 +10,7 @@ const activeOccurrence = (project: Project): string | undefined => {
 };
 
 const RUNTIME_TRIGGER_KEYS = [
-  'flow_run_id', 'flow_occurrence_id', 'flow_started_at', 'flow_dispatch_version',
+  'flow_run_id', 'flow_occurrence_id', 'flow_started_at', 'flow_dispatch_version', 'flow_entry_node_ids',
   'flow_trigger_event_id', 'flow_trigger_event_type', 'flow_triggered_at',
   'flow_trigger_channel', 'flow_trigger_direction', 'flow_trigger_person_id', 'flow_trigger_communication_id',
   'schedule_id', 'schedule_run_id', 'schedule_occurrence_id', 'scheduled_for'
@@ -27,6 +28,7 @@ export const resetProjectForOccurrence = (
 ): Project => {
   const currentOccurrence = activeOccurrence(project);
   if (currentOccurrence === occurrenceId) return project;
+  project = collapseCollections(project);
 
   const projectData = { ...(project.projectData || {}) };
   for (const key of [...RUNTIME_TRIGGER_KEYS, ...clearProjectDataKeys]) delete projectData[key];

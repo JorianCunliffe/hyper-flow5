@@ -1,3 +1,5 @@
+import { deliverEscalatedAsk } from './deliverEscalatedAsk.js';
+import { getHoldConfig } from '../flowEngine.js';
 import type { HumanAsk, Project } from '../../types.js';
 import { upsertAsk } from '../humanAsk.js';
 import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
@@ -27,6 +29,14 @@ export const deliverRaisedAsks = async (
 
   for (const item of raised) {
     let ask = item.ask;
+    const node = current.milestones.find(node => node.id === item.nodeId);
+    const escalation = node && getHoldConfig(node)?.human?.escalation;
+    if (escalation) {
+      ask = await deliverEscalatedAsk(current, orgId, ask, escalation);
+      current = { ...current, milestones: current.milestones.map(node => node.id === item.nodeId ? upsertAsk(node, ask) : node) };
+      log.push(`Ask ${ask.id}: escalation ${ask.escalationState?.error || 'waiting for confirmed answers'}`);
+      continue;
+    }
     const people = ask.assignees?.length ? ask.assignees : ask.personId ? [ask.personId] : [];
     const channels = ask.channels.filter(channel => channel !== 'web');
     for (const personId of people) {

@@ -69,8 +69,8 @@ export const findDispatchByExternalId = async (orgId: string, projectId: string,
 
 /** Only adapters with a durable provider-side key can safely repeat an ambiguous POST. */
 const replaySafe = (taskType: string): boolean =>
-  ['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result'].includes(taskType)
-  || ['outgoing_call', 'send_sms', 'send_email'].includes(taskType);
+  ['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result', 'run_email_triage'].includes(taskType)
+  || ['outgoing_call', 'send_sms', 'send_email', 'create_mailbox_draft', 'update_mailbox_draft'].includes(taskType);
 
 export const durableActionExecutor = (
   execute: ActionExecutor,

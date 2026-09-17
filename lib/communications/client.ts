@@ -30,6 +30,7 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
   private readonly draftApiKey: string;
   private readonly draftFetch: typeof fetch;
   private readonly draftTimeoutMs: number;
+  private readonly draftFreezeRequest?: CommunicationsClientOptions['freezeRequest'];
 
   constructor(options: CommunicationsClientOptions = {}) {
     super({ ...options, freezeRequest: options.freezeRequest || currentCommunicationRequestRecorder() });
@@ -46,6 +47,7 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
     this.draftBaseUrl = parsed.toString().replace(/\/$/, '');
     this.draftApiKey = apiKey;
     this.draftFetch = options.fetchImpl ?? fetch;
+    this.draftFreezeRequest = options.freezeRequest || currentCommunicationRequestRecorder();
     this.draftTimeoutMs = Math.max(250, Math.min(options.timeoutMs || 15_000, 15_000));
   }
 
@@ -60,6 +62,8 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
     if (!connectionId?.trim()) throw new CommunicationsApiError('Mailbox connection id is required');
     if (!draftId?.trim()) throw new CommunicationsApiError('Mailbox draft id is required');
     if (!idempotencyKey?.trim()) throw new CommunicationsApiError('Idempotency key is required');
+    const path = `/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts/${encodeURIComponent(draftId)}`;
+    const frozen = this.draftFreezeRequest ? await this.draftFreezeRequest(path, idempotencyKey, request) : request;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.draftTimeoutMs);
     try {
@@ -74,7 +78,7 @@ export class HttpCommunicationsClient extends CoreHttpCommunicationsClient {
             Accept: 'application/json',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(request),
+          body: JSON.stringify(frozen),
           signal: controller.signal
         }
       );

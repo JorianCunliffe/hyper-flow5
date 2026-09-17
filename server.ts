@@ -445,6 +445,7 @@ async function startServer() {
         const member = await requireAppMember(req as any);
         const projectId = String(req.query.projectId || '');
         if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+        await requireProjectInTenant(member.orgId, projectId);
         return res.status(200).json({ grant: await readWorkspaceResourceGrant(member.orgId, projectId) });
       } catch (error: any) {
         return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
@@ -455,6 +456,8 @@ async function startServer() {
         const member = await requireAppMember(req as any);
         const projectId = String(req.body?.projectId || '');
         if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+        await requireProjectInTenant(member.orgId, projectId);
+        if (!['owner', 'admin'].includes(member.role)) return res.status(403).json({ error: 'Administrator membership required' });
         return res.status(200).json({ grant: await saveWorkspaceResourceGrant(member.orgId, projectId, req.body || {}) });
       } catch (error: any) {
         return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });

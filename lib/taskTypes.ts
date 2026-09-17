@@ -1,7 +1,7 @@
 export const TASK_TYPES = [
   'send_email', 'send_sms', 'outgoing_call', 'webhook', 'write_report',
   'read_google_doc', 'read_google_sheet', 'append_google_sheet', 'upsert_google_sheet', 'extract_coaching_result',
-  'run_email_triage'
+  'run_email_triage', 'create_mailbox_draft', 'update_mailbox_draft'
 ] as const;
 
 const TASK_TYPE_ALIASES: Record<string, string> = {

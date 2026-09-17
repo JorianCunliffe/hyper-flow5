@@ -1,3 +1,4 @@
+import { readFlowRun } from './flowRunStore.js';
 import { executeTask } from './executeTask.js';
 import type { ActionExecutor } from './flowOrchestrator.js';
 import { claimContactDispatch, readTenantAgentProfile, readTenantCommunicationsSettings } from './serverStore.js';
@@ -70,7 +71,13 @@ const executeServerAction: ActionExecutor = async (taskType, templateFile, proje
     if (!ctx.orgId) throw new Error('Autonomous communication requires tenant correlation');
     const parsed = jsonTemplate(templateFile);
     if (!parsed) throw new Error('Autonomous communication requires a JSON action template with person_id');
-    const personId = String(parsed.person_id || parsed.target_person_id || '').trim();
+    let personId = String(parsed.person_id || parsed.target_person_id || '').trim();
+    if (parsed.target_source === 'event_person') {
+      if (!ctx.flowRunId || channel === 'voice') throw new Error('Event sender targeting is available only for replies, not calls');
+      const run = await readFlowRun(ctx.orgId, ctx.projectId, ctx.flowRunId);
+      if (!run || run.trigger !== 'event' || run.triggerId !== run.state.projectData.flow_trigger_event_id) throw new Error('A verified inbound FlowRun is required');
+      personId = String(run.state.projectData.flow_trigger_person_id || '');
+    }
     const target = await resolveGrantedPersonTarget({
       orgId: ctx.orgId,
       projectId: ctx.projectId,

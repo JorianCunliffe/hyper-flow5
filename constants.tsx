@@ -28,6 +28,8 @@ export const NODE_TYPE_META: Record<NodeType, NodeTypeMeta> = {
   [NodeType.GOOGLE_SHEET_APPEND]: { label: 'Append Sheet', icon: TableProperties, color: '#188038', ringClass: 'ring-emerald-300', description: 'Appends rows idempotently to a granted Google Sheet range' },
   [NodeType.GOOGLE_SHEET_UPSERT]: { label: 'Upsert Sheet', icon: TableProperties, color: '#137333', ringClass: 'ring-emerald-400', description: 'Updates or appends an idempotent row in a granted Google Sheet range' },
   [NodeType.COACHING_EXTRACT]: { label: 'Coach Result', icon: BrainCircuit, color: '#7c3aed', ringClass: 'ring-violet-300', description: 'Extracts a typed coaching result from a verified human call' },
+  [NodeType.MAILBOX_DRAFT]: { label: 'Create Mailbox Draft', icon: Mail, color: '#4f46e5', ringClass: 'ring-indigo-300', description: 'Creates a native Gmail or Outlook draft for human review' },
+  [NodeType.MAILBOX_DRAFT_UPDATE]: { label: 'Update Mailbox Draft', icon: Mail, color: '#4f46e5', ringClass: 'ring-indigo-300', description: 'Updates the original draft using its provider draft ID' },
   [NodeType.EMAIL_TRIAGE]: { label: 'Email Triage', icon: Inbox, color: '#4f46e5', ringClass: 'ring-indigo-300', description: 'Synchronizes and classifies the mailbox selected for this project' }
 };
 

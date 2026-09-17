@@ -190,7 +190,7 @@ export interface TenantAgentProfile {
   };
   clarificationPolicy?: 'always' | 'when_ambiguous';
   /** Legacy policy retained while existing settings migrate. */
-  automaticActions?: Array<'draft' | 'send' | 'call' | 'sheet_write'>;
+  automaticActions?: Array<'draft' | 'send' | 'sms' | 'call' | 'sheet_write'>;
   /** Provider-neutral authority keyed by capability, e.g. phone.call or sheet.append. */
   capabilityPolicy?: Record<string, CapabilityPolicyMode>;
 }
@@ -286,6 +286,7 @@ export interface TriageInterpretation {
 }
 
 export interface TriageItem {
+  sourceMessage?: { messageId?: string; providerThreadId?: string; content: string; truncated: boolean };
   id: string;
   orgId: string;
   communicationId: string;
@@ -330,7 +331,7 @@ export interface TriageItem {
 
 export type ScheduleRecurrence =
   | { kind: 'interval'; intervalMinutes: number }
-  | { kind: 'daily'; localTime: string };
+  | { kind: 'daily'; localTime: string; daysOfWeek?: number[] };
 
 export type ScheduleMisfirePolicy = 'run_once' | 'catch_up' | 'skip';
 
@@ -474,6 +475,8 @@ export enum NodeType {
   GOOGLE_SHEET_APPEND = 'google_sheet_append',
   GOOGLE_SHEET_UPSERT = 'google_sheet_upsert',
   COACHING_EXTRACT = 'coaching_extract',
+  MAILBOX_DRAFT = 'mailbox_draft',
+  MAILBOX_DRAFT_UPDATE = 'mailbox_draft_update',
   EMAIL_TRIAGE = 'email_triage'
 }
 
@@ -566,6 +569,13 @@ export interface ActionRun {
 
 export interface ActionConfig {
   template: string;
+  /** Freeze this array and create one durable, sequential action per unique item key. */
+  forEach?: { source: string; key: string; maxItems?: number };
+  /** Runtime-only child/collector metadata, stored in the isolated FlowRun. */
+  collection?: { childIds: string[]; originalDependsOn: string[]; data?: Record<string, unknown> };
+  collectionParentId?: string;
+  collectionItem?: unknown;
+  collectionData?: Record<string, unknown>;
   autoExecute?: boolean;
   /** Errors block by default. Continue exposes them as graph results for Decisions. */
   failureMode?: 'block' | 'continue';
@@ -676,6 +686,7 @@ export interface AskResponseContract {
 }
 
 export interface HumanAsk {
+  escalationState?: { cycle: number; step: number; nextAt: number; awaitingId?: string; error?: string };
   id: string;
   token: string;
   kind: AskKind;
