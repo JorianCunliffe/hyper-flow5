@@ -1,8 +1,9 @@
+import { buildCallOverrides, resolveCallTemplate } from './callPrompts.js';
 import { outboundConversationContext } from './outboundConversationContext.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createCommunicationsClient } from './communications/client.js';
 import { CommunicationsApiError } from './communications/errors.js';
-import type { CommunicationCorrelation, CommunicationResult, HyperFlowCallOverrides, CommunicationsClient } from './communications/types.js';
+import type { CommunicationCorrelation, CommunicationResult, CommunicationsClient } from './communications/types.js';
 import { safeWebhookFetch } from './safeWebhook.js';
 import { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 import { appendGrantedGoogleSheet, readGrantedGoogleDoc, readGrantedGoogleSheet, upsertGrantedGoogleSheet } from './integrations/googleWorkspace.js';
@@ -111,13 +112,6 @@ const communicationCallbackUrl = (ctx: ExecuteContext | undefined): string => {
   return `${parsed.toString().replace(/\/$/, '')}/api/events`;
 };
 
-const callOverrides = (instruction: string): HyperFlowCallOverrides => ({
-  systemMessage: `You are making an outbound call for HyperFlow. Complete this instruction and stay focused on it: ${instruction.slice(0, 20_000)}`,
-  greetingText: `Begin the call briefly and then: ${instruction.slice(0, 2_000)}`,
-  aiSpeaksFirst: true,
-  liveTranscript: true
-});
-
 const communicationResponse = (
   result: CommunicationResult,
   logs: string[],
@@ -169,7 +163,9 @@ export async function executeTask(
       }
     };
   }
-  const { parsedContent, templateData } = substituteTemplate(templateFile, projectData);
+  const { parsedContent, templateData } = taskType === 'outgoing_call'
+    ? { parsedContent: templateFile || '', templateData: resolveCallTemplate(templateFile || '', projectData) }
+    : substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
   if (taskType === 'run_email_triage') {
@@ -517,8 +513,11 @@ export async function executeTask(
 
       const client = createCommunicationsClient();
       const correlation = communicationCorrelation(ctx);
-      const history = await outboundConversationContext({orgId:correlation.tenant_id,projectId:correlation.external_project_id!,to:String(toPhone)},client);
-      const overrides = callOverrides(String(instruction));
+      const purpose = String(templateData.purpose_type || 'workflow_action');
+      const history = purpose === 'test_call'
+        ? { status: 'not_requested', sources: [] as string[], instructions: '' }
+        : await outboundConversationContext({orgId:correlation.tenant_id,projectId:correlation.external_project_id!,to:String(toPhone)},client);
+      const overrides = buildCallOverrides(String(instruction), purpose, templateData.greeting);
       overrides.systemMessage += `\n\n${history.instructions}`;
       logs.push(`Conversation context: ${history.status}; ${history.sources.length} authorized sources`);
       const result = await client.startCall({
@@ -526,7 +525,7 @@ export async function executeTask(
         from: communicationFromNumber(templateData, projectData, ctx),
         overrides,
         correlation: communicationCorrelation(ctx),
-        purpose: { type: String(templateData.purpose_type || 'workflow_action') },
+        purpose: { type: purpose },
         callback_url: communicationCallbackUrl(ctx)
       });
       return communicationResponse(result, logs, { call_data: templateData, conversation_context: {status:history.status,sourceIds:history.sources} });
