@@ -1,4 +1,5 @@
 import { resolveCallbackAndAdvance } from './serverFlow.js';
+import { receivePromiseChange } from './commitments/promiseEvents.js';
 import { findDispatchByExternalId } from './actionDispatch.js';
 import { respondToAsk } from './asks/respondToAsk.js';
 import type { AskChannel, CommunicationsSettings } from '../types.js';
@@ -256,6 +257,11 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       return { ok: true, ignored: true, reason: 'unsupported_source' };
     }
 
+    if(event.type==='promise.changed'){
+      await receivePromiseChange(orgId,event.payload);
+      await finishProcessing(orgId,event.event_id,'processed');
+      return {ok:true,reason:'promise_evidence_updated'};
+    }
     let communication: CommunicationResult | undefined;
     const tenantSettings: CommunicationsSettings = await readTenantCommunicationsSettings(orgId).catch(() => ({}));
     if (event.communication_id && (isInboundCommunicationEvent(event.type) || event.channel === 'email' || event.payload.channel === 'email')) {

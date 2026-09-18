@@ -10,7 +10,7 @@ const fixtures = JSON.parse(readFileSync(
 describe('Communications v2 shared contract fixtures', () => {
   test('normalizes every canonical fixture inside its trusted tenant', () => {
     assert.deepEqual(fixtures.map(fixture => fixture.name), [
-      'inbound_email', 'inbound_sms', 'inbound_voice', 'ask_response', 'call_completed', 'call_failed'
+      'inbound_email', 'inbound_sms', 'inbound_voice', 'ask_response', 'call_completed', 'call_failed', 'promise_changed'
     ]);
     for (const fixture of fixtures) {
       const event = normalizeExternalEvent({ ...fixture.event, source: 'communications' });

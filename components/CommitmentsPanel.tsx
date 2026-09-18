@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { PromiseLedgerPanel } from './PromiseLedgerPanel';
 import type { Project } from '../types';
 import type { Commitment, CommitmentTerms, CommitmentCommand, CommitmentSource } from '../lib/commitments/model';
 import { firebaseService } from '../services/firebaseService';
@@ -70,6 +71,10 @@ export const CommitmentsPanel: React.FC<{ orgId: string; projects: Project[]; pr
     </div>
     {searched && !candidates.length && <p role="status" className="mb-3 text-sm">No current permitted promise evidence was found in this bounded view.</p>}
     {candidates.length > 0 && <aside className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-bold">Promise candidates — not yet accepted</h2><p className="text-sm">This is a bounded source view. Refreshing a candidate never accepts or fulfills it.</p>{candidates.map(c=><div key={c.id} className="my-3"><p>{c.wording}</p><button className={button} disabled={busy} onClick={()=>run(async()=>{ const result=await api('/api/commitments',{projectId:project,threadId:sourceThread,sourceId:c.id}); choose(result.item); await load(); })}>Review candidate</button></div>)}</aside>}
+    <div key={`${orgId}:${project}`}><PromiseLedgerPanel orgId={orgId} projectId={project} projects={projects} onImport={async promise=>{
+      const result=await api('/api/commitments',{projectId:promise.external_project_id,sourceId:promise.id,sourceProvider:'promise-ledger.v1'});
+      choose(result.item);await load();
+    }}/></div>
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="space-y-3" aria-label="Obligation list">
         {!rows.length && !busy && <p className="rounded-xl border bg-white p-5 text-slate-600">No obligations on this page. Choose a project to add one or review promise evidence.</p>}

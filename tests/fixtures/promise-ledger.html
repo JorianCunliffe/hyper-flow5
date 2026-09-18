@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Promise ledger review fixture</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-slate-100 p-6"><div id="root"></div><script type="module">
+// Standalone local UI fixture. No Firebase connection, provider calls, or external writes.
+localStorage.setItem('hyperflow_manual_disconnect','true');
+const React=await import('react');const {createRoot}=await import('react-dom/client');
+const {firebaseService}=await import('/services/firebaseService.ts');
+const {PromiseLedgerPanel}=await import('/components/PromiseLedgerPanel.tsx');
+let row={id:'11111111-1111-4111-8111-111111111111',revision:1,description:'We will send the project report Friday.',original_wording:'We will send the project report Friday.',thread_id:'thread_report',external_project_id:'alpha',joint:true,origin:'human',review_state:'needs_review',observed_state:'promised',source_current:true,unresolved:false,overdue:false,source_communication_ids:['comm_report'],promisor_parties:[{ref:'local',person_id:'alice',label:'Alice',role:'local'},{ref:'counterparty',person_id:'bob',label:'Bob',role:'counterparty'}],promisee_parties:[],people:[{id:'alice',name:'Alice'},{id:'bob',name:'Bob'}],due_interpretation:{wording:'Friday',status:'needs_confirmation'},evidence:[{id:'e1',quote:'We will send the project report Friday.',kind:'promised',current:true,communication_id:'comm_report',speaker:{label:'Alice',attribution:'channel_role'}}],history:[{id:'h1',revision:1,action:'extracted',actor:'extractor',reason:'Source-backed extraction',created_at:'2026-09-18T00:00:00Z'}]};
+firebaseService.authorizedFetch=async(url,options)=>{
+ const input=JSON.parse(options?.body||'{}');let result;
+ if(String(url).includes('view=parties'))result={data:[{id:'contact:alice',name:'Alice'},{id:'contact:bob',name:'Bob'}]};
+ else if(input.operation==='read')result=row;
+ else if(input.operation==='review'){row={...row,revision:row.revision+1,review_state:input.reviewAction==='confirm'?'confirmed':row.review_state,history:[...row.history,{id:'h2',revision:2,action:input.reviewAction,actor:'reviewer',reason:input.reason,created_at:new Date().toISOString()}]};result=row;}
+ else if(input.operation==='coverage')result={data:[{id:'j1',status:'done',outcome:'promises_found',attempts:1},{id:'j2',status:'pending',outcome:null,attempts:0}],next:null};
+ else result={contract_version:'promise-ledger.v1',data:input.unresolved?[]:[row],next:null};
+ return new Response(JSON.stringify(result),{status:200,headers:{'Content-Type':'application/json'}});
+};
+createRoot(document.getElementById('root')).render(React.createElement(PromiseLedgerPanel,{orgId:'fixture',projectId:'alpha',projects:[{id:'alpha',name:'Report project'},{id:'beta',name:'Meeting project'}],onImport:async()=>{window.fixtureImported=true;}}));
+</script></body></html>

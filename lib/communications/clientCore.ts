@@ -37,6 +37,11 @@ export interface CommunicationsClientOptions {
 }
 
 export class HttpCommunicationsClient implements CommunicationsClient {
+  async promiseLedger(tenantId:string,operation:'query'|'read'|'review'|'coverage',input:Record<string,unknown>):Promise<any>{
+    this.requireTenant(tenantId);
+    const path=operation==='query'||operation==='coverage'?`/v1/promises/${operation}`:`/v1/promises/${encodeURIComponent(String(input.id))}/${operation}`;
+    return this.rawRequest(path,{method:'POST',tenantId,body:input});
+  }
   async changeTenantLifecycle(tenantId:string,body:Record<string,unknown>):Promise<any>{this.requireTenant(tenantId);return this.rawRequest('/v1/tenant/lifecycle',{method:'POST',tenantId,body});}
   async readTenantLifecycle(tenantId:string):Promise<any>{this.requireTenant(tenantId);return this.rawRequest('/v1/tenant/lifecycle',{method:'GET',tenantId});}
   async ingestCalendarObservation(tenantId:string,event:Record<string,unknown>):Promise<any>{

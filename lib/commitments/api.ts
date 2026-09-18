@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { handlePromiseLedger, ledgerSource } from './promiseLedger.js';
+import { applyPromiseRevision } from './promiseEvents.js';
 import { createCommunicationsClient } from '../communications/client.js';
 import { requireOrganizationMember } from '../serverStore.js';
 import { listTenantProjects, listOperationalCommitments, readOperationalCommitment, transactOperationalCommitment } from '../serverStore.js';
@@ -27,14 +29,33 @@ const visible = (row: Commitment) => {
 export async function handleCommitments(request: { method?: string; query?: Record<string, any>; body?: any }, member: Member, overrides: Partial<CommitmentDependencies> = {}) {
   const deps = { ...defaults, ...overrides }; const body = request.body || {}; const query = request.query || {};
   const projects = await deps.projects(member.orgId); const allowed = new Set(projects.map(row => String(row.id)));
+  if(query.view==='promise_ledger'||body.action==='promise_ledger'){
+    if(!['GET','POST'].includes(request.method||'')||(request.method==='GET'&&['review','link'].includes(query.operation)))throw new CommitmentError(405,'Use POST for ledger changes.');
+    return handlePromiseLedger(member,request.method==='GET'?query:body,{projects:deps.projects});
+  }
   const sourceViews = new Map<string, Promise<CommitmentSource[]>>();
   const currentSources = (project: string, threadId = '') => {
     const key = JSON.stringify([project,threadId]);
     if (!sourceViews.has(key)) sourceViews.set(key, deps.memory({ method: 'POST', body: { kind: threadId ? 'thread' : 'project', id: threadId || project, projectId: project } }, member).then(promiseCandidates));
     return sourceViews.get(key)!;
   };
+  const currentLedgerSource = async (row:Commitment) => ledgerSource(await handlePromiseLedger(member,{operation:'read',promiseId:row.source!.id,projectId:row.projectId},{projects:deps.projects}));
   const canReadCandidate = async (row: Commitment) => !row.source || Boolean(row.acceptedEvidence)
-    || (await currentSources(row.projectId, row.source.threadId)).some(source => source.id === row.source!.id && source.version === row.source!.version);
+    || (row.source.provider==='promise-ledger.v1'?(await currentLedgerSource(row)).version===row.source.version
+      :(await currentSources(row.projectId, row.source.threadId)).some(source => source.id === row.source!.id && source.version === row.source!.version));
+  const refreshAcceptedSource=async(row:Commitment)=>{
+    if(!row.acceptedEvidence||row.source?.provider!=='promise-ledger.v1')return row;
+    // Read reconciliation recovers a dropped/exhausted event without changing terms.
+    try{
+      const evidence=await handlePromiseLedger(member,{operation:'read',promiseId:row.source.id,projectId:row.projectId},{projects:deps.projects});
+      const next=applyPromiseRevision(row,row.source.id,evidence.revision,Date.now());
+      if(next===row)return row;
+      return deps.transact(member.orgId,row.id,current=>{
+        if(!current)throw new CommitmentError(404,'Obligation not found.');
+        return applyPromiseRevision(current,row.source!.id,evidence.revision,Date.now());
+      });
+    }catch{return row;}
+  };
   if (request.method === 'GET' && query.view === 'parties') return { viewerUid: member.uid,
     data: [{ id: `user:${member.uid}`, name: 'Me' }, ...(await deps.people(member.orgId)).map(person => ({ id: `contact:${person.id}`, name: person.name || 'Unnamed contact' }))] };
   if (body.terms) {
@@ -64,7 +85,7 @@ export async function handleCommitments(request: { method?: string; query?: Reco
       const row = await deps.read(member.orgId, id);
       if (!row || row.orgId !== member.orgId || !allowed.has(row.projectId)) throw new CommitmentError(404, 'Obligation not found.');
       if (!await canReadCandidate(row)) throw new CommitmentError(409, 'Candidate source changed or is inaccessible. Refresh permitted evidence before review.');
-      return { item: visible(row), viewerUid: member.uid };
+      return { item: visible(await refreshAcceptedSource(row)), viewerUid: member.uid };
     }
     const after = bounded(query.after, 160);
     if (after && !/^ob_[a-zA-Z0-9_-]+$/.test(after)) throw new CommitmentError(400, 'Invalid cursor.');
@@ -77,7 +98,7 @@ export async function handleCommitments(request: { method?: string; query?: Reco
       && (query.view !== 'owing' || row.terms.owner === mine)
       && (query.view !== 'owed' || row.terms.beneficiary === mine));
     const readable = await Promise.all(scoped.map(canReadCandidate));
-    return { data: scoped.filter((_,index) => readable[index]).map(visible), next: page.next, viewerUid: member.uid };
+    return { data: (await Promise.all(scoped.filter((_,index) => readable[index]).map(refreshAcceptedSource))).map(visible), next: page.next, viewerUid: member.uid };
   }
   if (!['POST','PATCH'].includes(request.method || '')) throw new CommitmentError(405, 'Method not allowed.');
   const now = Date.now(); const askId = `ask_${randomUUID().replaceAll('-','')}`;
@@ -85,7 +106,9 @@ export async function handleCommitments(request: { method?: string; query?: Reco
     if (!projectId) throw new CommitmentError(400, 'Choose a project.');
     let source: CommitmentSource | undefined;
     if (body.sourceId) {
-      source = (await getCandidates()).find(row => row.id === body.sourceId);
+      source = body.sourceProvider==='promise-ledger.v1'
+        ? ledgerSource(await handlePromiseLedger(member,{operation:'read',promiseId:body.sourceId,projectId},{projects:deps.projects}))
+        : (await getCandidates()).find(row => row.id === body.sourceId);
       if (!source) throw new CommitmentError(404, 'Current permitted source evidence is unavailable.');
     }
     const newId = source ? sourceCommitmentId(projectId, source.id) : `ob_${randomUUID().replaceAll('-','')}`;
@@ -116,7 +139,8 @@ export async function handleCommitments(request: { method?: string; query?: Reco
   if (!existing || existing.orgId !== member.orgId || !allowed.has(existing.projectId)) throw new CommitmentError(404, 'Obligation not found.');
   if (projectId && existing.projectId !== projectId) throw new CommitmentError(403, 'Project does not match this obligation.');
   if (body.action === 'respond' && existing.state === 'candidate' && existing.source) {
-    const source = (await currentSources(existing.projectId, existing.source.threadId)).find(row => row.id === existing.source!.id);
+    const source = existing.source.provider==='promise-ledger.v1'?await currentLedgerSource(existing)
+      :(await currentSources(existing.projectId, existing.source.threadId)).find(row => row.id === existing.source!.id);
     if (!source || source.version !== existing.source.version) throw new CommitmentError(409, 'Source evidence changed or is inaccessible. Refresh the candidate before acceptance.');
   }
   const item = await deps.transact(member.orgId, id, row => {

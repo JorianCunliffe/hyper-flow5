@@ -10,6 +10,7 @@ export interface CommitmentTerms {
 }
 export interface CommitmentSource {
   id: string; version: string; communicationIds: string[]; threadId?: string; wording: string;
+  provider?: 'promise-ledger.v1'; jointPromisorIds?: string[];
 }
 export interface Commitment {
   id: string; orgId: string; projectId: string; version: number; state: CommitmentState;

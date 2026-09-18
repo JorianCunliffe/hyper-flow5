@@ -120,7 +120,7 @@ export const POST = async (request: Request): Promise<Response> => {
           });
         }));
       }
-    } else if (outcome.ok && !outcome.duplicate) {
+    } else if (outcome.ok && !outcome.duplicate && body.type !== 'promise.changed') {
       waitUntil(dispatchEventFlow(body).catch(error => {
         console.error('Event-triggered flow failed', {
           eventId: body.event_id,
