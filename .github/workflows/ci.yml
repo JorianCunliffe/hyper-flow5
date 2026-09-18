@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: JorianCunliffe/communications-service
-          ref: 660ec39d670d14827ce60283267dcbf3bba8f6ee
+          ref: 7160999de2cab98ddf6c910955fa3d153ae90ba6
           path: communications
       - uses: actions/setup-node@v4
         with:
@@ -77,6 +77,9 @@ jobs:
         working-directory: communications
       - name: Communications documentation contract
         run: node --test --test-reporter=spec test/documentation.test.js
+        working-directory: communications
+      - name: Promise ledger and database regression tests
+        run: npm run test:db
         working-directory: communications
       - run: npm ci
         working-directory: hyperflow
