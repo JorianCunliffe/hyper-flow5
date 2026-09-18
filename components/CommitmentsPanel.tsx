@@ -17,9 +17,9 @@ async function api(path: string, body?: object, method = 'POST') {
   if (!response.ok) throw new Error(result.error || 'Obligations are unavailable. Please try again.');
   return result;
 }
-export const CommitmentsPanel: React.FC<{ orgId: string; projects: Project[]; initialId?:string }> = ({ orgId, projects,initialId }) => {
+export const CommitmentsPanel: React.FC<{ orgId: string; projects: Project[]; projectId: string | null; initialId?:string }> = ({ orgId, projects, projectId,initialId }) => {
   const [rows,setRows] = useState<Commitment[]>([]); const [selected,setSelected] = useState<Commitment | null>(null);
-  const [project,setProject] = useState(''); const [view,setView] = useState('all'); const [party,setParty] = useState('');
+  const project = projectId || ''; const [view,setView] = useState('all'); const [party,setParty] = useState('');
   const [parties,setParties] = useState<Array<{id:string;name:string}>>([]); const [viewer,setViewer] = useState('');
   const [terms,setTerms] = useState<CommitmentTerms>(emptyTerms); const [note,setNote] = useState('');
   const [error,setError] = useState(''); const [busy,setBusy] = useState(false); const [next,setNext] = useState<string | null>(null);
@@ -55,11 +55,10 @@ export const CommitmentsPanel: React.FC<{ orgId: string; projects: Project[]; in
   const unsavedTerms = Boolean(selected && JSON.stringify(terms) !== JSON.stringify(selected.proposedTerms || selected.terms));
   const closed = selected && ['fulfilled','dismissed','cancelled'].includes(selected.state);
   return <section className="h-full overflow-auto bg-slate-50 p-4 md:p-8" aria-label="Operational obligations">
-    <header className="mb-5"><h1 className="text-2xl font-bold text-slate-900">Promises and obligations</h1>
+    <header className="mb-5"><h1 className="text-2xl font-bold text-slate-900">Obligations</h1>
       <p className="mt-2 text-sm text-slate-600">See what you owe, what others owe you, and what still needs agreement. Submission is not fulfillment.</p></header>
-    <div className="mb-4 grid gap-3 md:grid-cols-3">
+    <div className="mb-4 grid gap-3 md:grid-cols-2">
       <label>View<select className={input} value={view} onChange={e=>setView(e.target.value)}><option value="all">All obligations</option><option value="owing">I owe</option><option value="owed">Owed to me</option></select></label>
-      <label>Project<select className={input} value={project} onChange={e=>setProject(e.target.value)}><option value="">All projects</option>{projects.map(p=><option key={p.id} value={String(p.id)}>{p.name}</option>)}</select></label>
       <label>Contact or person<select className={input} value={party} onChange={e=>setParty(e.target.value)}><option value="">Everyone</option>{parties.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
     </div>
     {error && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}

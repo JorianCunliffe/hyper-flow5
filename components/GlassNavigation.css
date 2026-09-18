@@ -152,6 +152,28 @@
   color: #4338ca;
   background: #e0e7ff99;
 }
+.hf-workspace-scope {
+  color: #475569;
+  font-size: 12px;
+}
+.hf-section-pages {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 8px 8px;
+}
+.hf-section-pages button {
+  flex-shrink: 0;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+.hf-section-pages button:hover,
+.hf-section-pages button[aria-current="page"] {
+  background: #e0e7ff;
+  color: #3730a3;
+}
 .hf-nav-dialog {
   position: fixed;
   top: 94px;

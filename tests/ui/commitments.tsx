@@ -20,4 +20,4 @@ firebaseService.authorizedFetch=async(input,options={})=>{
     rows.push(row);return result({item:row,viewerUid:'ceo'});
   } catch(error:any) { return result({error:error.message},error.status||500); }
 };
-createRoot(document.getElementById('root')!).render(<CommitmentsPanel orgId="fixture" projects={[{id:'alpha',name:'Alpha reporting'}] as any}/>);
+createRoot(document.getElementById('root')!).render(<CommitmentsPanel projectId="alpha" orgId="fixture" projects={[{id:'alpha',name:'Alpha reporting'}] as any}/>);

@@ -77,4 +77,4 @@ firebaseService.authorizedFetch = async (input, options = {}) => {
     ),
   );
 };
-createRoot(document.getElementById("root")!).render(<CockpitPanel />);
+createRoot(document.getElementById("root")!).render(<CockpitPanel projectId={null} />);

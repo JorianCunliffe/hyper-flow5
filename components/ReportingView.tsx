@@ -13,7 +13,6 @@ interface ReportingViewProps {
 
 export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings, activityLogs, onTaskClick }) => {
   const [activeTab, setActiveTab] = useState<'current' | 'progress'>('progress');
-  const [filterProject, setFilterProject] = useState<string>('ALL');
   const [filterMember, setFilterMember] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [startDate, setStartDate] = useState<string>(() => {
@@ -41,9 +40,6 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
   const filteredTasks = useMemo(() => {
     let result = allTasks;
 
-    if (filterProject !== 'ALL') {
-      result = result.filter(item => item.project.id === filterProject);
-    }
     if (filterMember !== 'ALL') {
       result = result.filter(item => item.task.assignedTo === filterMember);
     }
@@ -67,15 +63,12 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
     });
 
     return result;
-  }, [allTasks, filterProject, filterMember, filterStatus, startDate, endDate]);
+  }, [allTasks, filterMember, filterStatus, startDate, endDate]);
 
   // Activity logs filtered for the progress report
   const progressLogs = useMemo(() => {
     let logs = activityLogs.filter(log => log.action === 'updated' && log.details && (log.details.includes('Status') || log.details.includes('Completed')));
 
-    if (filterProject !== 'ALL') {
-      logs = logs.filter(log => log.projectId === filterProject);
-    }
     if (filterMember !== 'ALL') {
       // Find the task to check assigned member, or use userId
       logs = logs.filter(log => {
@@ -95,7 +88,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
     // Sort newest first
     logs.sort((a, b) => b.timestamp - a.timestamp);
     return logs;
-  }, [activityLogs, filterProject, filterMember, startDate, endDate, allTasks]);
+  }, [activityLogs, filterMember, startDate, endDate, allTasks]);
 
   // Progress summary metrics
   const progressSummary = useMemo(() => {
@@ -142,7 +135,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
             <BarChart3 className="text-indigo-600" size={24} /> 
-            Reporting
+            Reports
           </h2>
           
           <div className="flex bg-slate-100 p-1 rounded-lg">
@@ -167,19 +160,6 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
 
         {/* Filters */}
         <div className="flex flex-wrap gap-4 items-end">
-          <div className="w-48">
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Project</label>
-            <select 
-              value={filterProject} 
-              onChange={e => setFilterProject(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="ALL">All Projects</option>
-              {projects.filter(p => !p.isArchived).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
           <div className="w-40">
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Member</label>
             <select 
@@ -229,7 +209,6 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
           </div>
           <button 
             onClick={() => {
-              setFilterProject('ALL');
               setFilterMember('ALL');
               setFilterStatus('ALL');
               const d = new Date();

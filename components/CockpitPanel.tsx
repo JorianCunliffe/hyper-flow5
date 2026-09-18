@@ -21,10 +21,10 @@ async function api(query: string, body?: unknown) {
   if (!response.ok) throw new Error(result.error || "Cockpit is unavailable");
   return result;
 }
-export const CockpitPanel: React.FC = () => {
+export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId }) => {
   const [view, setView] = useState<CockpitView>("today");
   const [party, setParty] = useState("");
-  const [project, setProject] = useState("");
+  const project = projectId || "";
   const [data, setData] = useState<
     | (OperatingSnapshot & {
         projects: Array<{ id: string; name: string }>;
@@ -48,6 +48,8 @@ export const CockpitPanel: React.FC = () => {
     let active = true;
     setBusy(true);
     setError("");
+    setData(null);
+    setAnswer("");
     api(`?${new URLSearchParams({ view, party, projectId: project })}`)
       .then((result) => {
         if (active) setData(result);
@@ -82,7 +84,7 @@ export const CockpitPanel: React.FC = () => {
   };
   return (
     <section className="mx-auto max-w-6xl space-y-5 p-6">
-      <h1 className="text-2xl font-bold">CEO cockpit</h1>
+      <h1 className="text-2xl font-bold">Cockpit</h1>
       <p>
         Accepted work, decisions and follow-up in one place. Communications
         remain source evidence; only explicit review changes what is owed.
@@ -129,24 +131,6 @@ export const CockpitPanel: React.FC = () => {
         ))}
       </nav>
       <div className="grid gap-3 md:grid-cols-2">
-        <label>
-          Project
-          <select
-            className={field}
-            value={project}
-            onChange={(e) => {
-              setProject(e.target.value);
-              setAnswer("");
-            }}
-          >
-            <option value="">All permitted projects</option>
-            {data?.projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           Person
           <select

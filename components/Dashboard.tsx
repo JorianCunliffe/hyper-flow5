@@ -63,7 +63,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto h-full overflow-y-auto">
       <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div><h2 className="text-2xl font-bold text-slate-800">Portfolio</h2><p className="mt-1 text-sm text-slate-500">See what needs attention across every active project.</p></div>
+        <div><h2 className="text-2xl font-bold text-slate-800">Projects</h2><p className="mt-1 text-sm text-slate-500">See what needs attention across every active project.</p></div>
         <div className="text-xs font-semibold text-slate-400">{summary.completed} of {summary.tasks} tasks completed</div>
       </div>
 

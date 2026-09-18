@@ -278,7 +278,8 @@ export const App: React.FC = () => {
 
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-  const [kanbanFilterProject, setKanbanFilterProject] = useState<string>('ALL');
+  const kanbanFilterProject = selectedProjectId || 'ALL';
+  const setKanbanFilterProject = (id: string) => setSelectedProjectId(id === 'ALL' ? null : id);
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
   const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
   const [kanbanFilterImportant, setKanbanFilterImportant] = useState<boolean>(false);
@@ -612,12 +613,10 @@ export const App: React.FC = () => {
 
   // View Context Logic
   useEffect(() => {
-    // If we enter a project, we default to standard view, but we should update kanban filters to match context
+    // Keep board grouping aligned with the shared project context.
     if (selectedProjectId) {
-      setKanbanFilterProject(selectedProjectId);
       setKanbanGrouping('member'); // Usually meaningful to see team breakdown within a project
     } else {
-      setKanbanFilterProject('ALL');
       setKanbanGrouping('project'); // Global view usually groups by project
     }
   }, [selectedProjectId]);
@@ -658,6 +657,9 @@ export const App: React.FC = () => {
     projects.filter(p => !p.isArchived),
     [projects]
   );
+
+  const scopedProjects = useMemo(() => selectedProjectId
+    ? activeProjects.filter(p => p.id === selectedProjectId) : activeProjects, [activeProjects, selectedProjectId]);
 
   const archivedProjects = useMemo(() => 
     projects.filter(p => p.isArchived),
@@ -2147,8 +2149,13 @@ export const App: React.FC = () => {
       )}
 
       <GlassNavigation key={`${currentOrgId}:${currentUser?.uid || 'local'}`} activeView={activeView} onNavigate={openView}
-        approvals={allOpenAsks.length} projects={activeProjects} selectedProjectId={selectedProjectId}
-        onProject={id => { setSelectedProjectId(id); openView('projects'); }}
+        approvals={allOpenAsks.filter(entry => !selectedProjectId || entry.project.id === selectedProjectId).length} projects={activeProjects} selectedProjectId={selectedProjectId}
+        onProject={id => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('obligation');
+          window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+          setSelectedProjectId(id);
+        }}
         onNewProject={() => setIsCreatingProject(true)} onSettings={() => setIsSettingsOpen(true)}
         signedIn={!!currentUser} storageKey={`hyperflow.nav-pins.v1:${currentOrgId}:${currentUser?.uid || 'local'}`}
         onLogout={() => { void firebaseService.logout(); }}
@@ -2339,13 +2346,13 @@ export const App: React.FC = () => {
 
         {/* MAIN VIEW CONTENT */}
         {isTenantMode ? (<TenantOperationsPanel key={currentOrgId || 'none'} />) : isPublishingMode ? (<PublishingPanel key={currentOrgId || 'none'} />) : isArtifactsMode ? (<ArtifactsPanel key={currentOrgId || 'none'} />) : isDiaryMode ? (<DiaryPanel key={currentOrgId || 'none'} />) : isCockpitMode ? (
-          <CockpitPanel key={currentOrgId || 'none'} />
+          <CockpitPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} projectId={selectedProjectId} />
         ) : isFlowsMode ? (
           <VisibleFlowsPanel key={currentOrgId || 'none'} projects={projects} />
         ) : isMeetingsMode ? (
           <MeetingsPanel key={currentOrgId || 'none'} orgId={currentOrgId || ''} projects={projects} onOpenObligations={()=>openView('obligations')} />
         ) : isObligationsMode ? (
-          <CommitmentsPanel key={currentOrgId || 'none'} orgId={currentOrgId || ''} projects={projects} initialId={new URLSearchParams(window.location.search).get('obligation')||undefined} />
+          <CommitmentsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} orgId={currentOrgId || ''} projects={projects} projectId={selectedProjectId} initialId={new URLSearchParams(window.location.search).get('obligation')||undefined} />
         ) : isTriageMode ? (
           <TriageInbox />
         ) : isScratchMode ? (
@@ -2404,8 +2411,8 @@ export const App: React.FC = () => {
           />
         ) : isFeedMode ? (
           <FeedView 
-            activityLogs={activityLogs} 
-            projects={activeProjects} 
+            activityLogs={activityLogs.filter(log => !selectedProjectId || log.projectId === selectedProjectId)}
+            projects={scopedProjects}
             currentUser={currentUser} 
             settings={settings}
             onTaskClick={(projectId, taskId) => {
@@ -2424,14 +2431,14 @@ export const App: React.FC = () => {
           />
         ) : isApprovalsMode ? (
           <ApprovalsView 
-            projects={activeProjects} 
+            projects={scopedProjects}
             currentUser={currentUser} 
             settings={settings}
             onEditTask={(projectId, milestoneId, subtaskIndex) => {
               setSelectedProjectId(projectId);
               setIsEditingSubtask({ mId: milestoneId, sIdx: subtaskIndex });
             }}
-            openAsks={allOpenAsks}
+            openAsks={allOpenAsks.filter(entry => !selectedProjectId || entry.project.id === selectedProjectId)}
             onReviewAsk={(projectId, nodeId, askId) => {
               setSelectedProjectId(projectId);
               setReviewingAsk({ projectId, nodeId, askId });
@@ -2439,9 +2446,9 @@ export const App: React.FC = () => {
           />
         ) : isReportingMode ? (
           <ReportingView 
-            projects={activeProjects} 
+            projects={scopedProjects}
             settings={settings}
-            activityLogs={activityLogs}
+            activityLogs={activityLogs.filter(log => !selectedProjectId || log.projectId === selectedProjectId)}
             onTaskClick={(projectId, taskId) => {
               const project = projects.find(p => p.id === projectId);
               if (project) {
@@ -2474,7 +2481,7 @@ export const App: React.FC = () => {
                   setKanbanFilterLate(focus === 'late');
                   setKanbanFilterMember(focus === 'unassigned' ? 'Unassigned' : 'ALL');
                   setKanbanFilterRole('ALL');
-                  setKanbanFilterProject('ALL');
+                  setSelectedProjectId(null);
                   openView('kanban');
                 }}
               />

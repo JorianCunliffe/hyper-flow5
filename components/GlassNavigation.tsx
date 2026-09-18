@@ -13,7 +13,7 @@ import {
   X,
   ChevronRight,
 } from "lucide-react";
-import type { AppView } from "../lib/appView";
+import { hasProjectContext, type AppView } from "../lib/appView";
 import "./GlassNavigation.css";
 
 const groups: { name: string; icon: typeof Sun; pages: [AppView, string][] }[] =
@@ -105,6 +105,7 @@ export function GlassNavigation(p: Props) {
     groups.findIndex((g) => g.pages.some(([id]) => id === p.activeView)),
   );
   const current = pages.find((v) => v.id === p.activeView)!;
+  const projectScoped = hasProjectContext(p.activeView);
   useEffect(() => {
     if (panel) dialog.current?.showModal();
     else if (dialog.current?.open) {
@@ -217,7 +218,7 @@ export function GlassNavigation(p: Props) {
             <ChevronRight size={13} />
             <strong>{current.label}</strong>
           </div>
-          <label className="hf-project">
+          {projectScoped ? <label className="hf-project">
             <span className="sr-only">Switch project</span>
             <select
               aria-label="Switch project"
@@ -231,7 +232,7 @@ export function GlassNavigation(p: Props) {
                 </option>
               ))}
             </select>
-          </label>
+          </label> : <span className="hf-workspace-scope">Workspace-wide view</span>}
           <nav className="hf-pins" aria-label="Pinned shortcuts">
             {pins.map((id) => (
               <button
@@ -244,6 +245,13 @@ export function GlassNavigation(p: Props) {
             ))}
           </nav>
         </div>
+        <nav className="hf-section-pages" aria-label={`${current.group} pages`}>
+          {groups[activeIndex].pages.map(([id, label]) => (
+            <button key={id} aria-current={p.activeView === id ? "page" : undefined} onClick={() => go(id)}>
+              {label}
+            </button>
+          ))}
+        </nav>
       </header>
       <dialog
         ref={dialog}
@@ -305,7 +313,7 @@ export function GlassNavigation(p: Props) {
                 .map((v) => (
                   <button
                     key={v.id}
-                    onClick={() => action(() => p.onProject(v.id))}
+                    onClick={() => action(() => { p.onProject(v.id); p.onNavigate("projects"); })}
                   >
                     <span>{v.name}</span>
                     <small>Project</small>
