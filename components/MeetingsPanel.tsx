@@ -1,3 +1,4 @@
+import { useProjectScope } from './ProjectScope';
 import React, { useEffect, useState } from "react";
 import type { Project } from "../types";
 import type {
@@ -43,10 +44,13 @@ export const MeetingsPanel: React.FC<{
   projects: Project[];
   onOpenObligations: () => void;
 }> = ({ orgId, projects, onOpenObligations }) => {
+  const scope = useProjectScope();
+  const inContext = (row: MeetingRecord) => !scope?.projectId || row.metadata.topics.some(topic => topic.projectId === scope.projectId);
+  const newDraft = () => { const draft = blank(); if (scope?.projectId) draft.topics[0].projectId = scope.projectId; return draft; };
   const [rows, setRows] = useState<MeetingRecord[]>([]),
     [next, setNext] = useState<number | null>(null),
     [selected, setSelected] = useState<MeetingRecord | null>(null);
-  const [draft, setDraft] = useState<MeetingInput>(blank),
+  const [draft, setDraft] = useState<MeetingInput>(newDraft),
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -64,7 +68,7 @@ export const MeetingsPanel: React.FC<{
     setBusy(true);
     setRows([]);
     setSelected(null);
-    setDraft(blank());
+    setDraft(newDraft());
     setError("");
     setCandidates([]);
     api("/api/meetings")
@@ -229,8 +233,8 @@ export const MeetingsPanel: React.FC<{
       )}
       <div className="grid gap-5 lg:grid-cols-2">
         <div>
-          {!rows.length && !busy && <p>No meetings in this permitted page.</p>}
-          {rows.map((row) => (
+          {!rows.filter(inContext).length && !busy && <p>No meetings in this permitted page.</p>}
+          {rows.filter(inContext).map((row) => (
             <button
               key={row.id}
               className="mb-3 w-full rounded-xl border bg-white p-4 text-left"

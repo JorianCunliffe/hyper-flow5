@@ -1,3 +1,4 @@
+import { useProjectScope, useScopedProject } from './ProjectScope';
 import React, { useEffect, useState } from "react";
 import type { Project } from "../types";
 import type { FlowPlan, FlowRecord } from "../lib/visibleFlows/model";
@@ -29,7 +30,8 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
   const [selectedRecord, setSelectedRecord] = useState<FlowRecord | null>(null);
   const [nextPage, setNextPage] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Record<string, any>>({});
-  const [projectId, setProjectId] = useState("");
+  const scope = useProjectScope();
+  const [projectId, setProjectId] = useScopedProject();
   const [prompt, setPrompt] = useState("");
   const [proposal, setProposal] = useState<FlowPlan | null>(null);
   const [selectedId, setSelectedId] = useState(
@@ -47,13 +49,13 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
     api(undefined, "/api/flows?shape=summary")
       .then((r) => {
         if (active) {
-          setItems(r.items);
+          setItems((r.items || []).filter((row: FlowRecord) => !scope?.projectId || row.projectId === scope.projectId));
           setNextPage(r.next || null);
           setCatalog(r.catalog);
           const focused = r.items.find(
             (row: FlowRecord) => row.id === selectedId,
           );
-          if (focused) setProjectId(focused.projectId);
+          if (focused && !scope) setProjectId(focused.projectId);
         }
       })
       .catch((e) => {
@@ -70,8 +72,9 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
       api(undefined, `/api/flows?id=${encodeURIComponent(selectedId)}`)
         .then((r) => {
           if (live) {
+            if (scope?.projectId && r.item.projectId !== scope.projectId) throw new Error('This flow belongs to a different project.');
             setSelectedRecord(r.item);
-            setProjectId(r.item.projectId);
+            if (!scope) setProjectId(r.item.projectId);
             setItems((old) =>
               old.some((i) => i.id === r.item.id) ? old : [...old, r.item],
             );
@@ -136,7 +139,7 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
     );
   return (
     <section className="mx-auto max-w-6xl space-y-5 p-6">
-      <h1 className="text-2xl font-bold">Visible flows</h1>
+      <h1 className="text-2xl font-bold">Automations</h1>
       <p>
         Describe the busy work, review the steps, then approve a version. Email
         actions create drafts. SMS and phone steps make real contact when
@@ -149,6 +152,7 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
       )}
       {notice && <p role="status">{notice}</p>}
       <div className="grid gap-4 rounded-xl border p-4">
+        {!scope && <>
         <label>
           Project
           <select
@@ -169,6 +173,8 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
             ))}
           </select>
         </label>
+        </>}
+        {scope && !projectId && <p className="text-sm text-slate-600">Viewing flows across all projects. Select a project above to propose a new flow.</p>}
         <label>
           What should this flow do?
           <textarea
@@ -197,7 +203,7 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
             setSelectedId(e.target.value);
             setProposal(null);
             const row = items.find((i) => i.id === e.target.value);
-            if (row) setProjectId(row.projectId);
+            if (row && !scope) setProjectId(row.projectId);
           }}
         >
           <option value="">Choose a saved flow</option>
@@ -215,7 +221,7 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
           setBusy(true);
           try {
             const result = await api(undefined, "/api/flows?shape=summary");
-            setItems(result.items);
+            setItems((result.items || []).filter((row: FlowRecord) => !scope?.projectId || row.projectId === scope.projectId));
             setNextPage(result.next || null);
             if (selectedId) {
               const detail = await api(
@@ -253,7 +259,7 @@ export const VisibleFlowsPanel: React.FC<{ projects: Project[] }> = ({
               setItems((old) => [
                 ...old,
                 ...result.items.filter(
-                  (row: any) => !old.some((item) => item.id === row.id),
+                  (row: any) => (!scope?.projectId || row.projectId === scope.projectId) && !old.some((item) => item.id === row.id),
                 ),
               ]);
               setNextPage(result.next || null);

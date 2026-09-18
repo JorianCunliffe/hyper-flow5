@@ -1,3 +1,6 @@
+import { ViewOptions } from './components/ViewOptions';
+import { ViewBoundary } from './components/ViewBoundary';
+import { ProjectScopeContext } from './components/ProjectScope';
 import { mergeCloudEdits } from './lib/cloudMerge';
 import { GlassNavigation } from './components/GlassNavigation';
 import { TenantLifecyclePanel } from './components/TenantLifecyclePanel';
@@ -196,7 +199,7 @@ export const getMilestoneDurationInDays = (milestone: Milestone, project: Projec
 
 const initialAppView = (): AppView => {
   if (typeof window === 'undefined') return 'projects';
-  return parseAppView(new URLSearchParams(window.location.search).get('view'));
+  return parseAppView(new URLSearchParams(window.location.search).get('view') || 'cockpit');
 };
 
 export const App: React.FC = () => {
@@ -212,7 +215,7 @@ export const App: React.FC = () => {
       if(nextOrg!==authOrgRef.current || !firebaseService.getCurrentUser()){
         localStorage.removeItem(BACKUP_KEY);
         isRemoteUpdate.current=true;isDbInitialized.current=false;
-        setIsDataLoaded(false);setProjects([]);setScratchTasks([]);setActivityLogs([]);setSettings(DEFAULT_SETTINGS);
+        setIsDataLoaded(false);setSelectedProjectId(null);setProjects([]);setScratchTasks([]);setActivityLogs([]);setSettings(DEFAULT_SETTINGS);
       }
       authOrgRef.current=nextOrg;
       setAccessRevoked(Boolean((event as CustomEvent).detail?.accessRevoked));
@@ -249,7 +252,7 @@ export const App: React.FC = () => {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('project'));
   const [showSubtasks, setShowSubtasks] = useState(true);
   const [hoveredMilestoneId, setHoveredMilestoneId] = useState<string | null>(null);
 
@@ -279,7 +282,6 @@ export const App: React.FC = () => {
   const [scratchTasks, setScratchTasks] = useState<ScratchTask[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const kanbanFilterProject = selectedProjectId || 'ALL';
-  const setKanbanFilterProject = (id: string) => setSelectedProjectId(id === 'ALL' ? null : id);
   const [kanbanFilterMember, setKanbanFilterMember] = useState<string>('ALL');
   const [kanbanFilterRole, setKanbanFilterRole] = useState<string>('ALL');
   const [kanbanFilterImportant, setKanbanFilterImportant] = useState<boolean>(false);
@@ -307,6 +309,19 @@ export const App: React.FC = () => {
     else url.searchParams.set('view', view);
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   }, []);
+
+  const changeProjectContext = useCallback((id: string | null) => {
+    const url = new URL(window.location.href);
+    for (const key of ['obligation', 'flow', 'artifact', 'triage', 'digest', 'coaching']) url.searchParams.delete(key);
+    if (id) url.searchParams.set('project', id); else url.searchParams.delete('project');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    setSelectedProjectId(id);
+  }, []);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selectedProjectId) url.searchParams.set('project', selectedProjectId); else url.searchParams.delete('project');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [selectedProjectId]);
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -657,6 +672,10 @@ export const App: React.FC = () => {
     projects.filter(p => !p.isArchived),
     [projects]
   );
+
+  useEffect(() => {
+    if (isDataLoaded && selectedProjectId && !activeProjects.some(project => project.id === selectedProjectId)) changeProjectContext(null);
+  }, [isDataLoaded, activeProjects, selectedProjectId, changeProjectContext]);
 
   const scopedProjects = useMemo(() => selectedProjectId
     ? activeProjects.filter(p => p.id === selectedProjectId) : activeProjects, [activeProjects, selectedProjectId]);
@@ -2134,6 +2153,7 @@ export const App: React.FC = () => {
   }
 
   return (
+    <ProjectScopeContext.Provider value={{ projectId: selectedProjectId, projects: activeProjects, onProject: changeProjectContext }}>
     <div className="h-screen w-screen flex flex-col text-slate-900 bg-slate-50 overflow-hidden">
       {/* ERROR BANNER */}
       {syncError && cloudStatus === 'error' && (
@@ -2150,12 +2170,7 @@ export const App: React.FC = () => {
 
       <GlassNavigation key={`${currentOrgId}:${currentUser?.uid || 'local'}`} activeView={activeView} onNavigate={openView}
         approvals={allOpenAsks.filter(entry => !selectedProjectId || entry.project.id === selectedProjectId).length} projects={activeProjects} selectedProjectId={selectedProjectId}
-        onProject={id => {
-          const url = new URL(window.location.href);
-          url.searchParams.delete('obligation');
-          window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
-          setSelectedProjectId(id);
-        }}
+        onProject={changeProjectContext}
         onNewProject={() => setIsCreatingProject(true)} onSettings={() => setIsSettingsOpen(true)}
         signedIn={!!currentUser} storageKey={`hyperflow.nav-pins.v1:${currentOrgId}:${currentUser?.uid || 'local'}`}
         onLogout={() => { void firebaseService.logout(); }}
@@ -2192,171 +2207,34 @@ export const App: React.FC = () => {
                   }
                 }}
       />
-      <div className="md:hidden shrink-0">         {isKanbanMode && <div className="p-2 flex gap-2 overflow-x-auto">
-             <select 
-               className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-               value={kanbanFilterProject}
-               onChange={(e) => setKanbanFilterProject(e.target.value)}
-             >
-               <option value="ALL">All Projects</option>
-               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-             </select>
-
-             <select 
-               className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-               value={kanbanFilterMember}
-               onChange={(e) => setKanbanFilterMember(e.target.value)}
-             >
-               <option value="ALL">All Members</option>
-               <option value="Unassigned">Unassigned</option>
-               {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
-             </select>
-
-             {(settings.roles || []).length > 0 && (
-               <select 
-                 className="flex-1 min-w-[140px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-                 value={kanbanFilterRole}
-                 onChange={(e) => setKanbanFilterRole(e.target.value)}
-               >
-                 <option value="ALL">All Roles</option>
-                 {(settings.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
-               </select>
-             )}
-             
-             <button
-               onClick={() => setKanbanFilterImportant(!kanbanFilterImportant)}
-               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterImportant ? 'bg-amber-50 text-amber-600 border-amber-200 ring-1 ring-amber-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-             >
-               <AlertTriangle size={14} className={kanbanFilterImportant ? "fill-amber-100" : ""} />
-               Important
-             </button>
-
-             <button
-               onClick={() => setKanbanFilterToday(!kanbanFilterToday)}
-               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterToday ? 'bg-indigo-50 text-indigo-600 border-indigo-200 ring-1 ring-indigo-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-             >
-               <Calendar size={14} />
-               Today
-             </button>
-
-             <button
-               onClick={() => setKanbanFilterLate(!kanbanFilterLate)}
-               className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition-all shrink-0 ${kanbanFilterLate ? 'bg-red-50 text-red-600 border-red-200 ring-1 ring-red-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-             >
-               <Clock size={14} />
-               Late
-             </button>
-         </div>}
-      </div>
-
       <main className="hf-app-content flex-1 overflow-hidden relative flex flex-col">
-        {/* DESKTOP KANBAN CONTROLS BAR (Hidden on Mobile) */}
-        {isKanbanMode && (
-          <div className="hidden md:flex bg-white border-b border-slate-200 px-6 py-3 flex-wrap items-center gap-4 shrink-0 shadow-sm z-20">
-             <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                <span className="uppercase text-[10px] font-bold tracking-wider text-slate-400">View By:</span>
-                <div className="flex bg-slate-100 rounded-lg p-0.5">
-                   <button 
-                     onClick={() => setKanbanGrouping('project')}
-                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'project' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                   >
-                     <Briefcase size={12} /> Project
-                   </button>
-                   <button 
-                     onClick={() => setKanbanGrouping('member')}
-                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${kanbanGrouping === 'member' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                   >
-                     <Users size={12} /> Member
-                   </button>
-                </div>
-             </div>
-             
-             <div className="h-6 w-px bg-slate-200 mx-2" />
-             
-             <div className="flex items-center gap-2">
-               <select 
-                 className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-                 value={kanbanFilterProject}
-                 onChange={(e) => setKanbanFilterProject(e.target.value)}
-               >
-                 <option value="ALL">All Projects</option>
-                 {activeProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-               </select>
-
-               {kanbanFilterProject !== 'ALL' && (
-                 <button 
-                   onClick={() => setEditingProject(activeProjects.find(p => p.id === kanbanFilterProject)!)} 
-                   className="flex items-center gap-1.5 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 hover:border-indigo-200 bg-white shadow-sm text-xs font-bold uppercase tracking-wider" 
-                   title="Edit Project Settings"
-                 >
-                   <Settings size={14} />
-                   Project Settings
-                 </button>
-               )}
-
-               <select 
-                 className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-                 value={kanbanFilterMember}
-                 onChange={(e) => setKanbanFilterMember(e.target.value)}
-               >
-                 <option value="ALL">All Members</option>
-                 <option value="Unassigned">Unassigned</option>
-                 {(settings.people || []).map(p => <option key={p} value={p}>{p}</option>)}
-               </select>
-
-               {(settings.roles || []).length > 0 && (
-                 <select 
-                   className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-                   value={kanbanFilterRole}
-                   onChange={(e) => setKanbanFilterRole(e.target.value)}
-                 >
-                   <option value="ALL">All Roles</option>
-                   {(settings.roles || []).map(r => <option key={r} value={r}>{r}</option>)}
-                 </select>
-               )}
-
-               <div className="h-4 w-px bg-slate-200 mx-1" />
-
-               <button
-                 onClick={() => setKanbanFilterImportant(!kanbanFilterImportant)}
-                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterImportant ? 'bg-amber-50 text-amber-600 border-amber-200 ring-1 ring-amber-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-               >
-                 <AlertTriangle size={14} className={kanbanFilterImportant ? "fill-amber-100" : ""} />
-                 Important
-               </button>
-
-               <button
-                 onClick={() => setKanbanFilterToday(!kanbanFilterToday)}
-                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterToday ? 'bg-indigo-50 text-indigo-600 border-indigo-200 ring-1 ring-indigo-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-               >
-                 <Calendar size={14} />
-                 Today
-               </button>
-
-               <button
-                 onClick={() => setKanbanFilterLate(!kanbanFilterLate)}
-                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${kanbanFilterLate ? 'bg-red-50 text-red-600 border-red-200 ring-1 ring-red-300' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-               >
-                 <Clock size={14} />
-                 Late
-               </button>
-             </div>
-          </div>
-        )}
-
+        {isKanbanMode && <ViewOptions>
+          <details className="hf-filter-menu"><summary>Filters{(kanbanFilterMember !== 'ALL' || kanbanFilterRole !== 'ALL' || kanbanFilterImportant || kanbanFilterToday || kanbanFilterLate) ? ' •' : ''}</summary>
+            <div className="hf-filter-fields">
+              <label>Group by<select aria-label="Board grouping" value={kanbanGrouping} onChange={event => setKanbanGrouping(event.target.value as 'project' | 'member')}><option value="project">Project</option><option value="member">Person</option></select></label>
+              <label>Person<select aria-label="Board person" value={kanbanFilterMember} onChange={event => setKanbanFilterMember(event.target.value)}><option value="ALL">Everyone</option><option value="Unassigned">Unassigned</option>{(settings.people || []).map(person => <option key={person}>{person}</option>)}</select></label>
+              <label>Role<select aria-label="Board role" value={kanbanFilterRole} onChange={event => setKanbanFilterRole(event.target.value)}><option value="ALL">All roles</option>{(settings.roles || []).map(role => <option key={role}>{role}</option>)}</select></label>
+              <label><input type="checkbox" checked={kanbanFilterImportant} onChange={event => setKanbanFilterImportant(event.target.checked)}/> Important</label>
+              <label><input type="checkbox" checked={kanbanFilterToday} onChange={event => setKanbanFilterToday(event.target.checked)}/> Due today</label>
+              <label><input type="checkbox" checked={kanbanFilterLate} onChange={event => setKanbanFilterLate(event.target.checked)}/> Overdue</label>
+              <button onClick={() => { setKanbanFilterMember('ALL'); setKanbanFilterRole('ALL'); setKanbanFilterImportant(false); setKanbanFilterToday(false); setKanbanFilterLate(false); }}>Clear filters</button>
+            </div>
+          </details>
+        </ViewOptions>}
+        <ViewBoundary key={activeView}>
         {/* MAIN VIEW CONTENT */}
-        {isTenantMode ? (<TenantOperationsPanel key={currentOrgId || 'none'} />) : isPublishingMode ? (<PublishingPanel key={currentOrgId || 'none'} />) : isArtifactsMode ? (<ArtifactsPanel key={currentOrgId || 'none'} />) : isDiaryMode ? (<DiaryPanel key={currentOrgId || 'none'} />) : isCockpitMode ? (
+        {isTenantMode ? (<TenantOperationsPanel key={currentOrgId || 'none'} />) : isPublishingMode ? (<PublishingPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isArtifactsMode ? (<ArtifactsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isDiaryMode ? (<DiaryPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isCockpitMode ? (
           <CockpitPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} projectId={selectedProjectId} />
         ) : isFlowsMode ? (
-          <VisibleFlowsPanel key={currentOrgId || 'none'} projects={projects} />
+          <VisibleFlowsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} projects={projects} />
         ) : isMeetingsMode ? (
-          <MeetingsPanel key={currentOrgId || 'none'} orgId={currentOrgId || ''} projects={projects} onOpenObligations={()=>openView('obligations')} />
+          <MeetingsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} orgId={currentOrgId || ''} projects={projects} onOpenObligations={()=>openView('obligations')} />
         ) : isObligationsMode ? (
           <CommitmentsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} orgId={currentOrgId || ''} projects={projects} projectId={selectedProjectId} initialId={new URLSearchParams(window.location.search).get('obligation')||undefined} />
         ) : isTriageMode ? (
-          <TriageInbox />
+          <TriageInbox key={`${currentOrgId}:${selectedProjectId || 'all'}`} />
         ) : isScratchMode ? (
-          <Scratchpad 
+          <Scratchpad key={`${currentOrgId}:${selectedProjectId || 'all'}`}
             scratchTasks={scratchTasks.filter(t => t.createdBy === currentUser?.uid || t.createdBy === currentUser?.email || !t.createdBy)}
             onUpdateScratchTasks={(newFiltered) => {
               setScratchTasks(prev => {
@@ -2809,6 +2687,7 @@ export const App: React.FC = () => {
             )}
           </>
         )}
+        </ViewBoundary>
       </main>
 
       {/* Modals */}
@@ -2941,5 +2820,6 @@ export const App: React.FC = () => {
         v1.260505
       </div>
     </div>
+    </ProjectScopeContext.Provider>
   );
 };

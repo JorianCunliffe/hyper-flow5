@@ -1,3 +1,4 @@
+import { ViewOptions } from './ViewOptions';
 import React, { useState, useMemo } from 'react';
 import { Project, AppSettings, Subtask, Milestone, ActivityLog } from '../types';
 import { BarChart3, Filter, Calendar, CheckCircle2, Circle, AlertCircle, Clock, Activity, Target } from 'lucide-react';
@@ -138,24 +139,7 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
             Reports
           </h2>
           
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            <button
-              onClick={() => setActiveTab('progress')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-all ${
-                activeTab === 'progress' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Activity size={16} /> Progress Report
-            </button>
-            <button
-              onClick={() => setActiveTab('current')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold transition-all ${
-                activeTab === 'current' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Target size={16} /> Current State
-            </button>
-          </div>
+          <ViewOptions><select aria-label="Report type" value={activeTab} onChange={event => setActiveTab(event.target.value as 'current' | 'progress')}><option value="progress">Progress</option><option value="current">Current state</option></select></ViewOptions>
         </div>
 
         {/* Filters */}

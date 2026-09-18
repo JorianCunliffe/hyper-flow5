@@ -1,3 +1,4 @@
+import { useProjectScope, useScopedProject, ProjectDirectory } from './ProjectScope';
 import React, { useEffect, useState } from "react";
 import { firebaseService } from "../services/firebaseService";
 const field =
@@ -5,10 +6,9 @@ const field =
 const button =
   "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40";
 export function PublishingPanel() {
+  const scope = useProjectScope();
+  const [projectId, setProject] = useScopedProject(new URLSearchParams(window.location.search).get('project') || '');
   const [projects, setProjects] = useState<any[]>([]),
-    [projectId, setProject] = useState(
-      () => new URLSearchParams(location.search).get("project") || "",
-    ),
     [data, setData] = useState<any>({ items: [], targets: [], adapters: [] }),
     [item, setItem] = useState<any>(null),
     [title, setTitle] = useState(""),
@@ -130,6 +130,7 @@ export function PublishingPanel() {
           {error}
         </p>
       )}
+      {scope ? <ProjectDirectory purpose="Select a project to create and review its documents and publishing work." /> : <>
       <label>
         Project{" "}
         <select
@@ -146,6 +147,7 @@ export function PublishingPanel() {
           ))}
         </select>
       </label>
+      </>}
       {projectId && (
         <>
           <p className="rounded border border-slate-300 p-3">

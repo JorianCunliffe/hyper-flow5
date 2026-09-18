@@ -1,3 +1,4 @@
+import { useProjectScope } from './ProjectScope';
 import React, { useState } from 'react';
 import { Project, ScratchTask, Subtask, Milestone, AppSettings } from '../types';
 import { Plus, Edit2, Check, Trash2, ArrowRight } from 'lucide-react';
@@ -12,8 +13,10 @@ interface ScratchpadProps {
 }
 
 export const Scratchpad: React.FC<ScratchpadProps> = ({ scratchTasks, onUpdateScratchTasks, projects, settings, onPromoteTask }) => {
+  const scope = useProjectScope();
+  const visibleTasks = scratchTasks.filter(task => !scope?.projectId || task.projectId === scope.projectId);
   const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskProject, setNewTaskProject] = useState('');
+  const [newTaskProject, setNewTaskProject] = useState(scope?.projectId || '');
   const [editingTask, setEditingTask] = useState<ScratchTask | null>(null);
 
   // Edit modal state
@@ -118,12 +121,12 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({ scratchTasks, onUpdateSc
 
           {/* Task List */}
           <div className="space-y-2">
-            {scratchTasks.length === 0 ? (
+            {visibleTasks.length === 0 ? (
               <div className="text-center py-10 bg-white border border-dashed border-slate-300 rounded-2xl">
                 <p className="text-slate-400 font-medium">No tasks in scratchpad</p>
               </div>
             ) : (
-              [...scratchTasks].sort((a,b) => b.createdAt - a.createdAt).map(task => {
+              [...visibleTasks].sort((a,b) => b.createdAt - a.createdAt).map(task => {
                 const project = projects.find(p => p.id === task.projectId);
                 return (
                   <div key={task.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-3 md:p-4 flex flex-col md:flex-row gap-3 md:items-center hover:border-indigo-200 transition-colors group">

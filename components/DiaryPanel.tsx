@@ -1,3 +1,4 @@
+import { useProjectScope, useScopedProject, ProjectDirectory } from './ProjectScope';
 import React, { useEffect, useState } from "react";
 import { firebaseService } from "../services/firebaseService";
 import { calendarInstant, calendarWallTime } from "../lib/calendar/time";
@@ -11,8 +12,9 @@ const field =
 const button =
   "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40";
 export function DiaryPanel() {
+  const scope = useProjectScope();
+  const [projectId, setProjectId] = useScopedProject();
   const [data, setData] = useState<any>(null),
-    [projectId, setProjectId] = useState(""),
     [calendarKey, setCalendarKey] = useState(""),
     [connectionId, setConnectionId] = useState(""),
     [calendars, setCalendars] = useState<any[]>([]),
@@ -95,7 +97,7 @@ export function DiaryPanel() {
       : "Not available";
   return (
     <section className="mx-auto max-w-6xl space-y-5 p-6">
-      <h1 className="text-2xl font-bold">Diary</h1>
+      <h1 className="text-2xl font-bold">Calendar</h1>
       <p>
         Inspect availability, propose a change and approve its exact details
         before booking. Calendar context is shared through Communications;
@@ -107,7 +109,9 @@ export function DiaryPanel() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      <ProjectDirectory purpose="Select a project to view its calendars, appointments and booking approvals." />
       <div className="grid gap-3 md:grid-cols-2">
+        {!scope && <>
         <label>
           Project
           <select
@@ -130,6 +134,7 @@ export function DiaryPanel() {
             ))}
           </select>
         </label>
+        </>}
         <label>
           Configured calendar
           <select

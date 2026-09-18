@@ -1,3 +1,4 @@
+import { useProjectScope, useScopedProject, ProjectDirectory } from './ProjectScope';
 import React, { useEffect, useState } from "react";
 import { firebaseService } from "../services/firebaseService";
 import type { ArtifactJob, ArtifactTemplate } from "../lib/artifacts/model";
@@ -6,10 +7,9 @@ const field =
 const button =
   "rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40";
 export function ArtifactsPanel() {
+  const scope = useProjectScope();
+  const [projectId, setProjectId] = useScopedProject(new URLSearchParams(window.location.search).get('project') || '');
   const [projects, setProjects] = useState<any[]>([]),
-    [projectId, setProjectId] = useState(
-      () => new URLSearchParams(window.location.search).get("project") || "",
-    ),
     [data, setData] = useState<any>({ items: [], templates: [] }),
     [selected, setSelected] = useState<any>(null),
     [template, setTemplate] = useState("weekly-docx@1"),
@@ -155,6 +155,7 @@ export function ArtifactsPanel() {
           {error}
         </p>
       )}
+      {scope ? <ProjectDirectory purpose="Select a project to create and review its documents and publishing work." /> : <>
       <label className="block">
         Project{" "}
         <select
@@ -172,6 +173,7 @@ export function ArtifactsPanel() {
           ))}
         </select>
       </label>
+      </>}
       {projectId && (
         <>
           <div className="flex flex-wrap gap-4">

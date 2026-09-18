@@ -1,3 +1,4 @@
+import { ViewOptions } from './ViewOptions';
 import React, { useEffect, useState } from "react";
 import type { OperatingSnapshot, CockpitView } from "../lib/cockpit/model";
 import type { ContactWindow } from "../lib/cockpit/contactPolicy";
@@ -84,7 +85,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
   };
   return (
     <section className="mx-auto max-w-6xl space-y-5 p-6">
-      <h1 className="text-2xl font-bold">Cockpit</h1>
+      <h1 className="text-2xl font-bold">Overview</h1>
       <p>
         Accepted work, decisions and follow-up in one place. Communications
         remain source evidence; only explicit review changes what is owed.
@@ -94,42 +95,10 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
           {error}
         </p>
       )}
-      <nav aria-label="Operating views" className="flex flex-wrap gap-2">
-        {(
-          [
-            "today",
-            "decisions",
-            "produce",
-            "waiting",
-            "contacts",
-            "flows",
-            "all",
-          ] as CockpitView[]
-        ).map((v) => (
-          <button
-            key={v}
-            className={button}
-            aria-pressed={view === v}
-            disabled={busy}
-            onClick={() => {
-              setView(v);
-              setAnswer("");
-            }}
-          >
-            {
-              {
-                today: "Today",
-                decisions: "Decisions",
-                produce: "Produce",
-                waiting: "Waiting on",
-                contacts: "Contacts",
-                flows: "Active flows",
-                all: "All work",
-              }[v]
-            }
-          </button>
-        ))}
-      </nav>
+      <ViewOptions><select aria-label="Overview filter" value={view} disabled={busy} onChange={event => { setView(event.target.value as CockpitView); setAnswer(''); }}>
+        <option value="today">Today</option><option value="decisions">Decisions</option><option value="produce">To produce</option><option value="waiting">Waiting on</option><option value="contacts">Contacts</option><option value="flows">Active flows</option><option value="all">All work</option>
+      </select></ViewOptions>
+
       <div className="grid gap-3 md:grid-cols-2">
         <label>
           Person

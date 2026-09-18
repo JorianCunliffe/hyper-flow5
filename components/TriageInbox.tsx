@@ -1,3 +1,6 @@
+import { ViewOptions } from './ViewOptions';
+import { useProjectScope } from './ProjectScope';
+import { inProjectContext, jobInProjectContext } from '../lib/projectContext';
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertCircle, Archive, BrainCircuit, ChevronRight, Clock3, FileText, Filter, Inbox, Mail, MessageSquareReply, RefreshCw, Search, ShieldAlert } from 'lucide-react';
 import type { AgentInboxJob, CoachingSession, ExternalActionReceipt, TenantSchedule, TriageDigest, TriageDisposition, TriageItem } from '../types';
@@ -53,6 +56,8 @@ const updateLocationSelection = (selection: TriageSelection | null) => {
 const initialViewTab = (): ViewTab => new URLSearchParams(window.location.search).get('activity') === 'coaching' ? 'coaching' : 'emails';
 
 export const TriageInbox: React.FC = () => {
+  const scope = useProjectScope();
+  const scopeId = scope?.projectId;
   const [items, setItems] = useState<TriageItem[]>([]);
   const [digests, setDigests] = useState<TriageDigest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,8 +89,8 @@ export const TriageInbox: React.FC = () => {
       ]);
       if (!triageResponse.ok) throw new Error(await responseError(triageResponse));
       const body = await triageResponse.json();
-      const nextItems = Array.isArray(body.data) ? body.data : [];
-      const nextDigests = Array.isArray(body.digests) ? body.digests : [];
+      const nextItems = (Array.isArray(body.data) ? body.data : []).filter(item => inProjectContext(item, scopeId));
+      const nextDigests = (Array.isArray(body.digests) ? body.digests : []).filter(item => inProjectContext(item, scopeId));
       setItems(nextItems);
       setDigests(nextDigests);
       setSelection(current => {
@@ -102,10 +107,10 @@ export const TriageInbox: React.FC = () => {
       if (operationsResponse.ok) {
         const snapshot = await operationsResponse.json();
         const nextOperations = {
-          agentJobs: Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [],
-          coachingSessions: Array.isArray(snapshot.coachingSessions) ? snapshot.coachingSessions : [],
-          externalActions: Array.isArray(snapshot.externalActions) ? snapshot.externalActions : [],
-          schedules: Array.isArray(snapshot.schedules) ? snapshot.schedules : []
+          agentJobs: (Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : []).filter(job => jobInProjectContext(job, scopeId, nextItems)),
+          coachingSessions: (Array.isArray(snapshot.coachingSessions) ? snapshot.coachingSessions : []).filter(item => inProjectContext(item, scopeId)),
+          externalActions: (Array.isArray(snapshot.externalActions) ? snapshot.externalActions : []).filter(item => inProjectContext(item, scopeId)),
+          schedules: (Array.isArray(snapshot.schedules) ? snapshot.schedules : []).filter(item => inProjectContext(item, scopeId))
         };
         setOperations(nextOperations);
         setSelection(current => {
@@ -119,7 +124,7 @@ export const TriageInbox: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scopeId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -295,14 +300,12 @@ export const TriageInbox: React.FC = () => {
         </div>}
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <nav className="flex overflow-x-auto border-b border-slate-200 px-2" aria-label="Communications activity views">
-            {tabs.map(entry => <button key={entry.id} type="button" onClick={() => selectTab(entry.id)} className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-4 text-sm font-bold ${tab === entry.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{entry.icon}{entry.label}<span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{entry.count}</span></button>)}
-          </nav>
+          <ViewOptions><select aria-label="Message type" value={tab} onChange={event => selectTab(event.target.value as ViewTab)}>{tabs.map(entry => <option key={entry.id} value={entry.id}>{entry.label} ({entry.count})</option>)}</select></ViewOptions>
 
           <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 p-4 lg:flex-row lg:items-center">
             <label className="relative min-w-0 flex-1"><span className="sr-only">Search activity</span><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={tab === 'runs' ? 'Search jobs, schedules and errors…' : tab === 'digests' ? 'Search digest history…' : tab === 'coaching' ? 'Search outcomes, blockers, commitments or project…' : 'Search sender, subject, content or ID…'} className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /></label>
-            {(tab === 'emails' || tab === 'responses') && <div className="flex flex-wrap items-center gap-2"><Filter size={16} className="text-slate-400" /><label><span className="sr-only">Status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All statuses</option><option value="active">Needs attention</option><option value="closed">Closed</option></select></label><label><span className="sr-only">Priority</span><select value={priorityFilter} onChange={event => setPriorityFilter(event.target.value as PriorityFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>{projects.length > 0 && <label><span className="sr-only">Project</span><select value={projectFilter} onChange={event => setProjectFilter(event.target.value)} className="max-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All projects</option>{projects.map(project => <option key={project} value={project}>{project}</option>)}</select></label>}</div>}
-            {tab === 'coaching' && <div className="flex flex-wrap items-center gap-2"><Filter size={16} className="text-slate-400" /><label><span className="sr-only">Coaching status</span><select value={coachingStatusFilter} onChange={event => setCoachingStatusFilter(event.target.value as CoachingStatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All outcomes</option><option value="active">Active / review</option><option value="review">Needs review</option><option value="completed">Completed</option><option value="failed">Failed</option></select></label>{coachingProjects.length > 0 && <label><span className="sr-only">Coaching project</span><select value={projectFilter} onChange={event => setProjectFilter(event.target.value)} className="max-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All projects</option>{coachingProjects.map(project => <option key={project} value={project}>{project}</option>)}</select></label>}</div>}
+            {(tab === 'emails' || tab === 'responses') && <div className="flex flex-wrap items-center gap-2"><Filter size={16} className="text-slate-400" /><label><span className="sr-only">Status</span><select value={statusFilter} onChange={event => setStatusFilter(event.target.value as StatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All statuses</option><option value="active">Needs attention</option><option value="closed">Closed</option></select></label><label><span className="sr-only">Priority</span><select value={priorityFilter} onChange={event => setPriorityFilter(event.target.value as PriorityFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select></label>{!scope && projects.length > 0 && <label><span className="sr-only">Project</span><select value={projectFilter} onChange={event => setProjectFilter(event.target.value)} className="max-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All projects</option>{projects.map(project => <option key={project} value={project}>{project}</option>)}</select></label>}</div>}
+            {tab === 'coaching' && <div className="flex flex-wrap items-center gap-2"><Filter size={16} className="text-slate-400" /><label><span className="sr-only">Coaching status</span><select value={coachingStatusFilter} onChange={event => setCoachingStatusFilter(event.target.value as CoachingStatusFilter)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All outcomes</option><option value="active">Active / review</option><option value="review">Needs review</option><option value="completed">Completed</option><option value="failed">Failed</option></select></label>{!scope && coachingProjects.length > 0 && <label><span className="sr-only">Coaching project</span><select value={projectFilter} onChange={event => setProjectFilter(event.target.value)} className="max-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600"><option value="all">All projects</option>{coachingProjects.map(project => <option key={project} value={project}>{project}</option>)}</select></label>}</div>}
           </div>
 
           {(tab === 'emails' || tab === 'responses') && <div className="overflow-x-auto"><table className="w-full min-w-[1050px] border-collapse text-left"><thead><tr className="border-b border-slate-100 text-[11px] font-black uppercase tracking-wide text-slate-400"><th className="px-5 py-3">Message</th><th className="px-4 py-3">Received</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Triage result</th><th className="px-4 py-3">Recommended action</th><th className="px-4 py-3">Draft / response</th><th className="w-12 px-4 py-3"><span className="sr-only">Open</span></th></tr></thead><tbody>{filteredItems.map(item => { const job = jobsByCommunication.get(item.communicationId); const response = triageResponsePresentation(item, job); const recommendedAction = triageRecommendedAction(item); return <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-indigo-50/30"><td className="max-w-md px-5 py-4"><button type="button" onClick={() => openSelection({ kind: 'email', item })} className="block w-full text-left"><span className="block truncate text-sm font-black text-slate-900">{item.subject || 'Inbound communication'}</span><span className="mt-1 block truncate text-xs text-slate-500">{item.sender || 'Unknown sender'}{item.summary ? ` · ${item.summary}` : ''}</span></button></td><td className="whitespace-nowrap px-4 py-4 text-xs text-slate-500">{formatDate(item.occurredAt)}</td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${item.priority === 'urgent' || item.priority === 'high' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{item.priority || 'normal'}</span></td><td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusTone(item.disposition)}`}>{formatLabel(item.disposition)}</span></td><td className="max-w-xs px-4 py-4 text-xs leading-5 text-slate-600">{recommendedAction || 'No action recorded'}</td><td className="px-4 py-4"><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${triageResponseToneClass(response.tone)}`}>{response.label}</span></td><td className="px-4 py-4"><button type="button" onClick={() => openSelection({ kind: 'email', item })} className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-600" aria-label={`Open ${item.subject || 'communication'}`}><ChevronRight size={17} /></button></td></tr>; })}</tbody></table>{!loading && filteredItems.length === 0 && <div className="p-12 text-center text-sm text-slate-500">No communications match these filters.</div>}</div>}
