@@ -18,6 +18,7 @@ firebaseService.authorizedFetch = async (input, options = {}) => {
   const url = new URL(String(input), location.origin);
   requests.push(url.pathname + url.search);
   const projectId = url.searchParams.get('projectId');
+  if (url.pathname === '/api/flows') return new Response(JSON.stringify({ items: [], next: null, catalog: {} }));
   if (url.pathname === '/api/calendar') return new Response(JSON.stringify({ error: 'Calendar is not connected in this acceptance fixture.' }), { status: 503 });
   if (url.pathname === '/api/cockpit') return new Response(JSON.stringify({
     owner: 'hyperflow', asOf: new Date().toISOString(), viewerUid: 'fixture', timezone: 'Australia/Brisbane',
@@ -26,7 +27,10 @@ firebaseService.authorizedFetch = async (input, options = {}) => {
       contactWindow: { startHour: 9, endHour: 17, maxPerDay: 20, maxPerContact: 2 } }
   }));
   if (url.pathname === '/api/commitments') return new Response(JSON.stringify({data: [], viewerUid: 'fixture', next: null, projectId}));
-  return new Response(JSON.stringify({ data: [], digests: [], agentJobs: [], coachingSessions: [], externalActions: [], schedules: [] }));
+  if (url.pathname === '/api/triage') return new Response(JSON.stringify({ data: [], digests: [] }));
+  if (url.pathname === '/api/operations') return new Response(JSON.stringify({ agentJobs: [], coachingSessions: [], externalActions: [], schedules: [] }));
+  // Unmocked services must fail explicitly, never pretend an incompatible payload is success.
+  return new Response(JSON.stringify({ error: 'This service is not connected in the sample-data preview.' }), { status: 503 });
 };
 const { App } = await import('../../App');
 createRoot(document.getElementById('root')!).render(<App />);

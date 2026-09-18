@@ -28,6 +28,8 @@
   check(!document.querySelector('.hf-project select') && document.querySelector('.hf-workspace-scope'), 'Workspace page declares its scope');
   click('Obligations'); await pause();
   check(document.querySelector('.hf-project select').value === 'beta', 'Project survives workspace page round trip');
+  click('Flows', document.querySelector('.hf-section-pages')); await pause();
+  check(document.querySelector('main') && document.querySelector('.hf-section-pages') && document.querySelector('main').innerText.includes('Saved flow'), 'Flows opens without blanking the app');
   click('Create', document.querySelector('.hf-groups')); await pause(); click('Reports', document.querySelector('dialog')); await pause(); click('Current State'); await pause();
   check(mainText().includes('beta review task') && !mainText().includes('alpha review task'), 'Reports filters Beta');
   selectProject('alpha'); await pause();
