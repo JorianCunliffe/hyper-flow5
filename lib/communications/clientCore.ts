@@ -37,8 +37,11 @@ export interface CommunicationsClientOptions {
 }
 
 export class HttpCommunicationsClient implements CommunicationsClient {
-  async promiseLedger(tenantId:string,operation:'query'|'read'|'review'|'coverage',input:Record<string,unknown>):Promise<any>{
+  async promiseLedger(tenantId:string,operation:'query'|'read'|'review'|'coverage'|'create'|'update'|'delete'|'condition_create'|'condition_update'|'condition_delete'|'evidence_add',input:Record<string,unknown>):Promise<any>{
     this.requireTenant(tenantId);
+    const root=`/v1/promises/${encodeURIComponent(String(input.id))}`;
+    const mutations:Record<string,{path:string;method:'POST'|'PATCH'|'DELETE'}>={create:{path:'/v1/promises',method:'POST'},update:{path:root,method:'PATCH'},delete:{path:root,method:'DELETE'},condition_create:{path:`${root}/conditions`,method:'POST'},condition_update:{path:`${root}/conditions/${encodeURIComponent(String(input.condition_id))}`,method:'PATCH'},condition_delete:{path:`${root}/conditions/${encodeURIComponent(String(input.condition_id))}`,method:'DELETE'},evidence_add:{path:`${root}/evidence`,method:'POST'}};
+    if(mutations[operation])return this.rawRequest(mutations[operation].path,{method:mutations[operation].method,tenantId,body:input});
     const path=operation==='query'||operation==='coverage'?`/v1/promises/${operation}`:`/v1/promises/${encodeURIComponent(String(input.id))}/${operation}`;
     return this.rawRequest(path,{method:'POST',tenantId,body:input});
   }
@@ -388,7 +391,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
 
   private async rawRequest(
     path: string,
-    options: { method: 'GET' | 'POST' | 'PATCH'; body?: unknown; idempotencyKey?: string; tenantId?: string }
+    options: { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; idempotencyKey?: string; tenantId?: string }
   ): Promise<any> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);

@@ -36,3 +36,25 @@ test('association correction reads the permitted source and rejects an inaccessi
  assert.equal(correction[1],'canonical_source');assert.equal(correction[2].external_project_id,'beta');assert.equal(correction[2].initiator_id,'reviewer');
  await assert.rejects(()=>handlePromiseLedger({orgId:'tenant',uid:'reviewer'},{operation:'link',promiseId:'p',targetProjectId:'secret',reason:'Move'},deps),/accessible project/);
 });
+
+test('CRUD adapter rejects forged destination projects and stamps authenticated actor',async()=>{
+ const calls:any[]=[];
+ const deps={projects:async()=>[{id:'alpha'}] as any,settings:async()=>null,client:{promiseLedger:async(...args:any[])=>{calls.push(args);return {id:'p'};}}};
+ await handlePromiseLedger({orgId:'tenant',uid:'reviewer'},{operation:'create',projectId:'alpha',reason:'Agreed',patch:{description:'Report'},initiator_id:'forged'},deps);
+ assert.equal(calls[0][1],'create');assert.equal(calls[0][2].initiator_id,'reviewer');assert.equal(calls[0][2].patch.external_project_id,'alpha');
+ await assert.rejects(()=>handlePromiseLedger({orgId:'tenant',uid:'reviewer'},{operation:'update',projectId:'alpha',patch:{external_project_id:'secret'}},deps),/not accessible/);
+ await assert.rejects(()=>handlePromiseLedger({orgId:'tenant',uid:'reviewer'},{operation:'create',patch:{description:'No project'}},deps),/Choose a project/);
+});
+test('CRUD client uses correct verbs, encoded child IDs and revision body',async()=>{
+ const calls:any[]=[];
+ const client=new HttpCommunicationsClient({baseUrl:'https://communications.example',apiKey:'test-only',fetchImpl:async(url,init)=>{calls.push({url:String(url),method:init?.method,body:JSON.parse(String(init?.body))});return new Response('{}',{status:200});}});
+ for(const operation of ['create','update','delete','condition_create','condition_update','condition_delete','evidence_add'] as const)await client.promiseLedger('tenant',operation,{id:'p/one',condition_id:'c/one',expected_revision:3,reason:'Reviewed'});
+ assert.deepEqual(calls.map(c=>c.method),['POST','PATCH','DELETE','POST','PATCH','DELETE','POST']);
+ assert.ok(calls[4].url.endsWith('/p%2Fone/conditions/c%2Fone'));assert.equal(calls[5].body.expected_revision,3);
+});
+test('GET cannot invoke any ledger mutation through the commitments route',async()=>{
+ const {handleCommitments}=await import('../lib/commitments/api.js');
+ for(const operation of ['create','update','delete','condition_create','condition_update','condition_delete','evidence_add','review','link']){
+  await assert.rejects(()=>handleCommitments({method:'GET',query:{view:'promise_ledger',operation}},{orgId:'tenant',uid:'reviewer'} as any,{projects:async()=>[]}),/Use POST/);
+ }
+});

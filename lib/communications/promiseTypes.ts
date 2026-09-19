@@ -1,6 +1,8 @@
 /** Communications owns these records. They are evidence, not accepted obligations. */
 export interface PromiseParty {ref:string;person_id:string|null;label:string;role:string}
 export interface PromiseRecord {
+  source_type?:'manual'|'communication';deleted_at?:string|null;related_promise_id?:string|null;
+  conditions?:Array<{id:string;description:string;status:'pending'|'satisfied'|'waived'}>;
   id:string;revision:number;description:string;original_wording:string;thread_id:string|null;external_project_id:string|null;
   promisor_parties:PromiseParty[];promisee_parties:PromiseParty[];joint:boolean;origin:string;review_state:string;observed_state:string;
   source_current:boolean;unresolved:boolean;overdue:boolean;source_communication_ids:string[];
