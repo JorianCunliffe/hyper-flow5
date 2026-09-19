@@ -30,7 +30,7 @@ export async function handleCommitments(request: { method?: string; query?: Reco
   const deps = { ...defaults, ...overrides }; const body = request.body || {}; const query = request.query || {};
   const projects = await deps.projects(member.orgId); const allowed = new Set(projects.map(row => String(row.id)));
   if(query.view==='promise_ledger'||body.action==='promise_ledger'){
-    if(!['GET','POST'].includes(request.method||'')||(request.method==='GET'&&['review','link'].includes(query.operation)))throw new CommitmentError(405,'Use POST for ledger changes.');
+    if(!['GET','POST'].includes(request.method||'')||(request.method==='GET'&&!['query','read','coverage'].includes(query.operation||'query')))throw new CommitmentError(405,'Use POST for ledger changes.');
     return handlePromiseLedger(member,request.method==='GET'?query:body,{projects:deps.projects});
   }
   const sourceViews = new Map<string, Promise<CommitmentSource[]>>();
