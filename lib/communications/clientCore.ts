@@ -56,9 +56,9 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async operationalReview(tenantId:string,operation:string,input:Record<string,any>):Promise<any>{
     this.requireTenant(tenantId);
     const root='/v1/review/sessions';
-    const paths:Record<string,string>={start:root,read:`${root}/${encodeURIComponent(input.session_id||'')}`,advance:`${root}/${encodeURIComponent(input.session_id||'')}/advance`,respond:`${root}/${encodeURIComponent(input.session_id||'')}/respond`,action:`${root}/${encodeURIComponent(input.session_id||'')}/actions`};
+    const paths:Record<string,string>={sources:'/v1/review/sources',source_scope:'/v1/review/sources',start:root,read:`${root}/${encodeURIComponent(input.session_id||'')}`,advance:`${root}/${encodeURIComponent(input.session_id||'')}/advance`,respond:`${root}/${encodeURIComponent(input.session_id||'')}/respond`,action:`${root}/${encodeURIComponent(input.session_id||'')}/actions`};
     if(!paths[operation])throw new Error('Unknown review operation');
-    if(operation==='read')return this.rawRequest(paths.read+'?'+new URLSearchParams(Object.fromEntries(Object.entries(input).filter(([,v])=>typeof v==='string'||Array.isArray(v)).map(([k,v])=>[k,Array.isArray(v)?JSON.stringify(v):v]))),{method:'GET',tenantId});
+    if(operation==='read'||operation==='source_scope')return this.rawRequest(paths[operation]+'?'+new URLSearchParams(Object.fromEntries(Object.entries(input).filter(([,v])=>typeof v==='string'||Array.isArray(v)).map(([k,v])=>[k,Array.isArray(v)?JSON.stringify(v):v]))),{method:'GET',tenantId});
     return this.rawRequest(paths[operation],{method:'POST',tenantId,body:input});
   }
   private readonly baseUrl: string;

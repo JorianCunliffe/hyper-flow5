@@ -25,3 +25,11 @@ The existing scheduler tick replays uncertain executions and completion callback
 `npm test`, `npm run lint` and `npm run build` validate the repository. Executor regressions include duplicate/concurrent delivery, lost callbacks, payload conflicts, revoked owner scope, canonical hashes and the cross-repository fixture.
 
 Production credentials, Firebase rules deployment, real provider operations, authenticated browser/voice acceptance and representative live-model quality are separate open release gates. No messages or calendar changes were sent during this coding task. The Communications delivery notes also describe remaining calendar/hold completeness and upstream attachment-extraction integration.
+
+## Source synchronization follow-up
+
+Starting a web review now refreshes configured project calendars and open human workflow holds through existing provider/storage adapters. It first obtains the canonical owner scope from Communications; user-supplied owner IDs or project lists are not trusted. Communications migration 038 and the trusted client's `review:sources:write` capability are required. No calendar writes occur during synchronization.
+
+Snapshots replace prior results, so completed holds disappear. Failures, missing grants, capped source lists and stale observations are reported rather than interpreted as empty data. Voice reads the same persisted owner/project snapshots; it does not independently refresh providers. Coverage is limited to configured project calendars, a bounded nine-day window, and 2,000 source items per project. Credentials, live source acceptance and production configuration remain rollout requirements.
+
+Follow-up verification: Communications database suite 84 passing; Hyperflow source/executor/lifecycle tests 13 passing; Hyperflow type check and production build passed. These checks use local fixtures, not live provider acceptance.

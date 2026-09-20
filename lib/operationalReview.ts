@@ -2,10 +2,12 @@ import { HttpCommunicationsClient } from "./communications/client.js";
 import { runtimeDatabase } from "./runtimeDatabase.js";
 import { listTenantProjects } from "./serverStore.js";
 import { CommitmentError } from "./commitments/model.js";
+import { collectReviewSources } from "./reviewSources.js";
 export async function handleOperationalReview(
   input: Record<string, any>,
   member: { orgId: string; uid: string },
 ) {
+  if(input.operation && !['work','start','read','advance','respond','action'].includes(input.operation)) throw new CommitmentError(400,'Unknown review operation');
   const projects = await listTenantProjects(member.orgId);
   if (input.projectId && !projects.some((p) => p.id === input.projectId))
     throw new CommitmentError(403, "Project unavailable");
@@ -49,7 +51,23 @@ export async function handleOperationalReview(
   const body = Object.fromEntries(
     allowed.filter((k) => input[k] !== undefined).map((k) => [k, input[k]]),
   );
-  return new HttpCommunicationsClient().operationalReview(
+  const client = new HttpCommunicationsClient();
+  const asserted = {
+    initiator_id: member.uid,
+    allowed_project_ids: projects.map(p=>p.id),
+    ...(input.projectId ? {external_project_id:input.projectId} : {}),
+  };
+  let sourceSyncError = false;
+  if (!input.operation || input.operation === 'start') {
+    try {
+      const identity = await client.operationalReview(member.orgId,'source_scope',asserted);
+      if (!identity.owner?.startsWith('person:')) throw new Error('Review owner binding required');
+      const permitted = identity.scope.external_project_id ? [identity.scope.external_project_id] : identity.scope.allowed_project_ids || [];
+      const snapshots = await collectReviewSources(member.orgId,permitted.filter((id:string)=>projects.some(p=>p.id===id)));
+      if(snapshots.length) await client.operationalReview(member.orgId,'sources',{...asserted,snapshots});
+    } catch {sourceSyncError = true;}
+  }
+  const result = await client.operationalReview(
     member.orgId,
     input.operation || "start",
     {
@@ -59,4 +77,8 @@ export async function handleOperationalReview(
       ...(input.projectId ? { external_project_id: input.projectId } : {}),
     },
   );
+  if (sourceSyncError && result.briefing) {
+    result.briefing.text = 'Live source synchronization is unavailable; calendar and workflow information may be incomplete. ' + result.briefing.text;
+  }
+  return result;
 }
