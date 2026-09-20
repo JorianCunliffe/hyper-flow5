@@ -72,6 +72,8 @@ export type CommunicationStatus =
   | 'failed';
 
 export interface CommunicationResult {
+  providerId?: string;
+  deliveryStatus?: string;
   id: string;
   status: CommunicationStatus;
   channel?: 'email' | 'sms' | 'voice';

@@ -1,3 +1,4 @@
+import {retryReviewActions} from '../../lib/reviewActions.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
@@ -19,6 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       await recordSchedulerTick('started');
       const results = await tickSchedules();
+      if(process.env.REVIEW_ACTION_EXECUTION_ENABLED==='true')await retryReviewActions();
       const failures = failedScheduleResults(results);
       if (failures.length) {
         const message = `${failures.length} scheduler job${failures.length === 1 ? '' : 's'} failed`;

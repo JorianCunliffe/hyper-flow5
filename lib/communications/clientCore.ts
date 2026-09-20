@@ -50,6 +50,17 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async ingestCalendarObservation(tenantId:string,event:Record<string,unknown>):Promise<any>{
     this.requireTenant(tenantId);return this.rawRequest('/v1/calendar/events',{method:'POST',tenantId,body:event});
   }
+  async reviewActionResult(tenantId:string,id:string,body:Record<string,unknown>):Promise<any>{
+    this.requireTenant(tenantId);return this.rawRequest(`/v1/review/actions/${encodeURIComponent(id)}/result`,{method:'POST',tenantId,body});
+  }
+  async operationalReview(tenantId:string,operation:string,input:Record<string,any>):Promise<any>{
+    this.requireTenant(tenantId);
+    const root='/v1/review/sessions';
+    const paths:Record<string,string>={start:root,read:`${root}/${encodeURIComponent(input.session_id||'')}`,advance:`${root}/${encodeURIComponent(input.session_id||'')}/advance`,respond:`${root}/${encodeURIComponent(input.session_id||'')}/respond`,action:`${root}/${encodeURIComponent(input.session_id||'')}/actions`};
+    if(!paths[operation])throw new Error('Unknown review operation');
+    if(operation==='read')return this.rawRequest(paths.read+'?'+new URLSearchParams(Object.fromEntries(Object.entries(input).filter(([,v])=>typeof v==='string'||Array.isArray(v)).map(([k,v])=>[k,Array.isArray(v)?JSON.stringify(v):v]))),{method:'GET',tenantId});
+    return this.rawRequest(paths[operation],{method:'POST',tenantId,body:input});
+  }
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly fetchImpl: typeof fetch;
@@ -462,6 +473,8 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       recipients: Array.isArray(result?.email?.to_addresses)
         ? result.email.to_addresses.map((item: any) => String(item?.formatted || item?.address || item))
         : result?.recipients,
+      providerId:result?.provider?.id||result?.provider_id,
+      deliveryStatus:result?.email?.delivery_status,
       providerThreadId: typeof result?.email?.provider_conversation_id === 'string' ? result.email.provider_conversation_id : undefined,
       messageId: typeof result?.email?.message_id === 'string' ? result.email.message_id : undefined,
       correlation: result?.correlation,

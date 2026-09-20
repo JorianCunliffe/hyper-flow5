@@ -1,3 +1,4 @@
+import {consumeReviewAction} from '../lib/reviewActions.js';
 import { parseSignedJsonBody, verifyIncomingCommunicationsSignature } from '../lib/communications/webhook.js';
 import { externalEventHttpStatus, receiveExternalEvent } from '../lib/externalEvents.js';
 import { createHash } from 'node:crypto';
@@ -100,6 +101,11 @@ export const POST = async (request: Request): Promise<Response> => {
       if (existing) return json(response, 200);
       const stored = await saveVoiceContextResponse(input.tenant_id, input.request_id, requestHash, response as unknown as Record<string, unknown>);
       return json(stored, 200);
+    }
+
+    if(body.type==='review.action.requested'){
+      if(process.env.REVIEW_ACTION_EXECUTION_ENABLED!=='true')return json({error:'Review action execution is disabled'},503);
+      return json(await consumeReviewAction(body),200);
     }
 
     const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });

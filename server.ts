@@ -1,3 +1,4 @@
+import {consumeReviewAction,retryReviewActions} from './lib/reviewActions';
 import { readDiagnostics } from './lib/tenantControl/diagnostics';
 import { serviceProjectRequest, SERVICE_PROJECT_ROUTES } from './lib/serviceProjectApi.js';
 import { handleLifecycle } from './lib/tenantLifecycle/api';
@@ -105,6 +106,10 @@ async function startServer() {
 
     try {
       const body = parseSignedJsonBody(rawBody);
+        if(body.type==='review.action.requested'){
+          if(process.env.REVIEW_ACTION_EXECUTION_ENABLED!=='true')return res.status(503).json({error:'Review execution is disabled'});
+          return res.status(200).json(await consumeReviewAction(body));
+        }
         const outcome = await receiveExternalEvent({ ...body, source: body.source || 'communications' });
         if (outcome.ok && outcome.reason === 'agent_job_queued') {
           const orgId=String(body.tenant_id || body.correlation?.tenant_id || '');
@@ -617,6 +622,7 @@ async function startServer() {
     if (!authorized) return res.status(configured ? 401 : 503).json({ error: configured ? 'Invalid scheduler authentication' : 'Scheduler secret is not configured' });
     try {
       const results = await tickSchedules();
+      if(process.env.REVIEW_ACTION_EXECUTION_ENABLED==='true')await retryReviewActions();
       const failures = failedScheduleResults(results);
       return res.status(failures.length ? 500 : 200).json({
         ok: failures.length === 0,

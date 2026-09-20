@@ -1,3 +1,4 @@
+import {handleOperationalReview} from '../operationalReview.js';
 import { randomUUID } from 'node:crypto';
 import { handlePromiseLedger, ledgerSource } from './promiseLedger.js';
 import { applyPromiseRevision } from './promiseEvents.js';
@@ -28,6 +29,7 @@ const visible = (row: Commitment) => {
 };
 export async function handleCommitments(request: { method?: string; query?: Record<string, any>; body?: any }, member: Member, overrides: Partial<CommitmentDependencies> = {}) {
   const deps = { ...defaults, ...overrides }; const body = request.body || {}; const query = request.query || {};
+  if(body.action==='operational_review'){if(request.method!=='POST')throw new CommitmentError(405,'Use POST');return handleOperationalReview(body,member);}
   const projects = await deps.projects(member.orgId); const allowed = new Set(projects.map(row => String(row.id)));
   if(query.view==='promise_ledger'||body.action==='promise_ledger'){
     if(!['GET','POST'].includes(request.method||'')||(request.method==='GET'&&!['query','read','coverage'].includes(query.operation||'query')))throw new CommitmentError(405,'Use POST for ledger changes.');
