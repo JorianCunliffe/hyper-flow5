@@ -307,7 +307,9 @@ export const advanceFlow = (project: Project): AdvanceResult => {
 
       if (type === NodeType.LOOP && !m.loopConfig?.exited && isNodeReady(m, states)) {
         const cfg = m.loopConfig!;
-        const exitMet = cfg.exitConditions.length > 0 && cfg.exitConditions.every(c => checkReadyCondition(c, projectData));
+        // Realtime Database omits empty arrays and may return indexed objects.
+        const exitConditions = Object.values(cfg.exitConditions || {});
+        const exitMet = exitConditions.length > 0 && exitConditions.every(c => checkReadyCondition(c, projectData));
         const windowExpired = cfg.maxDurationMinutes !== undefined && (
           !Number.isFinite(Number(projectData.flow_started_at)) ||
           Date.now() >= Number(projectData.flow_started_at) + cfg.maxDurationMinutes * 60_000

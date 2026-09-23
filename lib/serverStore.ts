@@ -543,6 +543,9 @@ export const findProject = async (orgId: string, projectId: string): Promise<Loc
           ...m,
           dependsOn: toArray(m.dependsOn),
           subtasks: toArray(m.subtasks),
+          ...(m.loopConfig
+            ? { loopConfig: { ...m.loopConfig, exitConditions: toArray(m.loopConfig.exitConditions) } }
+            : {}),
           // RTDB drops empty arrays, so a node whose only run history is empty
           // comes back without the key at all.
           ...(m.actionConfig

@@ -309,6 +309,27 @@ describe('advanceFlow — loops', () => {
     assert.equal(l.loopConfig!.currentIteration, 1);
   });
 
+  test('a persisted loop with an omitted empty exit array still enforces its retry limit', () => {
+    const p = project([
+      doneMilestone('BODY'),
+      loop('L', { loopStartId: 'BODY', exitConditions: undefined, maxIterations: 1 }, { dependsOn: ['BODY'] })
+    ]);
+    const first = advanceFlow(p).project;
+    assert.equal(first.milestones.find(m => m.id === 'L')!.loopConfig!.currentIteration, 1);
+    assert.equal(first.milestones.find(m => m.id === 'L')!.loopConfig!.exited, undefined);
+    first.milestones[0] = doneMilestone('BODY');
+    const next = advanceFlow(first).project;
+    assert.equal(next.milestones.find(m => m.id === 'L')!.loopConfig!.exited, true);
+  });
+
+  test('indexed persisted exit conditions still stop the loop when satisfied', () => {
+    const p = project([
+      doneMilestone('BODY'),
+      loop('L', { loopStartId: 'BODY', exitConditions: { 0: { variable: 'approved', equals: true } } as any }, { dependsOn: ['BODY'] })
+    ], { approved: true });
+    assert.equal(advanceFlow(p).project.milestones[1].loopConfig!.exited, true);
+  });
+
   test('resetting the body re-arms actions and archives the prior run', () => {
     const p = project(
       [

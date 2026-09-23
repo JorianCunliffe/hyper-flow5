@@ -14,6 +14,9 @@ const normalizeMilestone = (value: any): Milestone => ({
   ...normalizeNodeAsks(value),
   dependsOn: arr<string>(value?.dependsOn),
   subtasks: arr<any>(value?.subtasks),
+  ...(value?.loopConfig ? {
+    loopConfig: { ...value.loopConfig, exitConditions: arr<any>(value.loopConfig.exitConditions) }
+  } : {}),
   ...(value?.actionConfig?.runHistory ? {
     actionConfig: { ...value.actionConfig, runHistory: arr<any>(value.actionConfig.runHistory) }
   } : {})
