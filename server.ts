@@ -372,8 +372,17 @@ async function startServer() {
       const base = String(process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
       const destination = new URL(String(req.body?.returnTo || '/'), `${base}/`);
       if (destination.origin !== new URL(base).origin) return res.status(400).json({ error: 'Mailbox OAuth return path must stay on HyperFlow' });
+      const provider = req.body?.provider === 'outlook' ? 'outlook' : req.body?.provider === 'gmail' || !req.body?.provider ? 'gmail' : null;
+      if (!provider) return res.status(400).json({ error: 'provider must be gmail or outlook' });
+      const setupDraftId = typeof req.body?.setupDraftId === 'string' ? req.body.setupDraftId.trim() : undefined;
       return res.status(200).json({
-        authorizationUrl: await createCommunicationsClient().startGmailOAuth(member.orgId, member.uid, destination.toString())
+        authorizationUrl: await createCommunicationsClient().startMailboxOAuth(
+          member.orgId,
+          member.uid,
+          destination.toString(),
+          provider,
+          setupDraftId
+        )
       });
     } catch (error: any) {
       return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
