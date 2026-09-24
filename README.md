@@ -70,7 +70,7 @@ workspace API; missing or non-boolean values do not enable sending.
 2. Open **New Project → Daily Email Triage** or **Settings → Service Projects**. The shared wizard selects the Communications people permitted to use the project, connects or selects Gmail/Outlook, runs an authoritative health check, configures policy/drafts/digest and schedule, and creates the project only after every readiness check passes. Each triage project owns exactly one mailbox and an independent cursor.
 3. Open the same wizard for **Daily Coaching**. Select the Communications person and phone/voice identity, Google Workspace connection, Doc, Sheet/range, retry policy, reviewer and review channels. The wizard verifies Doc/Sheet read access and Sheet edit capability before it creates the project.
 4. Use the project **Service Configuration** panel for health, prior/next run, last digest, pause/resume, **Run now**, and configuration changes. **Advance Flow**, **Run now**, and the daily schedule execute the same project flow; no raw action JSON is required.
-5. Call `POST /api/schedules/tick` at least every five minutes. The checked-in Hobby cron is only a daily fallback and cannot reliably honor arbitrary local times, agent inbox work, or 30-minute call retries.
+5. Call `POST /api/schedules/tick` at least every five minutes. The checked-in Hobby cron is only a daily fallback and cannot reliably honor arbitrary local times, agent inbox work, or ten-minute call retries.
 
 Inbound messages are persisted before routing. Trusted correlation wins, then an explicit project name, active thread, configured default, or the sole visible project; ambiguity produces a clarification. Read-only replies can be delivered automatically only under channel policy and a durable per-thread limit of one every 15 seconds and six per hour. Coaching commitments, next actions, and requested calls appear as typed proposals in Communications triage and execute only after an authenticated reviewer clicks **Approve action**. Sheet updates use an idempotent action receipt; requested calls use a stable one-off schedule occurrence.
 
@@ -106,6 +106,8 @@ Every outbound SMS or call carries:
 - a deterministic `Idempotency-Key` derived from the tenant, project, run, task, channel, and Ask identity;
 - `tenant_id`, `external_project_id`, `run_id`, and `task_id` correlation;
 - an HTTPS callback URL derived from `PUBLIC_BASE_URL`.
+
+Outbound calls also carry cross-channel conversation context. HyperFlow resolves the destination number to a single granted Communications person, collects recent inbound memory-eligible evidence for that project, and appends it to the call's system message so the assistant can refer to an earlier text or email. Turn it off per tenant with **Conversation continuity** in **Settings > Agent & Connections**. When history is disabled, the person is ambiguous or ungranted, or the lookup fails, the call is instructed not to guess at unverifiable history rather than proceeding without a boundary. The resulting status is recorded on the action run. See [docs/API.md](./docs/API.md#outbound-conversation-context).
 
 ## Human Asks
 
