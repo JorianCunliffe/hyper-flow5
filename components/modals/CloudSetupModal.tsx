@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { cloudConflictPreview, type CloudConflictChoice, type CloudConflictDetail } from '../../lib/cloudMerge';
 import { Cloud, ShieldAlert, CheckCircle2, LogOut, History, Database, AlertTriangle, ArrowRight, X } from 'lucide-react';
 import { firebaseService } from '../../services/firebaseService';
 
@@ -9,13 +10,20 @@ interface CloudSetupModalProps {
   syncError: string | null;
   onDisconnect: () => void;
   onRestoreBackup: () => void;
+  conflicts?: CloudConflictDetail[];
+  recoveryWarning?: string | null;
+  onResolveConflicts?: (choices: Record<string, CloudConflictChoice>) => void;
+  onRetry?: () => void;
 }
 
 export const CloudSetupModal: React.FC<CloudSetupModalProps> = ({ 
-  isOpen, onClose, cloudStatus, syncError, onDisconnect, onRestoreBackup 
+  isOpen, onClose, cloudStatus, syncError, onDisconnect, onRestoreBackup,
+  conflicts, recoveryWarning, onResolveConflicts, onRetry
 }) => {
   const [firebaseConfigInput, setFirebaseConfigInput] = useState('');
   const [configError, setConfigError] = useState<string | null>(null);
+  const [choices, setChoices] = useState<Record<string, CloudConflictChoice>>({});
+  useEffect(() => { setChoices({}); }, [conflicts]);
 
   if (!isOpen) return null;
 
@@ -30,7 +38,7 @@ export const CloudSetupModal: React.FC<CloudSetupModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-white/20 flex flex-col max-h-[90vh]">
+      <div role="dialog" aria-modal="true" aria-label="Cloud Sync Setup" className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden border border-white/20 flex flex-col max-h-[90vh]">
         <div className="p-8 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-4">
               <div className={`p-3 rounded-2xl ${cloudStatus === 'error' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>
@@ -41,10 +49,28 @@ export const CloudSetupModal: React.FC<CloudSetupModalProps> = ({
                 <p className="text-sm text-slate-500">Connect to Google Firebase for real-time collaboration.</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
+            <button aria-label="Close cloud sync settings" onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24} /></button>
         </div>
         
         <div className="p-8 overflow-y-auto">
+          {recoveryWarning && <p role="alert" className="p-3 mb-4 rounded bg-amber-50 text-amber-900">{recoveryWarning}</p>}
+          {!!conflicts?.length && <section aria-label="Resolve conflicting edits" className="space-y-4 mb-6">
+            <h4 className="text-xl font-bold">Review conflicting edits</h4>
+            <p className="text-sm text-slate-600">Choose a version for each conflicting field or deleted item. Independent changes from both versions are preserved. Secret values are hidden in these previews.</p>
+            {conflicts.map(conflict => <fieldset key={conflict.path} className="border rounded-xl p-4 space-y-3">
+              <legend className="text-sm font-semibold break-all px-1">{conflict.path}</legend>
+              {(['local', 'remote'] as const).map(choice => <label key={choice} className="block border rounded-lg p-3 cursor-pointer">
+                <input type="radio" name={conflict.path} value={choice} checked={choices[conflict.path] === choice}
+                  onChange={() => setChoices(previous => ({ ...previous, [conflict.path]: choice }))} />
+                <span className="ml-2 font-semibold">{choice === 'local' ? 'Keep local edit' : 'Use cloud version'}</span>
+                <pre className="mt-2 text-xs whitespace-pre-wrap break-all max-h-40 overflow-auto">{cloudConflictPreview(conflict[choice])}</pre>
+              </label>)}
+            </fieldset>)}
+            <button disabled={conflicts.some(conflict => !choices[conflict.path])} onClick={() => onResolveConflicts?.(choices)}
+              className="bg-indigo-600 text-white rounded-xl px-4 py-3 font-bold disabled:opacity-50">Apply choices and resume saving</button>
+          </section>}
+          {cloudStatus === 'error' && !conflicts?.length && onRetry && <button onClick={onRetry}
+            className="bg-indigo-600 text-white rounded-xl px-4 py-3 font-bold mb-4">Retry cloud save</button>}
           {firebaseService.isConfigured() ? (
             <div className="space-y-6">
               <div className="text-center">
