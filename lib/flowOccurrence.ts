@@ -32,6 +32,11 @@ export const resetProjectForOccurrence = (
 
   const projectData = { ...(project.projectData || {}) };
   for (const key of [...RUNTIME_TRIGGER_KEYS, ...clearProjectDataKeys]) delete projectData[key];
+  // Named outputs belong to an occurrence; persistent project facts remain intact.
+  for (const node of project.milestones) {
+    const key = node.actionConfig?.resultVariable;
+    if (key) for (const suffix of ['', '_success', '_output', '_error', '_disposition', '_failure_code', '_provider_status']) delete projectData[`${key}${suffix}`];
+  }
 
   return {
     ...project,

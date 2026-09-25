@@ -1,3 +1,4 @@
+import { cloudConflictPreview } from '../../lib/cloudMerge';
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Check, Copy, FileText, Link2, MessageSquareReply, RotateCcw, ShieldAlert, X } from 'lucide-react';
 import type {
@@ -134,6 +135,7 @@ const EmailDetail: React.FC<{
               <DetailRow label="Deadline" value={item.deadline} />
               <DetailRow label="Confidence" value={item.interpretation?.confidence !== undefined ? `${Math.round(item.interpretation.confidence * 100)}%` : undefined} />
             </dl>
+            {item.referenceContext && <details className="rounded-xl border p-3"><summary className="cursor-pointer text-sm font-bold">Reference facts used for this email</summary><p className="text-xs mt-2">Run: {item.referenceContext.runId}</p><pre className="text-xs whitespace-pre-wrap break-words mt-2">{cloudConflictPreview(item.referenceContext.data)}</pre></details>}
             {item.evidence?.length ? (
               <section>
                 <h3 className="text-xs font-black uppercase tracking-wide text-slate-400">Evidence</h3>
