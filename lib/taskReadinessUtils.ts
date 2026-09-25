@@ -1,3 +1,4 @@
+import { readFlowPath } from './flowData.js';
 import { Project, Subtask, SubtaskStatus, ReadyCondition } from '../types.js';
 
 /** Extracts variables from a template string (e.g. {{project_name}}). */
@@ -13,7 +14,8 @@ export const extractTemplateVariables = (template: string): string[] => {
  * configured graph without hidden model behaviour.
  */
 export const checkReadyCondition = (condition: ReadyCondition, projectData: Record<string, any>): boolean => {
-  const value = projectData[condition.variable];
+  let value: unknown;
+  try { value = readFlowPath(projectData, condition.variable); } catch { value = undefined; }
 
   if (condition.exists !== undefined) {
     const exists = value !== undefined && value !== null;
@@ -52,7 +54,9 @@ export const evaluateTaskReadiness = (task: Subtask, project: Project): Subtask 
   if (task.templateFile) {
     const requiredVars = extractTemplateVariables(task.templateFile);
     for (const v of requiredVars) {
-      if (projectData[v] === undefined || projectData[v] === null) {
+      let value: unknown;
+      try { value = readFlowPath(projectData, v); } catch { value = undefined; }
+      if (value === undefined || value === null) {
         missingVariables.push(v);
       }
     }

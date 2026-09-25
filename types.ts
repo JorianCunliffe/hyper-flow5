@@ -286,6 +286,7 @@ export interface TriageInterpretation {
 }
 
 export interface TriageItem {
+  referenceContext?: { runId: string; capturedAt: number; data: unknown };
   sourceMessage?: { messageId?: string; providerThreadId?: string; content: string; truncated: boolean };
   id: string;
   orgId: string;
@@ -568,6 +569,8 @@ export interface ActionRun {
 }
 
 export interface ActionConfig {
+  /** Named upstream results that must succeed in this occurrence. */
+  requiredResults?: string[];
   template: string;
   /** Freeze this array and create one durable, sequential action per unique item key. */
   forEach?: { source: string; key: string; maxItems?: number };

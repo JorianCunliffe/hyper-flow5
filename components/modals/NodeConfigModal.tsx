@@ -5,6 +5,7 @@ import { isActionNode, getNodeType } from '../../lib/flowEngine';
 import type { FlowHoldConfig, RuntimeMilestone } from '../../lib/flowRuntimeTypes';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
+import { FlowDataInspector } from '../FlowDataInspector';
 import { validateOutputSchema } from '../../lib/flowData';
 import { buildReviewPolicy } from '../../lib/reviewPolicy';
 
@@ -28,6 +29,7 @@ interface NodeConfigModalProps {
   milestone: Milestone;
   milestones: Milestone[];
   people?: string[];
+  projectData?: Record<string, unknown>;
   onSave: (updates: Partial<Milestone>) => void;
   onRun: (updates: Partial<Milestone>) => void;
   isRunning: boolean;
@@ -38,7 +40,7 @@ const csv = (value: string): string[] => value.split(',').map(item => item.trim(
 const csvText = (value?: string[]): string => (value || []).join(', ');
 const validVariable = (value: string) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(value);
 
-export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, people = [], onSave, onRun, isRunning, onClose }) => {
+export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, projectData = {}, people = [], onSave, onRun, isRunning, onClose }) => {
   const runtimeMilestone = milestone as RuntimeMilestone;
   const initialHold: FlowHoldConfig = runtimeMilestone.holdConfig || {
     kind: 'timer',
@@ -82,6 +84,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [eventPeople, setEventPeople] = useState(csvText(milestone.eventTriggerConfig?.personIds));
   const [eventPayloadVariable, setEventPayloadVariable] = useState(milestone.eventTriggerConfig?.payloadVariable || '');
 
+  const [requiredResults, setRequiredResults] = useState<string[]>(milestone.actionConfig?.requiredResults || []);
   const [template, setTemplate] = useState(milestone.actionConfig?.template || '');
   const [eachSource, setEachSource] = useState(milestone.actionConfig?.forEach?.source || '');
   const [eachKey, setEachKey] = useState(milestone.actionConfig?.forEach?.key || '');
@@ -116,6 +119,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const actionConfig = () => ({
     ...(milestone.actionConfig || {}),
     template,
+    requiredResults,
     forEach: eachSource.trim() ? { source: eachSource.trim(), key: eachKey.trim(), maxItems: eachLimit } : undefined,
     autoExecute,
     failureMode,
@@ -426,6 +430,27 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
             <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Templates support {'{{variable.path}}'} from Project Data. Whole placeholders preserve arrays and objects.</p>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Template (JSON supported)</label>
             <textarea placeholder={TEMPLATE_PLACEHOLDERS[nodeType] || ''} className="w-full h-32 bg-white border border-slate-200 rounded-lg px-3 py-2 text-[11px] font-mono resize-none" value={template} onChange={(e) => setTemplate(e.target.value)} />
+            <FlowDataInspector data={projectData} milestones={milestones} template={template} />
+            {nodeType === NodeType.EMAIL_TRIAGE && <div className="mt-3 text-xs text-slate-600">
+              <button type="button" className="text-indigo-700 underline" onClick={() => {
+                try {
+                  const value = JSON.parse(template || '{}');
+                  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+                  setTemplate(JSON.stringify({ ...value, reference_context: value.reference_context ?? { business_information: '{{property_information}}' } }, null, 2));
+                  setJsonError(null);
+                } catch { setJsonError('Enter a valid JSON object before adding reference context.'); }
+              }}>Add reference context</button>
+              <p>In reference_context, select only the facts needed for replies using data references. Missing references block execution. The resolved context is recorded with each classified email.</p>
+            </div>}
+            <fieldset className="mt-3 border rounded-lg p-3">
+              <legend className="text-xs font-bold">Require fresh results</legend>
+              <p className="text-xs text-slate-500">Selected results must succeed in this run before this action executes. Connect those nodes before this step.</p>
+              {milestones.filter(m => m.id !== milestone.id && m.actionConfig?.resultVariable).map(m => {
+                const key = m.actionConfig!.resultVariable!;
+                return <label key={m.id} className="flex gap-2 text-xs mt-2"><input type="checkbox" checked={requiredResults.includes(key)} onChange={e => setRequiredResults(current => e.target.checked ? [...new Set([...current, key])] : current.filter(k => k !== key))} />{m.name} ({key})</label>;
+              })}
+              {requiredResults.filter(key => !milestones.some(m => m.id !== milestone.id && m.actionConfig?.resultVariable === key)).map(key => <label key={key} className="flex gap-2 text-xs text-red-700"><input type="checkbox" checked onChange={() => setRequiredResults(current => current.filter(k => k !== key))} />Missing producer: {key}</label>)}
+            </fieldset>
             {nodeType === NodeType.SMS && <p className="mt-2 text-xs text-slate-500">For a reply to a verified inbound sender, set target_source to event_person. The sender must have project access. Team calls always require a configured person_id.</p>}
             {nodeType === NodeType.REPORT && <div className="mt-3 text-xs text-slate-600">
               <button type="button" className="text-indigo-700 underline" onClick={() => {

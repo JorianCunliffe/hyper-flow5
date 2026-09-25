@@ -1,3 +1,4 @@
+import { requireCurrentResults } from './flowInputs.js';
 import { expandCollection } from './flowCollections.js';
 import { ActionRun, HumanAsk, Milestone, Project, NodeType } from '../types.js';
 import { ACTION_TASK_TYPE, activeOccurrenceId, advanceFlow, getHoldConfig, getLoopBody, getNodeType, isActionNode } from './flowEngine.js';
@@ -84,8 +85,10 @@ export const applyActionRun = (project: Project, nodeId: string, run: ActionRun)
     ...(outcome?.failureCode ? { [`${resultVariable}_failure_code`]: outcome.failureCode } : {}),
     ...(outcome?.providerStatus ? { [`${resultVariable}_provider_status`]: outcome.providerStatus } : {})
   } : {};
-  const nextProjectData = merge || terminal
-    ? { ...(project.projectData || {}), ...(merge ? run.output : {}), ...resultData }
+  const baseData = { ...(project.projectData || {}) };
+  if (resultVariable) for (const suffix of ['', '_success', '_output', '_error', '_disposition', '_failure_code', '_provider_status']) delete baseData[`${resultVariable}${suffix}`];
+  const nextProjectData = merge || terminal || resultVariable
+    ? { ...baseData, ...(merge ? run.output : {}), ...resultData }
     : project.projectData;
 
   return {
@@ -160,6 +163,7 @@ export const runActionNode = async (
 
   let outcome: ActionOutcome;
   try {
+    requireCurrentResults(project, node);
     if (node.actionConfig?.collection) {
       const children = node.actionConfig.collection.childIds.map(id => project.milestones.find(m => m.id === id));
       if (children.some(child => child?.actionConfig?.lastRun?.status !== 'success')) throw new Error('Collection still has incomplete items');

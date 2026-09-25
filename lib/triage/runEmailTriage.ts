@@ -1,3 +1,4 @@
+import { validateReferenceContext } from '../flowInputs.js';
 import type { CommunicationResult, CommunicationsClient } from '../communications/types.js';
 import { createCommunicationsClient } from '../communications/client.js';
 import {
@@ -31,6 +32,7 @@ export interface RunEmailTriageInput {
   actor?: string;
   createdAt?: number;
   batchSize?: number;
+  referenceContext?: unknown;
 }
 
 export interface RunEmailTriageResult {
@@ -187,6 +189,7 @@ export const runEmailTriage = async (
   client: CommunicationsClient = createCommunicationsClient()
 ): Promise<RunEmailTriageResult> => {
   if (!input.orgId || !input.connectionId || !input.runId) throw new Error('Email triage requires orgId, connectionId and runId');
+  const referenceContext = validateReferenceContext(input.referenceContext);
   const scheduledFor = input.scheduledFor || Date.now();
   const scheduleId = input.scheduleId || `project:${input.projectId || 'legacy'}`;
   const cursorKey = projectTriageCursorKey(input.projectId, input.connectionId);
@@ -228,9 +231,10 @@ export const runEmailTriage = async (
         loadedThreads.set(detailed.threadId, thread.communications);
       }
       try {
-        const analysis = await classifyEmailForTriage(detailed, detailed.threadId ? loadedThreads.get(detailed.threadId) : []);
+        const analysis = await classifyEmailForTriage(detailed, detailed.threadId ? loadedThreads.get(detailed.threadId) : [], referenceContext);
         item = {
           ...item,
+          ...(referenceContext !== undefined ? { referenceContext: { runId: input.runId, capturedAt: Date.now(), data: referenceContext } } : {}),
           priority: analysis.priority, intent: analysis.intent, requestedAction: analysis.requestedAction,
           deadline: analysis.deadline, risk: analysis.risk, summary: analysis.summary,
           evidence: analysis.evidence, recommendation: analysis.recommendation,

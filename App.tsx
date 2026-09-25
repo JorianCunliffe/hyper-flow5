@@ -2810,6 +2810,7 @@ export const App: React.FC = () => {
         return (
           <NodeConfigModal
             milestone={node}
+            projectData={activeProject.projectData}
             milestones={activeProject.milestones}
             onSave={(updates) => handleUpdateMilestone(configNodeId, updates)}
             people={settings.people}

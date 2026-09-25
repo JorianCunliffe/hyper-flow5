@@ -1,3 +1,4 @@
+import { validateReferenceContext } from './flowInputs.js';
 import { ActionRecoveryRequired } from './actionDispatch.js';
 import { executeMailboxDraft } from './mailboxDraftAction.js';
 import { renderActionTemplate, validateOutputSchema, validateFlowOutput } from './flowData.js';
@@ -183,6 +184,7 @@ export async function executeTask(
         triagePolicy: ['all_inbound', 'human_only', 'correlated_only'].includes(String(templateData.triage_policy))
           ? templateData.triage_policy : 'human_only',
         createDrafts: booleanValue(templateData.create_drafts, true),
+        referenceContext: validateReferenceContext(templateData.reference_context),
         sendPolicy: ['draft_only', 'allow_approved_send', 'automatic'].includes(String(projectData?.email_send_policy))
           ? projectData?.email_send_policy : 'draft_only',
         digestChannel: ['web', 'email', 'sms'].includes(String(templateData.digest_channel))
