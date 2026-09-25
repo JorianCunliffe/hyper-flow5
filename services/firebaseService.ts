@@ -363,7 +363,7 @@ export const firebaseService = {
   },
 
   subscribe: (
-    callback: (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[], lastUpdated?: number } | null) => void,
+    callback: (data: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[], lastUpdated?: number, dataRevision?: number } | null) => void,
     onError?: (error: Error) => void
   ) => {
     if (!db) return () => {};
@@ -390,7 +390,7 @@ export const firebaseService = {
     scheduledAtRevision = currentDataRevision,
     base?: { projects: Project[], settings: AppSettings, scratchTasks?: ScratchTask[], activityLogs?: ActivityLog[] }
   ) => {
-    if (!db) return;
+    if (!db) throw new Error('Cloud is not connected');
     const cleanData = JSON.parse(JSON.stringify({
       projects: data.projects || [],
       settings: data.settings,
@@ -399,8 +399,10 @@ export const firebaseService = {
       lastUpdated: Date.now()
     }));
 
-    if (!currentUser || !currentOrgId) return;
-    const dataRef = dbRef(db, `projects/${currentOrgId}`);
+    if (!currentUser || !currentOrgId) throw new Error('Sign in to an organization before saving');
+    const savingOrgId = currentOrgId;
+    const savingUserId = currentUser.uid;
+    const dataRef = dbRef(db, `projects/${savingOrgId}`);
     const expectedRevision = scheduledAtRevision;
     const result = await runTransaction(dataRef, current => {
       const remoteRevision = Number(current?.dataRevision || 0);
@@ -423,7 +425,9 @@ export const firebaseService = {
       };
     }, { applyLocally: false });
     if (!result.committed) throw new Error('Cloud data changed while saving. The latest version has been loaded; review and retry your edit.');
+    if (currentOrgId !== savingOrgId || currentUser?.uid !== savingUserId) throw new Error('Account changed while saving; reload the current organization.');
     currentDataRevision = Number(result.snapshot.val()?.dataRevision || expectedRevision + 1);
+    return result.snapshot.val();
   },
 
   uploadFile: async (file: Blob, name: string): Promise<string | null> => {

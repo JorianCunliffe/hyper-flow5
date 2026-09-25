@@ -1,7 +1,8 @@
 import { ViewOptions } from './components/ViewOptions';
 import { ViewBoundary } from './components/ViewBoundary';
 import { ProjectScopeContext } from './components/ProjectScope';
-import { mergeCloudEdits } from './lib/cloudMerge';
+import { type CloudConflictDetail, type CloudConflictChoice } from './lib/cloudMerge';
+import { CloudSyncSession } from './lib/cloudSyncSession';
 import { GlassNavigation } from './components/GlassNavigation';
 import { TenantLifecyclePanel } from './components/TenantLifecyclePanel';
 import { ManagedFilesPanel } from './components/ManagedFilesPanel';
@@ -355,6 +356,8 @@ export const App: React.FC = () => {
   // Cloud Sync State
   const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncConflicts, setSyncConflicts] = useState<CloudConflictDetail[]>([]);
+  const [syncRetry, setSyncRetry] = useState(0);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
@@ -374,10 +377,15 @@ export const App: React.FC = () => {
   const isDbInitialized = useRef(false); // CRITICAL: Prevents overwriting DB with empty local state on load
   const localUpdatedAt = useRef(0);
   type CloudSnapshot = { projects: Project[]; settings: AppSettings; scratchTasks: ScratchTask[]; activityLogs: ActivityLog[] };
-  const cloudBase = useRef<CloudSnapshot | null>(null);
-  const cloudConflict = useRef(false);
   const currentCloudDraft = useRef<CloudSnapshot>({ projects, settings, scratchTasks, activityLogs });
-  currentCloudDraft.current = { projects, settings, scratchTasks, activityLogs };
+  const cloudSession = useRef(new CloudSyncSession<CloudSnapshot>(currentCloudDraft.current));
+  if (currentCloudDraft.current.projects !== projects || currentCloudDraft.current.settings !== settings ||
+      currentCloudDraft.current.scratchTasks !== scratchTasks || currentCloudDraft.current.activityLogs !== activityLogs) {
+    currentCloudDraft.current = { projects, settings, scratchTasks, activityLogs };
+    cloudSession.current.draft = currentCloudDraft.current;
+  }
+  const recoveryKey = currentUser && currentOrgId ? `hyperflow_pending_v1:${currentUser.uid}:${currentOrgId}` : null;
+  const [recoveryWarning, setRecoveryWarning] = useState<string | null>(null);
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -424,6 +432,46 @@ export const App: React.FC = () => {
     return { projects: sanitized, nextProjectId: nextPId, nextTaskId: nextTId };
   };
 
+  const normalizeCloudSnapshot = (data: any): CloudSnapshot => {
+    const migratedSettings = migrateSettings(data.settings);
+    const { projects: normalized, nextProjectId, nextTaskId } = sanitizeProjects(data.projects, migratedSettings);
+    return { projects: normalized, settings: { ...migratedSettings, nextProjectId, nextTaskId },
+      scratchTasks: Array.isArray(data.scratchTasks) ? data.scratchTasks : [],
+      activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs : [] };
+  };
+
+  const preservePending = (session: CloudSyncSession<CloudSnapshot>, key: string | null) => {
+    if (!key || !session.base) return;
+    try {
+      if (session.dirty || session.conflicts.length) localStorage.setItem(key, JSON.stringify({ version: 1, base: session.base, draft: session.draft }));
+      else localStorage.removeItem(key);
+      setRecoveryWarning(null);
+    } catch { setRecoveryWarning('This browser could not retain an offline copy. Keep this tab open until cloud saving succeeds.'); }
+  };
+
+  const showCloudSession = (session: CloudSyncSession<CloudSnapshot>, key: string | null) => {
+    if (cloudSession.current !== session) return;
+    currentCloudDraft.current = session.draft;
+    setProjects(session.draft.projects);
+    setSettings(session.draft.settings);
+    setScratchTasks(session.draft.scratchTasks);
+    setActivityLogs(session.draft.activityLogs);
+    setSyncConflicts([...session.conflicts]);
+    setCloudStatus(session.conflicts.length ? 'error' : 'connected');
+    setSyncError(session.conflicts.length ? `${session.conflicts.length} conflicting edit(s). Open Check Settings to review each version.` : null);
+    preservePending(session, key);
+  };
+
+  const resolveCloudConflicts = (choices: Record<string, CloudConflictChoice>) => {
+    const session = cloudSession.current;
+    session.draft = currentCloudDraft.current;
+    try {
+      session.resolve(choices);
+      showCloudSession(session, recoveryKey);
+      setSyncRetry(value => value + 1);
+    } catch (error: any) { showCloudSession(session, recoveryKey); setSyncError(error.message); }
+  };
+
   // Sync Logic (Firebase & LocalStorage)
   useEffect(() => {
     if (!firebaseService.isConfigured()) {
@@ -453,35 +501,28 @@ export const App: React.FC = () => {
 
     setCloudStatus('syncing');
 
-    cloudBase.current = null;
-    cloudConflict.current = false;
+    const session = new CloudSyncSession<CloudSnapshot>(currentCloudDraft.current);
+    cloudSession.current = session;
+    setSyncConflicts([]);
+    setSyncError(null);
+    if (recoveryKey) {
+      try {
+        const pending = JSON.parse(localStorage.getItem(recoveryKey) || 'null');
+        if (pending?.version === 1 && pending.base && pending.draft) {
+          session.base = normalizeCloudSnapshot(pending.base);
+          session.draft = normalizeCloudSnapshot(pending.draft);
+        }
+      } catch { setRecoveryWarning('Saved pending edits could not be read. The saved copy has been left intact.'); }
+    }
     const unsubscribe = firebaseService.subscribe((data) => {
+      if (cloudSession.current !== session) return;
       isDbInitialized.current = true;
       if (data) {
-        localStorage.setItem(BACKUP_KEY, JSON.stringify(data));
-        const migratedSettings = migrateSettings(data.settings);
-        const { projects: sanitizedProjects, nextProjectId, nextTaskId } = sanitizeProjects(data.projects, migratedSettings);
-        const remote: CloudSnapshot = {
-          projects: sanitizedProjects,
-          settings: { ...migratedSettings, nextProjectId, nextTaskId },
-          scratchTasks: Array.isArray(data.scratchTasks) ? data.scratchTasks : [],
-          activityLogs: Array.isArray(data.activityLogs) ? data.activityLogs : []
-        };
         try {
-          const merged = cloudBase.current ? mergeCloudEdits(cloudBase.current, currentCloudDraft.current, remote) : remote;
-          cloudBase.current = remote;
-          cloudConflict.current = false;
-          isRemoteUpdate.current = JSON.stringify(merged) === JSON.stringify(remote);
-          currentCloudDraft.current = merged;
-          setProjects(merged.projects);
-          setSettings(merged.settings);
-          setScratchTasks(merged.scratchTasks);
-          setActivityLogs(merged.activityLogs);
-          setCloudStatus('connected');
-          setSyncError(null);
+          try { localStorage.setItem(BACKUP_KEY, JSON.stringify(data)); } catch { /* pending copy reports storage failures */ }
+          session.receive(normalizeCloudSnapshot(data), Number(data.dataRevision || 0));
+          if (!session.saving) { showCloudSession(session, recoveryKey); setSyncRetry(value => value + 1); }
         } catch (error: any) {
-          cloudConflict.current = true;
-          localStorage.setItem('hyperflow_unsaved_conflict', JSON.stringify(currentCloudDraft.current));
           setCloudStatus('error');
           setSyncError(error.message);
         }
@@ -491,6 +532,7 @@ export const App: React.FC = () => {
       }
       setIsDataLoaded(true);
     }, (error) => {
+       if (cloudSession.current !== session) return;
        console.error("Subscription Error:", error);
        if(/permission[_-]denied/i.test(String((error as any).code||'')+' '+error.message))firebaseService.invalidateOrganizationAccess();
        setCloudStatus('error');
@@ -498,13 +540,13 @@ export const App: React.FC = () => {
        setIsDataLoaded(true);
     });
 
-    return () => unsubscribe();
+    return () => { unsubscribe(); if (cloudSession.current === session) cloudSession.current = new CloudSyncSession(currentCloudDraft.current); };
   }, [currentOrgId, currentUser]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
     if (firebaseService.isConfigured() && !isDbInitialized.current) return;
-    if (isRemoteUpdate.current) {
+    if (!firebaseService.isConfigured() && isRemoteUpdate.current) {
       isRemoteUpdate.current = false;
       return;
     }
@@ -513,23 +555,32 @@ export const App: React.FC = () => {
     // Capture the cloud revision when this render schedules its save. Reading
     // it later inside the debounce would let a callback advance the revision
     // while this closure still holds an older pending project snapshot.
-    const scheduledAtRevision = firebaseService.getDataRevision();
-    const scheduledBase = cloudBase.current;
+    const session = cloudSession.current;
+    session.draft = currentCloudDraft.current;
+    preservePending(session, recoveryKey);
 
     const saveData = async () => {
       if (firebaseService.isConfigured()) {
-        if (cloudConflict.current || cloudStatus === 'error') return;
+        if (cloudSession.current !== session || session.conflicts.length || cloudStatus === 'error') return;
+        const pending = session.begin();
+        if (!pending) return;
 
         setCloudStatus('syncing');
         try {
-          await firebaseService.save(
-            { projects, settings, scratchTasks, activityLogs },
-            scheduledAtRevision,
-            scheduledBase || undefined
+          const committed = await firebaseService.save(
+            pending.submitted,
+            pending.revision,
+            pending.base || undefined
           );
-          setCloudStatus('connected');
-          setSyncError(null);
+          if (cloudSession.current !== session) return;
+          session.draft = currentCloudDraft.current;
+          session.acknowledge(normalizeCloudSnapshot(committed), Number(committed.dataRevision || 0));
+          showCloudSession(session, recoveryKey);
+          setSyncRetry(value => value + 1);
         } catch (err: any) {
+          if (cloudSession.current !== session) return;
+          session.failed();
+          showCloudSession(session, recoveryKey);
           setCloudStatus('error');
           setSyncError(err.message || "Failed to save to cloud");
         }
@@ -540,7 +591,7 @@ export const App: React.FC = () => {
 
     const timer = setTimeout(saveData, 800);
     return () => clearTimeout(timer);
-  }, [projects, settings, scratchTasks, activityLogs]);
+  }, [projects, settings, scratchTasks, activityLogs, syncRetry]);
 
   // Handle Deep Linking (Magic Links from Email)
   useEffect(() => {
@@ -2159,11 +2210,11 @@ export const App: React.FC = () => {
       {syncError && cloudStatus === 'error' && (
         <div className="bg-red-600 text-white px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-pulse z-[60]">
           <ShieldAlert size={16} /> CRITICAL SYNC ERROR: Data is NOT saving to cloud. ({syncError})
-          {cloudConflict.current && <button className="underline ml-2" onClick={() => {
+          <button className="underline ml-2" onClick={() => {
             const link = document.createElement('a');
             link.href = URL.createObjectURL(new Blob([JSON.stringify(currentCloudDraft.current, null, 2)], { type: 'application/json' }));
             link.download = 'hyperflow-unsaved-edits.json'; link.click(); URL.revokeObjectURL(link.href);
-          }}>Download local edits</button>}
+          }}>Download local edits</button>
           <button onClick={() => setIsCloudSetupOpen(true)} className="underline ml-2 hover:text-red-100">Check Settings</button>
         </div>
       )}
@@ -2707,7 +2758,9 @@ export const App: React.FC = () => {
         onConfigureService={handleConfigureServiceProject}
         configureProjectId={serviceConfigurationProjectId}
       />
-      <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup} />
+      <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup}
+        conflicts={syncConflicts} recoveryWarning={recoveryWarning} onResolveConflicts={resolveCloudConflicts}
+        onRetry={() => { setCloudStatus('connected'); setSyncError(null); setSyncRetry(value => value + 1); }} />
       <CreateProjectModal 
         isOpen={isCreatingProject} 
         onClose={() => setIsCreatingProject(false)} 
