@@ -510,6 +510,11 @@ async function startServer() {
   app.get('/api/triage', async (req, res) => {
     try {
       const member = await requireAppMember(req as any);
+      if (req.query.scope === 'draft') {
+        res.setHeader('Cache-Control', 'no-store');
+        const { readTriageDraftPreview } = await import('./lib/triage/draftPreview.js');
+        return res.status(200).json({ draft: await readTriageDraftPreview(member.orgId, req.query.id) });
+      }
       const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
       return res.status(200).json({ data: await listTenantTriageItems(member.orgId, limit) });
     } catch (error: any) {

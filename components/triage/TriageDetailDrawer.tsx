@@ -12,6 +12,7 @@ import type {
 } from '../../types';
 import { triageRecommendedAction, triageResponsePresentation, triageResponseToneClass } from './triagePresentation';
 import { coachingPresentation, coachingToneClass } from './coachingPresentation';
+import { MailboxDraftPreview } from './MailboxDraftPreview';
 
 export type TriageSelection =
   | { kind: 'email'; item: TriageItem }
@@ -177,8 +178,9 @@ const EmailDetail: React.FC<{
             ) : responseDraftId ? (
               <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
                 <div className="flex items-center gap-2 font-bold text-indigo-800"><FileText size={18} /> Draft prepared</div>
-                <p className="mt-2 font-mono text-xs text-indigo-700">{responseDraftId}</p>
-                <p className="mt-2 text-xs text-indigo-600">A provider draft identifier is recorded. A direct Gmail or Outlook link is not available yet.</p>
+                {item.providerDraftId && item.connectionId
+                  ? <MailboxDraftPreview key={`${item.id}:${item.providerDraftId}`} itemId={item.id} />
+                  : <p className="mt-2 text-sm text-indigo-600">Open your mailbox’s Drafts folder to review this draft. Its mailbox connection is not recorded on this email.</p>}
               </div>
             ) : (
               <div className={`rounded-xl p-4 ${triageResponseToneClass(responsePresentation.tone)}`}>
