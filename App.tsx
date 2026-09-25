@@ -358,6 +358,7 @@ export const App: React.FC = () => {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncConflicts, setSyncConflicts] = useState<CloudConflictDetail[]>([]);
   const [syncRetry, setSyncRetry] = useState(0);
+  const [syncSubscriptionRetry, setSyncSubscriptionRetry] = useState(0);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false); 
@@ -386,6 +387,7 @@ export const App: React.FC = () => {
   }
   const recoveryKey = currentUser && currentOrgId ? `hyperflow_pending_v1:${currentUser.uid}:${currentOrgId}` : null;
   const [recoveryWarning, setRecoveryWarning] = useState<string | null>(null);
+  const unreadableRecoveryKeys = useRef(new Set<string>());
 
   const formatDate = (date: Date | number | undefined) => {
     if (!date) return 'N/A';
@@ -442,6 +444,7 @@ export const App: React.FC = () => {
 
   const preservePending = (session: CloudSyncSession<CloudSnapshot>, key: string | null) => {
     if (!key || !session.base) return;
+    if (unreadableRecoveryKeys.current.has(key)) return;
     try {
       if (session.dirty || session.conflicts.length) localStorage.setItem(key, JSON.stringify({ version: 1, base: session.base, draft: session.draft }));
       else localStorage.removeItem(key);
@@ -512,7 +515,7 @@ export const App: React.FC = () => {
           session.base = normalizeCloudSnapshot(pending.base);
           session.draft = normalizeCloudSnapshot(pending.draft);
         }
-      } catch { setRecoveryWarning('Saved pending edits could not be read. The saved copy has been left intact.'); }
+      } catch { unreadableRecoveryKeys.current.add(recoveryKey); setRecoveryWarning('Saved pending edits could not be read. The saved copy has been left intact; keep this tab open until cloud saving succeeds.'); }
     }
     const unsubscribe = firebaseService.subscribe((data) => {
       if (cloudSession.current !== session) return;
@@ -527,8 +530,8 @@ export const App: React.FC = () => {
           setSyncError(error.message);
         }
       } else {
-        isRemoteUpdate.current = true;
-        setProjects([]);
+        session.receive({ projects: [], settings: DEFAULT_SETTINGS, scratchTasks: [], activityLogs: [] }, 0);
+        if (!session.saving) { showCloudSession(session, recoveryKey); setSyncRetry(value => value + 1); }
       }
       setIsDataLoaded(true);
     }, (error) => {
@@ -541,7 +544,7 @@ export const App: React.FC = () => {
     });
 
     return () => { unsubscribe(); if (cloudSession.current === session) cloudSession.current = new CloudSyncSession(currentCloudDraft.current); };
-  }, [currentOrgId, currentUser]);
+  }, [currentOrgId, currentUser, syncSubscriptionRetry]);
 
   useEffect(() => {
     if (!isDataLoaded) return;
@@ -2760,7 +2763,7 @@ export const App: React.FC = () => {
       />
       <CloudSetupModal isOpen={isCloudSetupOpen} onClose={() => setIsCloudSetupOpen(false)} cloudStatus={cloudStatus} syncError={syncError} onDisconnect={handleDisconnectFirebase} onRestoreBackup={handleRestoreFromBackup}
         conflicts={syncConflicts} recoveryWarning={recoveryWarning} onResolveConflicts={resolveCloudConflicts}
-        onRetry={() => { setCloudStatus('connected'); setSyncError(null); setSyncRetry(value => value + 1); }} />
+        onRetry={() => { preservePending(cloudSession.current, recoveryKey); setSyncSubscriptionRetry(value => value + 1); }} />
       <CreateProjectModal 
         isOpen={isCreatingProject} 
         onClose={() => setIsCreatingProject(false)} 
