@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
+import { readTriageDraftPreview } from '../../lib/triage/draftPreview.js';
 import {
   claimTriageAgentProposal,
   findProject,
@@ -33,6 +34,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const member = await requireAppMember(req);
     const scope = requestScope(req);
+
+    if (scope === 'draft') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+      return res.status(200).json({ draft: await readTriageDraftPreview(member.orgId, req.query.id) });
+    }
 
     // These are configuration surfaces, not triage semantics. They share this
     // Vercel function only to stay within the deployment function budget.
