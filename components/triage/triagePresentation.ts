@@ -3,7 +3,7 @@ import type { AgentInboxJob, TriageItem } from '../../types';
 export type TriageResponseTone = 'emerald' | 'indigo' | 'red' | 'amber' | 'slate';
 
 export interface TriageResponsePresentation {
-  kind: 'response_created' | 'draft_prepared' | 'draft_failed' | 'needs_review' | 'excluded' | 'none';
+  kind: 'response_created' | 'draft_prepared' | 'draft_failed' | 'delivery_failed' | 'agent_failed' | 'needs_review' | 'excluded' | 'none';
   label: string;
   detail: string;
   tone: TriageResponseTone;
@@ -21,9 +21,17 @@ export const triageResponsePresentation = (item: TriageItem, job?: AgentInboxJob
     kind: 'draft_prepared', label: 'Draft prepared', tone: 'indigo',
     detail: 'A mailbox draft was prepared for review and has not been sent automatically.'
   };
-  if (hasAuditAction(item, 'mailbox.draft.failed') || item.disposition === 'delivery_failure' || job?.status === 'failed') return {
+  if (hasAuditAction(item, 'mailbox.draft.failed')) return {
     kind: 'draft_failed', label: 'Draft failed', tone: 'red',
-    detail: 'An attempted draft or delivery failed. Open the timeline for the recorded error.'
+    detail: 'A mailbox draft attempt failed. Open the timeline for the recorded error.'
+  };
+  if (item.disposition === 'delivery_failure') return {
+    kind: 'delivery_failed', label: 'Delivery failed', tone: 'red',
+    detail: 'A message delivery failed. Open the timeline for the recorded error.'
+  };
+  if (job?.status === 'failed') return {
+    kind: 'agent_failed', label: 'Agent processing failed', tone: 'red',
+    detail: 'The inbound agent job failed. This does not establish that a mailbox draft was attempted. See the agent error below or in the timeline.'
   };
   if (item.memoryEligible === false || item.disposition === 'spam_automatic') return {
     kind: 'excluded', label: 'Excluded', tone: 'slate',
