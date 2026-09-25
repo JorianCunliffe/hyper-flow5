@@ -19,6 +19,16 @@ export interface EmailTriageAnalysis {
 
 const clean = (value: unknown, max = 4_000): string => typeof value === 'string' ? value.trim().slice(0, max) : '';
 
+/** Repair double-escaped model prose, not arbitrary caller-authored mailbox text. */
+export const normalizeGeneratedDraft = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  // Protect code spans/blocks and Windows paths: their backslashes are content.
+  const normalized = value.replace(/```[\s\S]*?```|`[^`\n]*`|[A-Za-z]:\\[^\s]*|\\r\\n|\\n|\\r/g, token => {
+    return token === '\\n' || token === '\\r' || token === '\\r\\n' ? '\n' : token;
+  });
+  return clean(normalized, 12_000) || undefined;
+};
+
 const fallbackAnalysis = (communication: CommunicationResult): EmailTriageAnalysis => {
   const subject = clean(communication.subject, 500);
   const content = clean(communication.content, 2_000);
@@ -75,7 +85,7 @@ Keep the sender's requested action separate from your recommendation. State why 
           confidence: { type: Type.NUMBER },
           should_draft: { type: Type.BOOLEAN },
           draft_subject: { type: Type.STRING, nullable: true },
-          draft_body: { type: Type.STRING, nullable: true }
+          draft_body: { type: Type.STRING, nullable: true, description: 'Plain-text email with paragraph and list line breaks. Encode newlines once in JSON; do not double-escape them into literal backslash-n text.' }
         },
         required: ['priority', 'intent', 'risk', 'summary', 'evidence', 'recommendation', 'confidence', 'should_draft']
       }
@@ -85,7 +95,7 @@ Keep the sender's requested action separate from your recommendation. State why 
   const priority = ['low', 'normal', 'high', 'urgent'].includes(parsed.priority) ? parsed.priority : 'normal';
   const risk = ['low', 'medium', 'high'].includes(parsed.risk) ? parsed.risk : 'medium';
   const confidence = Math.min(Math.max(Number(parsed.confidence) || 0, 0), 1);
-  const draftBody = clean(parsed.draft_body, 12_000) || undefined;
+  const draftBody = normalizeGeneratedDraft(parsed.draft_body);
   return {
     priority,
     intent: clean(parsed.intent, 500) || 'unclassified_human_email',
@@ -99,7 +109,7 @@ Keep the sender's requested action separate from your recommendation. State why 
     shouldDraft: parsed.should_draft === true && Boolean(draftBody),
     draftSubject: clean(parsed.draft_subject, 500) || undefined,
     draftBody,
-    modelVersion: 'gemini-3.5-flash:triage-v3'
+    modelVersion: 'gemini-3.5-flash:triage-v4'
   };
 };
 
