@@ -125,24 +125,23 @@ const resolveHumanWait = (
   };
 };
 
-const advanceAndPersistRun = async (
+/** Commit the human decision before any slow provider work. The existing durable
+ * continuation hold resumes ready nodes, so a mailbox batch cannot lose approval. */
+export const checkpointReviewedRun = async (
   input: RespondToAskInput,
   located: Awaited<ReturnType<typeof findProject>> & {},
   run: FlowRun,
-  project: Project
+  project: Project,
+  deps = { saveFlowRun, syncFlowHoldsFromRun, writeProject }
 ): Promise<{ project: Project; run: FlowRun; log: string[]; pending: string[] }> => {
-  const advanced = await advanceProjectFlow(project, serverExecutor, {
-    orgId: input.orgId,
-    webhookBaseUrl: process.env.PUBLIC_BASE_URL
-  });
-  const delivered = await deliverRaisedAsks(advanced.project, input.orgId, advanced.askedFor);
-  const savedRun = await saveFlowRun(updateFlowRunFromProject(run, delivered.project));
-  await syncFlowHoldsFromRun(savedRun, delivered.project);
-  try { await writeProject(input.orgId, located.index, delivered.project); }
+  const savedRun = await deps.saveFlowRun(updateFlowRunFromProject(run, project));
+  await deps.syncFlowHoldsFromRun(savedRun, project);
+  const log = ['Response saved. Ready downstream work is queued for continuation.'];
+  try { await deps.writeProject(input.orgId, located.index, project); }
   catch (error: any) {
-    advanced.log.push(`Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`);
+    log.push(`Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`);
   }
-  return { project: delivered.project, run: savedRun, log: [...advanced.log, ...delivered.log], pending: advanced.pending };
+  return { project, run: savedRun, log, pending: savedRun.status === 'running' ? ['__continue__'] : [] };
 };
 
 /** The one canonical entry point for a human response, regardless of channel. */
@@ -236,7 +235,7 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   }
 
   if (flowRun) {
-    const persisted = await advanceAndPersistRun(input, located, flowRun, project);
+    const persisted = await checkpointReviewedRun(input, located, flowRun, project);
     return {
       ok: true,
       askStatus: updatedAsk.status,
