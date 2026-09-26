@@ -1,4 +1,4 @@
-import { advanceFlow } from './flowEngine.js';
+import { captureReviewNeedsStep, advanceFlow } from './flowEngine.js';
 import type { HumanAsk, Milestone, Project } from '../types.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
 import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } from './flowRuntimeTypes.js';
@@ -128,9 +128,10 @@ const reviewHolds = (run: FlowRun, node: Milestone, now: number): FlowHold[] => 
  * nodes plus implicit provider/human waits created by action and review nodes.
  */
 export const continuationHold = (run: FlowRun, project: Project, now = Date.now()): FlowHold | null => {
-  if (run.status !== 'running') return null;
+  const reviewReady = captureReviewNeedsStep(project);
+  if (run.status !== 'running' && !(run.status === 'waiting' && reviewReady)) return null;
   const ready = advanceFlow(project);
-  if (!ready.actionsToRun.length && !ready.asksToOpen.length && !ready.log.length) return null;
+  if (!reviewReady && !ready.actionsToRun.length && !ready.asksToOpen.length && !ready.log.length) return null;
   return { id: `continue_${run.id}`, orgId: run.orgId, projectId: run.projectId, flowRunId: run.id,
     nodeId: '__continue__', source: 'continuation', kind: 'timer', status: 'waiting', occurrenceId: run.occurrenceId,
     availableAt: now + 1000, createdAt: now, updatedAt: now, reason: 'Continue checkpointed automatic work' };

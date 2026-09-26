@@ -1,3 +1,4 @@
+import { reviewCapturedWork } from '../capturedWork/review.js';
 import type { AskChannel, AskDecision, Attachment, HumanAsk, HumanResponse, Project } from '../../types.js';
 import { validateResponse } from '../askResponses.js';
 import { getHoldConfig } from '../flowEngine.js';
@@ -251,6 +252,7 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   // Backwards-compatible path for an Ask created before FlowRun migration.
   const advanced = await advanceProjectFlow(project, serverExecutor, {
     orgId: input.orgId,
+    reviewCaptures: reviewCapturedWork,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL
   });
   const delivered = await deliverRaisedAsks(advanced.project, input.orgId, advanced.askedFor);

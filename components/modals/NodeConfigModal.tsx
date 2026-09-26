@@ -84,6 +84,10 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [eventPeople, setEventPeople] = useState(csvText(milestone.eventTriggerConfig?.personIds));
   const [eventPayloadVariable, setEventPayloadVariable] = useState(milestone.eventTriggerConfig?.payloadVariable || '');
 
+  const [captureScope, setCaptureScope] = useState(milestone.captureReviewConfig?.scope || 'user_unresolved');
+  const [captureLimit, setCaptureLimit] = useState(milestone.captureReviewConfig?.maxItems || 5);
+  const [captureOlder, setCaptureOlder] = useState(milestone.captureReviewConfig?.includeOlderItems !== false);
+  const [captureOwner, setCaptureOwner] = useState(milestone.captureReviewConfig?.capturedForUserId || '');
   const [requiredResults, setRequiredResults] = useState<string[]>(milestone.actionConfig?.requiredResults || []);
   const [template, setTemplate] = useState(milestone.actionConfig?.template || '');
   const [eachSource, setEachSource] = useState(milestone.actionConfig?.forEach?.source || '');
@@ -130,6 +134,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
     setJsonError(null);
     const updates: Partial<RuntimeMilestone> = { nodeType };
 
+    if (nodeType === NodeType.CAPTURE_REVIEW) updates.captureReviewConfig = { scope: captureScope, maxItems: captureLimit, includeOlderItems: captureOlder, capturedForUserId: captureOwner || undefined };
     updates.reviewPolicy = buildReviewPolicy(milestone.reviewPolicy, {
       required: reviewRequired,
       reviewers,
@@ -423,6 +428,14 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         {nodeType === NodeType.END && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5 text-sm text-slate-600">This node explicitly terminates the current branch. It has no runtime configuration.</div>
         )}
+
+        {nodeType === NodeType.CAPTURE_REVIEW && <div className="space-y-3 border rounded-xl p-4 mb-5">
+          <p className="text-sm">Review side items one at a time using Human Asks. Unfinished items remain available to later runs.</p>
+          <label className="block text-sm">Scope <select value={captureScope} onChange={e => setCaptureScope(e.target.value as any)} className="border p-2 rounded"><option value="user_unresolved">All unresolved items for the user</option><option value="current_project">Current project</option><option value="current_run">Current run</option></select></label>
+          <label className="block text-sm">Maximum items <input type="number" min={1} max={20} value={captureLimit} onChange={e => setCaptureLimit(Number(e.target.value))} className="border p-2 rounded" /></label>
+          <label className="block text-sm"><input type="checkbox" checked={captureOlder} onChange={e => setCaptureOlder(e.target.checked)} /> Include older items</label>
+          <label className="block text-sm">User ID (defaults to the tenant primary user) <input value={captureOwner} onChange={e => setCaptureOwner(e.target.value)} className="border p-2 rounded w-full" /></label>
+        </div>}
 
         {isActionNode(draftNode) && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5">

@@ -75,6 +75,7 @@ export const isNodeWorkDone = (m: Milestone, projectData?: Record<string, any>):
       return !!getHoldConfig(m)?.resolvedAt && waitMatchesOccurrence(m, projectData);
     case NodeType.EVENT_TRIGGER:
       return eventMatchesOccurrence(m, projectData);
+    case NodeType.CAPTURE_REVIEW:
     case NodeType.END:
       return !!m.completedAt;
     case NodeType.MILESTONE:
@@ -156,6 +157,13 @@ export const isNodeReady = (m: Milestone, states: Map<string, NodeResolution>): 
   return parentStates.every(s => s !== 'pending') && parentStates.some(s => s === 'complete');
 };
 
+/** A capture review has server-side work after each answered Ask. */
+export const captureReviewNeedsStep = (project: Project): boolean => {
+  const states = resolveNodeStates(project);
+  return project.milestones.some(node => node.nodeType === NodeType.CAPTURE_REVIEW && !node.completedAt &&
+    isNodeReady(node, states) && !(node.asks || []).some(ask => ask.status === 'open'));
+};
+
 export const getLoopBody = (project: Project, loopNode: Milestone): string[] => {
   const startId = loopNode.loopConfig?.loopStartId;
   if (!startId) return [];
@@ -187,6 +195,7 @@ const resetNodeForIteration = (m: Milestone): Milestone => {
   let reset: Milestone = {
     ...m,
     completedAt: undefined,
+    captureReviewState: undefined,
     subtasks: (m.subtasks || []).map(s => ({
       ...s,
       status: 'Not started',

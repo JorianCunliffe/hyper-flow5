@@ -1,4 +1,5 @@
 export type AppView =
+  | "captures"
   | "projects"
   | "kanban"
   | "scratch"
@@ -16,6 +17,7 @@ export type AppView =
   | "tenant";
 
 const APP_VIEWS = new Set<AppView>([
+  "captures",
   "projects",
   "kanban",
   "scratch",
@@ -65,6 +67,7 @@ export const WORKSPACE_VIEWS: {
       { id: "kanban", label: "Task board" },
       { id: "obligations", label: "Commitments" },
       { id: "scratch", label: "Quick capture" },
+      { id: "captures", label: "Unresolved Items" },
     ],
   },
   {
