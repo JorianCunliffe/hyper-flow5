@@ -5,7 +5,7 @@ Contract version: email authority 1.1. Memory remains in Communications Service.
 | Authoritative owner | Responsibility |
 |---|---|
 | Communications Service | Canonical people/identities, cross-channel threads, providers, mailbox credentials/drafts, transcripts, existing memory/extraction/search/enrichment, delivery receipts and persisted account email authority |
-| HyperFlow | Organization membership and project access, delegation and business approval, Asks, accepted operational commitments, workflow/run transitions, schedules, reporting and product UI |
+| HyperFlow | Organization membership and project access, delegation and business approval, Asks, captured work and confirmed work intents, accepted operational commitments, workflow/run transitions, schedules, reporting and product UI |
 
 Services exchange scoped REST requests and signed canonical events. Neither accesses the other's database. HyperFlow displays Communications context without creating a competing contact, thread or memory authority. Explicit thread/Ask bindings take precedence over inferred similarity. An extracted promise, delivery receipt or phone outcome is evidence; it does not itself approve a workflow or prove a business commitment fulfilled. Calendar context remains in Communications; booking decisions and business integration actions remain in HyperFlow.
 
@@ -36,3 +36,15 @@ This branch starts from current remote main, preserving newer Communications `en
 Deploy Communications first, then HyperFlow. Existing unconfigured sending accounts will become draft-only: inventory accounts and explicitly retain `allow_send` only where already authorized before rollout. Do not grant wildcard to bypass missing scoped capabilities. Confirm the intended client has policy-management permission before enabling the settings UI.
 
 Missing policy storage/support fails closed. Handle 403 without automatic retry; 409 requires reload; 503 indicates configuration/storage/service availability. Keep Communications enforcement during HyperFlow rollback. Reconcile uncertain provider receipts before retrying an accepted operation. Local fixtures prove contracts and enforcement paths, not production configuration or provider delivery.
+
+## Ambient work ownership and authority
+
+Ambient captures are canonical HyperFlow business-intent records, stored under `captured_work_items/{orgId}/{userId}/{captureId}`. Communications remains authoritative for the source communication, thread, identity and transcript. A capture retains source references; it does not establish another communications-memory store.
+
+The capture lifecycle is independent of FlowRun completion. Run review state contains the bounded selection, current Ask and clarification draft; the durable register retains unresolved items across run resets and interruptions. Capture itself does not advance, redirect or mutate the source run. Source-run provenance is retrieved from the register rather than appended to shared run state.
+
+The capture API derives tenant/user scope from authentication. A review-node owner must be an organization member; review Asks follow existing project access and capability-token rules. This distinction matters: a user-private API queue is not a promise that a selected item's contents remain private after they are placed into a shared project's review Ask.
+
+Suggestions and confidence never authorize effects. Confirmation writes a stable work intent and its resolution link in the same record; `executionStatus: not_executed` explicitly separates confirmation from execution. Calendar, message and reminder effects remain subject to their existing downstream primitives and policies. Captures are also distinct from accepted operational commitments: an unfinished thought is not automatically a promise.
+
+See the [API contract](../API.md#captured-work-items) and [implementation boundaries](../AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md#deliberate-mvp-boundaries). External phone-provider tool registration and automatic cross-channel review are separate from the capture store.

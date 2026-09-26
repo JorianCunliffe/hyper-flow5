@@ -1,5 +1,7 @@
 # Ambient Work Capture — implementation and review guide
 
+**Delivery status:** [Draft PR #56](https://github.com/JorianCunliffe/hyper-flow5/pull/56); not a production-release claim. Start with the [README walkthrough](../README.md#ambient-work-capture-and-side-tasks), [full API reference](API.md#captured-work-items), and [operations runbook](OMNICHANNEL_OPERATIONS.md#11-ambient-capture-and-deferred-review-rollout).
+
 This implements the core of [the RFC](HYPERFLOW_RFC_AMBIENT_WORK_CAPTURE.md): capture now, keep going, review later. The RFC is preserved as the design input; this document describes the actual implementation and rollout boundaries.
 
 ## Implemented
@@ -20,7 +22,7 @@ Resolution means **confirmed intent**, not execution. A meeting intent does not 
 
 Review uses the existing web Human Ask surface in this PR. Interrupted reviews are durable and can continue via web or a later review run. Automatic SMS/email continuation and voice-driven resolution are not configured by this change; no messages are sent by capture or review.
 
-Project-name suggestions supplied during capture are advisory. Review validates project selection against tenant projects; this version does not introduce an additional model classifier. Times must be epoch milliseconds at the API or an explicit timezone-bearing ISO time in review. It does not guess an instant from “one today.” Meeting duration defaults to thirty minutes and is stated in confirmation.
+Project-name suggestions supplied during capture are advisory. Review validates project selection against tenant projects; this version does not introduce an additional model classifier. A saved proposed meeting mode/duration is reused during review. Times must be epoch milliseconds at the API or an explicit timezone-bearing ISO time in review. It does not guess an instant from “one today.” Meeting duration defaults to thirty minutes and is stated in confirmation.
 
 Run provenance is queryable through `GET /api/captured-work-items?sourceRunId=...`, and displayed in the register. Capturing never mutates or races the source FlowRun. There is no new run-inspector panel in this PR.
 
@@ -30,7 +32,7 @@ Storage reads currently scan one user's register before filtering/pagination. Ad
 
 Both Express and Vercel expose `/api/captured-work-items`; Vercel reuses the existing Gemini function to avoid increasing the serverless function count. The same handler enforces identity and validation on both hosts.
 
-Authentication: Firebase ID token or an existing tenant API client bound to the intended user, with `captured-work-items:read` / `captured-work-items:write`. Body-supplied tenant/owner IDs cannot change scope.
+Authentication: Firebase ID token or an existing tenant API client bound to the intended user, with `captured-work-items:read` / `captured-work-items:write`. Body-supplied tenant/owner IDs cannot change scope. Review nodes can select another organization member as owner, and their web Asks follow the existing project/Ask access rules; this is distinct from public API queue scoping.
 
 | Method | Input | Result |
 | --- | --- | --- |
@@ -78,6 +80,8 @@ This PR changes HyperFlow only. It does not claim to have registered or tested e
 ## Validation
 
 Automated tests cover tenant/user derivation, foreign project/run rejection, scoped API routing, stable replay identity and conflicts, incomplete/ambiguous captures, same/later-run review, interrupted review, defer/dismiss, required resolution fields, stale confirmations, concurrent dismissal, empty queues, downstream output and durable review continuation.
+
+Implementation validation on 2026-09-26: type-check and build passed; the full suite passed 746 tests, with focused capture/navigation checks repeated after the final refinements. These are local implementation results, not live acceptance evidence.
 
 Commands:
 

@@ -14,6 +14,7 @@ HyperFlow is a visual workflow engine for projects that combine human milestones
 | SMS and voice | Dispatch through the provider-neutral Communications Service, wait for signed terminal outcomes, and triage eligible inbound replies. |
 | Webhooks | Call public HTTPS/443 endpoints with DNS, redirect, timeout, and response-size protections. |
 | Reports | Generate, evaluate, and revise reports with Gemini. |
+| Ambient Work Capture | Save incomplete side items outside a run, then clarify them through Work → Unresolved Items or an optional Review Unresolved Items node. Confirmed intents require explicit downstream execution. |
 | Human Asks | Pause a run for approval, rejection, revision, information, or an upload; collect responses by web form, email, SMS, or voice. |
 | Communications triage | Run a project-scoped action against one connected mailbox, prepare safe provider-native drafts, publish an idempotent daily digest, and review inbound email/SMS/voice or proposed coaching actions in one tenant-scoped inbox. |
 | Daily Coaching | Read an allowlisted Google Doc and Sheet, place a correlated coaching call, retry voicemail/early hangups once after ten minutes by default, exclude failed outcomes, extract a typed result, and append one idempotent tracker row. |
@@ -107,6 +108,21 @@ Every outbound SMS or call carries:
 - `tenant_id`, `external_project_id`, `run_id`, and `task_id` correlation;
 - an HTTPS callback URL derived from `PUBLIC_BASE_URL`.
 
+## Ambient work capture and side tasks
+
+**Capture now. Clarify later.** A side item such as “I need to meet the Edmonton buyer at one” can be saved without choosing a project or completing a calendar-event form. It survives the source run; capturing does not switch projects, start another flow, or block the current node.
+
+1. Open **Work → Unresolved Items** (`?view=captures`) to capture, review, assign a project, save for later, or dismiss an item. This is the signed-in user's queue across projects; selecting a project elsewhere does not filter it.
+2. Add **Review Unresolved Items** to the desired flow. Set the review owner to an organization user ID, or use the tenant's configured primary user. The default scope is that user's unresolved items, oldest first, up to five per review.
+3. Answer the existing web Human Asks to supply missing details, confirm, correct, dismiss, or defer. Interrupted and deferred items remain available for later review. Keep the normal scheduler running so accepted answers can continue the run.
+4. Route confirmed results from `capture_review_results.<nodeId>` into explicit downstream primitives when execution is required.
+
+A resolved item is a durable **work intent** with `executionStatus: not_executed`. It does not itself book a meeting, deliver a reminder, send a message, or create a project subtask. The review node currently uses web Asks; automatic cross-channel continuation is deferred.
+
+The authenticated Express Gemini live-voice endpoint includes the `captureWorkItem` tool. External phone providers need that tool registered against the capture API before they can save thoughts during calls; adding prompt instructions alone is insufficient. The Express WebSocket is not hosted by Vercel.
+
+See the [implementation and rollout guide](docs/AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md), [API contract](docs/API.md#captured-work-items), and [original RFC](docs/HYPERFLOW_RFC_AMBIENT_WORK_CAPTURE.md). PR #56 is a draft: browser, deployed Firebase and actual phone-provider smoke checks remain open; this documentation does not assert production availability.
+
 ## Human Asks
 
 HyperFlow maintains one canonical Ask and creates recipient/channel-specific delivery IDs and tokens. All accepted responses pass through the same `respondToAsk` service, which validates the response, records it, applies the result, advances the flow, delivers any newly raised Asks, and saves the project.
@@ -136,6 +152,7 @@ Email, SMS, and voice response events are evidence, not automatic resolution. `r
 | Flow engine | [`lib/flowEngine.ts`](./lib/flowEngine.ts) | Pure dependency, branch, loop, and readiness decisions. |
 | Orchestrator | [`lib/flowOrchestrator.ts`](./lib/flowOrchestrator.ts) | Executes scheduled effects and folds results into project state. |
 | Server execution | [`lib/serverExecutor.ts`](./lib/serverExecutor.ts), [`lib/serverFlow.ts`](./lib/serverFlow.ts) | Runs actions and advances persisted projects without a browser. |
+| Ambient capture | [`lib/capturedWork`](./lib/capturedWork), [`components/CapturedWorkPanel.tsx`](./components/CapturedWorkPanel.tsx) | Durable user-owned backlog, replay-safe capture, deferred Human Ask review, and confirmed intent output. |
 | Ask services | [`lib/asks`](./lib/asks) | Creates, delivers, expires, and responds to asks. |
 | Communications client | [`lib/communications`](./lib/communications) | Tenant-scoped email, SMS, voice, thread, triage, Ask-resolution, and signed-event contracts. |
 | Event inbox | [`lib/externalEvents.ts`](./lib/externalEvents.ts), [`lib/serverStore.ts`](./lib/serverStore.ts) | Persist-first, tenant-scoped event processing, delivery state, triage projection, and fail-closed outcomes. |
@@ -168,7 +185,7 @@ When changing Firebase projects, configure the browser variables as one set and 
 4. In Settings > Communications, select the tenant's email service identity and provider connection; set the phone number when SMS or voice is enabled.
 5. Configure `CRON_SECRET` for the daily Vercel Hobby-compatible fallback. The always-on Communications VM is the single frequent production ticker when `HYPERFLOW_EVENT_URL` and the shared `COMMUNICATIONS_WEBHOOK_SECRET` are present; it signs an empty `POST` with the same replay-safe V2 HMAC contract used by callbacks. Do not configure a second five-minute ticker. A Vercel plan with a five-minute cron or another trusted external timer may replace the Communications timer, but must not run alongside it.
 6. Run and review the membership migration before deploying updated Firebase rules to a legacy database.
-7. Deploy [`database.rules.json`](./database.rules.json); operational event, triage/digest, sparse worker indexes, schedule, cursor, delivery, integration, coaching, and resolution trees are backend-only.
+7. Deploy [`database.rules.json`](./database.rules.json); operational event, triage/digest, sparse worker indexes, schedule, cursor, delivery, integration, coaching, captured-work, and resolution trees are backend-only.
 
 External services cannot call localhost. Use a secure public tunnel for local callback testing. If deployment protection redirects webhook requests to login, expose an unprotected webhook origin or configure the host's supported protection bypass.
 
@@ -190,6 +207,8 @@ Firebase rules tests additionally require Java:
 ```powershell
 npm.cmd run test:rules
 ```
+
+Ambient capture tests additionally cover duplicate retries, tenant/user scoping, incomplete items, interrupted/later-run review, stale confirmations, and durable continuation. The [rollout guide](docs/AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md#validation) separates local test results from outstanding live checks.
 
 ## API reference
 
