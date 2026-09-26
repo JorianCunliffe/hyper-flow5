@@ -47,4 +47,4 @@ The capture API derives tenant/user scope from authentication. A review-node own
 
 Suggestions and confidence never authorize effects. Confirmation writes a stable work intent and its resolution link in the same record; `executionStatus: not_executed` explicitly separates confirmation from execution. Calendar, message and reminder effects remain subject to their existing downstream primitives and policies. Captures are also distinct from accepted operational commitments: an unfinished thought is not automatically a promise.
 
-See the [API contract](../API.md#captured-work-items) and [implementation boundaries](../AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md#deliberate-mvp-boundaries). External phone-provider tool registration and automatic cross-channel review are separate from the capture store.
+See the [API contract](../API.md#captured-work-items) and [implementation boundaries](../AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md#deliberate-mvp-boundaries). Communications owns phone-tool registration and signs capture requests; HyperFlow verifies the primary owner and source communication before writing the capture store. Automatic cross-channel review remains separate.

@@ -36,6 +36,7 @@
     { "source": "/api/service-projects/validate", "destination": "/api/communications/status?action=service_setup_validate" },
     { "source": "/api/service-projects/status", "destination": "/api/communications/status?action=service_setup_status" },
     { "source": "/api/coaching/sessions", "destination": "/api/communications/status?action=coaching_sessions" },
+    { "source": "/api/agent/capture-work", "destination": "/api/events?action=capture_work" },
     { "source": "/api/agent/voice-context", "destination": "/api/events?action=voice_context" },
     { "source": "/api/operations", "destination": "/api/communications/status?action=operations" },
     { "source": "/api/operations/agent-jobs/replay", "destination": "/api/communications/status?action=operations_replay" },

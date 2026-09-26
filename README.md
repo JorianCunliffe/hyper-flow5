@@ -119,9 +119,9 @@ Every outbound SMS or call carries:
 
 A resolved item is a durable **work intent** with `executionStatus: not_executed`. It does not itself book a meeting, deliver a reminder, send a message, or create a project subtask. The review node currently uses web Asks; automatic cross-channel continuation is deferred.
 
-The authenticated Express Gemini live-voice endpoint includes the `captureWorkItem` tool. External phone providers need that tool registered against the capture API before they can save thoughts during calls; adding prompt instructions alone is insufficient. The Express WebSocket is not hosted by Vercel.
+The authenticated Express Gemini live-voice endpoint includes the `captureWorkItem` tool. Communications Service now includes the phone adapter: it registers the tool for authorized inbound owner calls and configured outbound calls, using the existing signed HyperFlow connection. Deploy both repositories for this path. Other phone providers still need their own adapter. The Express WebSocket is not hosted by Vercel.
 
-See the [implementation and rollout guide](docs/AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md), [API contract](docs/API.md#captured-work-items), and [original RFC](docs/HYPERFLOW_RFC_AMBIENT_WORK_CAPTURE.md). PR #56 is a draft: browser, deployed Firebase and actual phone-provider smoke checks remain open; this documentation does not assert production availability.
+See the [implementation and rollout guide](docs/AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md), [API contract](docs/API.md#captured-work-items), and [original RFC](docs/HYPERFLOW_RFC_AMBIENT_WORK_CAPTURE.md). The core feature was merged in PR #56. The phone adapter is covered by automated contract and authorization tests; authenticated UI and an actual spoken-call acceptance check are separate from deployment success.
 
 ## Human Asks
 

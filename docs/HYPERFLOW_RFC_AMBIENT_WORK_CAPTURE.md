@@ -1,6 +1,6 @@
 # RFC: Ambient Work Capture and Deferred Clarification in HyperFlow
 
-**Status:** Design RFC; core implementation proposed in [draft PR #56](https://github.com/JorianCunliffe/hyper-flow5/pull/56). See the [implementation guide](AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md) for delivered behavior, MVP boundaries and open validation gates. The design below includes later-phase work.
+**Status:** Design RFC; core implementation merged in [PR #56](https://github.com/JorianCunliffe/hyper-flow5/pull/56). See the [implementation guide](AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md) for delivered behavior, MVP boundaries and open validation gates. The design below includes later-phase work.
 **Product:** HyperFlow  
 **Feature name:** Ambient Work Capture  
 **Working UI name:** Side Tasks / Unresolved Items  
