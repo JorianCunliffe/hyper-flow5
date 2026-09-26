@@ -17,7 +17,7 @@ export class ApiAuthError extends Error {
   }
 }
 
-type RequestLike = { headers: Record<string, string | string[] | undefined>; url?:string; method?:string; query?:any };
+type RequestLike = { headers: Record<string, string | string[] | undefined>; url?:string; method?:string; query?:any; body?:any };
 
 export const requireProjectInTenant = async (
   orgId: string,

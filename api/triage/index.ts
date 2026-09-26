@@ -1,3 +1,5 @@
+import { TenantControlError } from '../../lib/tenantControl/model.js';
+import { assertHumanDecision } from '../../lib/http/authority.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import { readTriageDraftPreview } from '../../lib/triage/draftPreview.js';
@@ -33,6 +35,7 @@ const isAdmin = (role: string): boolean => ['owner', 'admin'].includes(role);
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const member = await requireAppMember(req);
+    assertHumanDecision(member, 'triage', req.body);
     const scope = requestScope(req);
 
     if (scope === 'draft') {
@@ -186,7 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return item ? res.status(200).json({ item }) : res.status(404).json({ error: 'Triage item not found' });
   } catch (error: any) {
-    if (error instanceof ApiAuthError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ApiAuthError || error instanceof TenantControlError) return res.status(error.status).json({ error: error.message });
     const message = String(error?.message || error);
     if (/invalid capability|invalid policy|workspace resource|google sheet range/i.test(message)) {
       return res.status(400).json({ error: message });

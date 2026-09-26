@@ -1,9 +1,11 @@
+import { assertHumanDecision } from '../http/authority.js';
 import { requireProjectInTenant } from '../apiAuth.js';
 import { readFlowRun } from '../flowRunStore.js';
 import { CaptureError, text, unresolved } from './model.js';
 import { captureWorkItem, listCaptures, mutateCapture, readCapture } from './store.js';
 export const capturedWorkDependencies = { requireProjectInTenant, readFlowRun, captureWorkItem, listCaptures, mutateCapture, readCapture };
 export async function handleCapturedWork(req: { method?: string; query?: any; body?: any }, member: { orgId: string; uid: string }, deps = capturedWorkDependencies) {
+  assertHumanDecision(member, 'captured_work', req.body);
   const body = req.body || {};
   const query = req.query || {};
   // Identity always comes from authentication; no caller-supplied tenant or owner.

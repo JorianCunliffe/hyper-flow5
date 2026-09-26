@@ -66,5 +66,6 @@ test('both deployments register the same service-project routes with read/write 
     assert.equal(requestScope({ url: route, method: 'GET' }), 'service-projects:read');
     assert.equal(requestScope({ url: route, method: 'POST' }), 'service-projects:write');
   }
-  assert.match(readFileSync('server.ts', 'utf8'), /Object\.entries\(SERVICE_PROJECT_ROUTES\)/);
+  assert.match(readFileSync('lib/http/express.ts', 'utf8'), /config.rewrites/);
+  assert.match(readFileSync('api/communications/status.ts', 'utf8'), /SERVICE_PROJECT_ROUTES/);
 });

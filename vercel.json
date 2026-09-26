@@ -5,47 +5,210 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/captured-work-items", "destination": "/api/gemini?action=captured-work-items" },
-    { "source": "/api/capabilities", "destination": "/api/triage?scope=capabilities" },
-    { "source": "/api/workspace/resources", "destination": "/api/triage?scope=workspace_resources" },
-    { "source": "/api/files", "destination": "/api/gemini?action=files" },
-    { "source": "/api/workspace", "destination": "/api/gemini?action=workspace" },
-    { "source": "/api/tenant", "destination": "/api/gemini?action=tenant" },
-    { "source": "/api/meetings", "destination": "/api/communications/status?action=meetings" },
-    { "source": "/api/flows", "destination": "/api/gemini?action=flows" },
-    { "source": "/api/cockpit", "destination": "/api/gemini?action=cockpit" },
-    { "source": "/api/publishing", "destination": "/api/gemini?action=publishing" },
-    { "source": "/api/artifacts", "destination": "/api/gemini?action=artifacts" },
-    { "source": "/api/calendar", "destination": "/api/gemini?action=calendar" },
-    { "source": "/api/commitments", "destination": "/api/communications/status?action=commitments" },
-    { "source": "/api/communications/memory", "destination": "/api/communications/status?action=memory" },
-    { "source": "/api/communications/email-policy", "destination": "/api/communications/status?action=email_policy" },
-    { "source": "/forms/ask/:token", "destination": "/api/asks/:token" },
-    { "source": "/api/schedules/run", "destination": "/api/schedules?action=run" },
-    { "source": "/api/schedules/tick", "destination": "/api/schedules?action=tick" },
-    { "source": "/api/integrations", "destination": "/api/communications/status?action=integrations" },
-    { "source": "/api/integrations/google/start", "destination": "/api/communications/status?action=google_start" },
-    { "source": "/api/integrations/google/callback", "destination": "/api/communications/status?action=google_callback" },
-    { "source": "/api/integrations/google/resources", "destination": "/api/communications/status?action=google_resources" },
-    { "source": "/api/integrations/google/grant", "destination": "/api/communications/status?action=workspace_grant" },
-    { "source": "/api/integrations/google/document", "destination": "/api/communications/status?action=google_doc" },
-    { "source": "/api/integrations/google/sheet", "destination": "/api/communications/status?action=google_sheet" },
-    { "source": "/api/integrations/mailbox/start", "destination": "/api/communications/status?action=mailbox_start" },
-    { "source": "/api/integrations/mailbox/sync", "destination": "/api/communications/status?action=mailbox_sync" },
-    { "source": "/api/service-projects/setup-draft", "destination": "/api/communications/status?action=service_setup_draft" },
-    { "source": "/api/service-projects/validate", "destination": "/api/communications/status?action=service_setup_validate" },
-    { "source": "/api/service-projects/status", "destination": "/api/communications/status?action=service_setup_status" },
-    { "source": "/api/coaching/sessions", "destination": "/api/communications/status?action=coaching_sessions" },
-    { "source": "/api/agent/capture-work", "destination": "/api/events?action=capture_work" },
-    { "source": "/api/agent/voice-context", "destination": "/api/events?action=voice_context" },
-    { "source": "/api/operations", "destination": "/api/communications/status?action=operations" },
-    { "source": "/api/operations/agent-jobs/replay", "destination": "/api/communications/status?action=operations_replay" },
-    { "source": "/api/thread-register", "destination": "/api/communications/status?action=thread_register" },
-    { "source": "/api/thread-register/candidates", "destination": "/api/communications/status?action=thread_candidates" },
-    { "source": "/api/thread-register/correction", "destination": "/api/communications/status?action=thread_correction" },
-    { "source": "/api/thread-register/thread", "destination": "/api/communications/status?action=thread_update" },
-    { "source": "/api/gemini/brainstormSubtasks", "destination": "/api/gemini?action=brainstormSubtasks" },
-    { "source": "/api/gemini/generateProjectStructure", "destination": "/api/gemini?action=generateProjectStructure" }
+    {
+      "source": "/api/scratch-tasks",
+      "destination": "/api/gemini?action=configuration&resource=scratch-tasks"
+    },
+    {
+      "source": "/api/projects",
+      "destination": "/api/gemini?action=configuration&resource=projects"
+    },
+    {
+      "source": "/api/nodes",
+      "destination": "/api/gemini?action=configuration&resource=nodes"
+    },
+    {
+      "source": "/api/subtasks",
+      "destination": "/api/gemini?action=configuration&resource=subtasks"
+    },
+    {
+      "source": "/api/settings",
+      "destination": "/api/gemini?action=configuration&resource=settings"
+    },
+    {
+      "source": "/api/ui-views",
+      "destination": "/api/gemini?action=configuration&resource=ui-views"
+    },
+    {
+      "source": "/api/configuration",
+      "destination": "/api/gemini?action=configuration"
+    },
+    {
+      "source": "/api/test-runs",
+      "destination": "/api/gemini?action=test_runs"
+    },
+    {
+      "source": "/api/discovery",
+      "destination": "/api/gemini?action=discovery"
+    },
+    {
+      "source": "/api/openapi.json",
+      "destination": "/api/gemini?action=discovery&format=openapi"
+    },
+    {
+      "source": "/api/captured-work-items",
+      "destination": "/api/gemini?action=captured-work-items"
+    },
+    {
+      "source": "/api/capabilities",
+      "destination": "/api/triage?scope=capabilities"
+    },
+    {
+      "source": "/api/workspace/resources",
+      "destination": "/api/triage?scope=workspace_resources"
+    },
+    {
+      "source": "/api/files",
+      "destination": "/api/gemini?action=files"
+    },
+    {
+      "source": "/api/workspace",
+      "destination": "/api/gemini?action=workspace"
+    },
+    {
+      "source": "/api/tenant",
+      "destination": "/api/gemini?action=tenant"
+    },
+    {
+      "source": "/api/meetings",
+      "destination": "/api/communications/status?action=meetings"
+    },
+    {
+      "source": "/api/flows",
+      "destination": "/api/gemini?action=flows"
+    },
+    {
+      "source": "/api/cockpit",
+      "destination": "/api/gemini?action=cockpit"
+    },
+    {
+      "source": "/api/publishing",
+      "destination": "/api/gemini?action=publishing"
+    },
+    {
+      "source": "/api/artifacts",
+      "destination": "/api/gemini?action=artifacts"
+    },
+    {
+      "source": "/api/calendar",
+      "destination": "/api/gemini?action=calendar"
+    },
+    {
+      "source": "/api/commitments",
+      "destination": "/api/communications/status?action=commitments"
+    },
+    {
+      "source": "/api/communications/memory",
+      "destination": "/api/communications/status?action=memory"
+    },
+    {
+      "source": "/api/communications/email-policy",
+      "destination": "/api/communications/status?action=email_policy"
+    },
+    {
+      "source": "/forms/ask/:token",
+      "destination": "/api/asks/:token"
+    },
+    {
+      "source": "/api/schedules/run",
+      "destination": "/api/schedules?action=run"
+    },
+    {
+      "source": "/api/schedules/tick",
+      "destination": "/api/schedules?action=tick"
+    },
+    {
+      "source": "/api/integrations",
+      "destination": "/api/communications/status?action=integrations"
+    },
+    {
+      "source": "/api/integrations/google/start",
+      "destination": "/api/communications/status?action=google_start"
+    },
+    {
+      "source": "/api/integrations/google/callback",
+      "destination": "/api/communications/status?action=google_callback"
+    },
+    {
+      "source": "/api/integrations/google/resources",
+      "destination": "/api/communications/status?action=google_resources"
+    },
+    {
+      "source": "/api/integrations/google/grant",
+      "destination": "/api/communications/status?action=workspace_grant"
+    },
+    {
+      "source": "/api/integrations/google/document",
+      "destination": "/api/communications/status?action=google_doc"
+    },
+    {
+      "source": "/api/integrations/google/sheet",
+      "destination": "/api/communications/status?action=google_sheet"
+    },
+    {
+      "source": "/api/integrations/mailbox/start",
+      "destination": "/api/communications/status?action=mailbox_start"
+    },
+    {
+      "source": "/api/integrations/mailbox/sync",
+      "destination": "/api/communications/status?action=mailbox_sync"
+    },
+    {
+      "source": "/api/service-projects/setup-draft",
+      "destination": "/api/communications/status?action=service_setup_draft"
+    },
+    {
+      "source": "/api/service-projects/validate",
+      "destination": "/api/communications/status?action=service_setup_validate"
+    },
+    {
+      "source": "/api/service-projects/status",
+      "destination": "/api/communications/status?action=service_setup_status"
+    },
+    {
+      "source": "/api/coaching/sessions",
+      "destination": "/api/communications/status?action=coaching_sessions"
+    },
+    {
+      "source": "/api/agent/voice-context",
+      "destination": "/api/events?action=voice_context"
+    },
+    {
+      "source": "/api/operations",
+      "destination": "/api/communications/status?action=operations"
+    },
+    {
+      "source": "/api/operations/agent-jobs/replay",
+      "destination": "/api/communications/status?action=operations_replay"
+    },
+    {
+      "source": "/api/thread-register",
+      "destination": "/api/communications/status?action=thread_register"
+    },
+    {
+      "source": "/api/thread-register/candidates",
+      "destination": "/api/communications/status?action=thread_candidates"
+    },
+    {
+      "source": "/api/thread-register/correction",
+      "destination": "/api/communications/status?action=thread_correction"
+    },
+    {
+      "source": "/api/thread-register/thread",
+      "destination": "/api/communications/status?action=thread_update"
+    },
+    {
+      "source": "/api/gemini/brainstormSubtasks",
+      "destination": "/api/gemini?action=brainstormSubtasks"
+    },
+    {
+      "source": "/api/gemini/generateProjectStructure",
+      "destination": "/api/gemini?action=generateProjectStructure"
+    },
+    {
+      "source": "/api/agent/capture-work",
+      "destination": "/api/events?action=capture_work"
+    }
   ],
   "functions": {
     "api/**/*.ts": {
@@ -53,6 +216,9 @@
     }
   },
   "crons": [
-    { "path": "/api/schedules/tick", "schedule": "0 0 * * *" }
+    {
+      "path": "/api/schedules/tick",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

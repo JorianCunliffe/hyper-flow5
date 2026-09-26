@@ -1,3 +1,6 @@
+import { handleConfiguration } from '../../lib/configuration/api.js';
+import { handleTestRuns } from '../../lib/configuration/testRuns.js';
+import { discoveryResponse } from '../../lib/http/discovery.js';
 import { handleCapturedWork } from '../../lib/capturedWork/api.js';
 import { CaptureError } from '../../lib/capturedWork/model.js';
 import { handleLifecycle } from '../../lib/tenantLifecycle/api.js';
@@ -89,6 +92,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'tenant' && req.query.view === 'lifecycle') return res.status(200).json(await handleLifecycle(req));
     const member = await requireAppMember(req);
     if (action === 'captured-work-items') { res.setHeader('Cache-Control', 'no-store'); return res.status(200).json(await handleCapturedWork(req, member)); }
+    if (action === 'discovery') {if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});return res.status(200).json(discoveryResponse(req.query.format));}
+    if (action === 'configuration') { res.setHeader('Cache-Control', 'no-store'); return res.status(200).json(await handleConfiguration(req,member)); }
+    if (action === 'test_runs') { res.setHeader('Cache-Control', 'no-store'); return res.status(200).json(await handleTestRuns(req,member)); }
     if (action === 'files') return res.status(200).json(await handleFiles(req,member));
     if (action === 'tenant') return res.status(200).json(await handleTenantControl(req,member));
     if (action === 'workspace') return res.status(200).json(await handleWorkspace(req,member));

@@ -1,6 +1,6 @@
 # Publishing API
 
-Owner: HyperFlow. Communications and its existing memory are unchanged. `/api/publishing` uses Firebase bearer authentication, current organization membership and an accessible projectId. Express and Vercel share the handler. Responses omit Ask tokens; direct browser database access is denied.
+Owner: HyperFlow. Communications and its existing memory are unchanged. `/api/publishing` uses Firebase bearer or tenant API-client authentication (`publishing:read` / `publishing:write`), current organization membership and an accessible projectId. Approval/rejection requires a Firebase human session; machine clients cannot impersonate their human issuer. Express and Vercel share the handler. Responses omit Ask tokens; direct browser database access is denied.
 
 | Method / operation | Input and behavior |
 |---|---|

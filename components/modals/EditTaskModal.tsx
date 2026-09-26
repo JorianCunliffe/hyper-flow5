@@ -529,7 +529,7 @@ export const EditTaskModal: React.FC<EditTaskModalProps> = ({
                        setExecutionOutput(null);
                        try {
                          const externalRunId = `subtask_${task.id}_${Date.now().toString(36)}`;
-                         const res = await fetch('/api/tasks/execute', {
+                         const res = await firebaseService.authorizedFetch('/api/tasks/execute', {
                            method: 'POST',
                            headers: { 'Content-Type': 'application/json' },
                            body: JSON.stringify({

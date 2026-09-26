@@ -15,7 +15,8 @@ test('managed file contract is routed and scoped in both deployments',()=>{
   const config=JSON.parse(readFileSync('vercel.json','utf8'));
   const target=config.rewrites.find((r:any)=>r.source==='/api/files')?.destination;
   assert.equal(target,'/api/gemini?action=files');
-  assert.match(readFileSync('server.ts','utf8'),/app\.all\('\/api\/files'/);
+  assert.match(readFileSync('lib/http/express.ts','utf8'),/config.rewrites/);
+  assert.match(readFileSync('lib/http/express.ts','utf8'),/gemini from/);
   assert.ok(JSON.parse(readFileSync('contracts/phase11.openapi.json','utf8')).paths['/api/files']);
 });
 function fixture() {

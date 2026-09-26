@@ -1,3 +1,4 @@
+import { assertHumanDecision } from '../http/authority.js';
 import { createHash, randomUUID } from "node:crypto";
 import { createAsk } from "../asks/createAsk.js";
 import { recordAskResponse } from "../humanAsk.js";
@@ -74,6 +75,7 @@ export async function handlePublishing(
     adapters: Record<string, PublishingAdapter>;
   },
 ) {
+  assertHumanDecision(member, 'publishing', request.body);
   const b = request.body || {},
     q = request.query || {},
     projectId = String(b.projectId || q.projectId || ""),

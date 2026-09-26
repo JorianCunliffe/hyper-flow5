@@ -1,6 +1,6 @@
 # HyperFlow artifact API
 
-Owner: HyperFlow. Base resource: `/api/artifacts`. Every request requires a Firebase bearer token and current organization membership. Tenant identity comes from authentication, not a request field. Project identities must belong to that organization. Administrator operations require owner/admin role. Designated artifact Asks accept only the job creator's authenticated response. Capability tokens and embedded image bytes are omitted from public job/template projections.
+Owner: HyperFlow. Base resource: `/api/artifacts`. Requests require a Firebase bearer token or tenant API client with `artifacts:read` / `artifacts:write`, plus current organization membership. Human review decisions (`approve`, `reject`, `review`, `approve_sheet`) require a Firebase human session. Tenant identity comes from authentication, not a request field. Project identities must belong to that organization. Administrator operations require owner/admin role. Designated artifact Asks accept only the job creator's authenticated response. Capability tokens and embedded image bytes are omitted from public job/template projections.
 
 GET with no project returns permitted project choices. All remaining operations require `projectId` in the query or body.
 

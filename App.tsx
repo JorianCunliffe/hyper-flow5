@@ -359,6 +359,32 @@ export const App: React.FC = () => {
   // Cloud Sync State
   const [cloudStatus, setCloudStatus] = useState<'disconnected' | 'syncing' | 'connected' | 'error'>('disconnected');
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  // Saved views are tenant configuration, loaded only when explicitly selected in the URL.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('savedView');
+    if (!id || !currentUser || !currentOrgId) return;
+    const controller = new AbortController();
+    void firebaseService.authorizedFetch(`/api/ui-views?id=${encodeURIComponent(id)}`, {signal:controller.signal})
+      .then(async response => {if(!response.ok)throw new Error('Saved view unavailable');return response.json();})
+      .then(({item}) => {
+        if(controller.signal.aborted)return;
+        openView(item.view);
+        changeProjectContext(item.projectId || null);
+        setShowSubtasks(item.showSubtasks ?? true);
+        setShowMinimap(item.showMinimap ?? true);
+        setShowProjectPanel(item.showProjectPanel ?? true);
+        setKanbanGrouping(item.kanbanGrouping || 'project');
+        setKanbanFilterMember(item.filters?.member || 'ALL');
+        setKanbanFilterRole(item.filters?.role || 'ALL');
+        setKanbanFilterImportant(item.filters?.important === true);
+        setKanbanFilterToday(item.filters?.today === true);
+        setKanbanFilterLate(item.filters?.late === true);
+        setZoom(item.zoom ?? 1);
+      }).catch(error => {if(!controller.signal.aborted)setSyncError(error.message);});
+    return () => controller.abort();
+  }, [currentUser?.uid, currentOrgId, openView, changeProjectContext]);
+
   const [syncConflicts, setSyncConflicts] = useState<CloudConflictDetail[]>([]);
   const [syncRetry, setSyncRetry] = useState(0);
   const [syncSubscriptionRetry, setSyncSubscriptionRetry] = useState(0);

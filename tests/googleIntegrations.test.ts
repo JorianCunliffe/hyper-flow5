@@ -57,7 +57,7 @@ describe('Google OAuth state and authorization', () => {
   });
 
   test('checks callback membership with user ID before tenant ID in both runtimes', () => {
-    for (const path of ['../api/communications/status.ts', '../server.ts']) {
+    for (const path of ['../api/communications/status.ts']) {
       const source = readFileSync(new URL(path, import.meta.url), 'utf8');
       assert.match(source, /requireOrganizationMember\(state\.uid, state\.tenantId\)/);
       assert.doesNotMatch(source, /requireOrganizationMember\(state\.tenantId, state\.uid\)/);

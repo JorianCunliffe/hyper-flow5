@@ -1,12 +1,16 @@
 # HyperFlow API reference
 
+The publication entry point is the [consolidated OpenAPI 3.1 contract](../contracts/openapi.json), served at authenticated `GET /api/openapi.json`. Start with the [agent configuration and testing guide](AGENT_API.md) and [generated complete endpoint index](API_ENDPOINTS.md). The [TypeScript client](../lib/client/hyperflow.ts) includes generated path/body/result types and configuration/test helpers. Run `npm run api:generate` after contract changes; CI rejects stale generated artifacts.
+
+Express and Vercel now mount the same handlers. Machine credentials cannot submit human review decisions or replace the raw workspace. See the migration notes in the agent guide before updating existing clients.
+
 Phase 01: direct task/email requests require a project in the authenticated organization. GET/POST `/api/communications/email-policy` reads/saves the organization email authority; writes require owner/admin and `{mode, version}` from the last read. Modes: draft_only (default), allow_send. Returns `{mode, configuredMode, version}`; 409 means reload before saving. Communications owns persistence and independently enforces policy. See [boundaries](architecture/BOUNDARIES.md) and [API fragment](../contracts/phase01.openapi.json).
 
 This reference describes the HTTP handlers under `api/`, their local Express equivalents, and the Communications Service requests emitted by the current HyperFlow client.
 
 ## Phase 04 obligations API
 
-`/api/commitments` requires the normal Firebase bearer token and selected organization membership on Express and Vercel. Organization and actor come from authentication, never a body override. See [state and authority contract](architecture/COMMITMENTS.md).
+`/api/commitments` requires a Firebase bearer token or a tenant API client with the appropriate `commitments:read` / `commitments:write` scope and selected organization membership on Express and Vercel. Organization and actor come from authentication, never a body override. See [state and authority contract](architecture/COMMITMENTS.md).
 
 | Method | Inputs | Result |
 |---|---|---|
@@ -41,57 +45,28 @@ Errors: 400 invalid input; 403 inaccessible project/party or unauthorized decisi
 | `POST /api/organizations/create` | Firebase ID token. |
 | `POST /api/invites/create` | Firebase ID token; current member must be an owner or admin. |
 | `POST /api/invites/consume` | Firebase ID token; authenticated email must match the invite. |
-| `POST /api/tasks/execute` | Firebase ID token and organization membership. |
-| `POST /api/flow/advance` | Either Firebase ID token and organization membership, or `x-webhook-secret: $WEBHOOK_SECRET`. |
-| `GET|POST /forms/ask/{token}` | Ask capability token in the path; optional Firebase token verifies reviewer identity. |
-| `GET|POST /api/asks/{token}` | Same handler and authentication as the public form path. |
+| `POST /api/tasks/execute` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `POST /api/flow/advance` | Firebase ID token or scoped tenant API credential with organization membership, or `x-webhook-secret: $WEBHOOK_SECRET`. |
+| `GET\|POST /forms/ask/{token}` | Ask capability token in the path; optional Firebase token verifies reviewer identity. |
+| `GET\|POST /api/asks/{token}` | Same handler and authentication as the public form path. |
 | `POST /api/events` | Timestamped V2 signature headers in production using `COMMUNICATIONS_WEBHOOK_SECRET`; legacy HMAC remains available only for controlled non-production/migration compatibility. |
 | `POST /api/agent/voice-context` | Timestamped V2 Communications signature using `COMMUNICATIONS_WEBHOOK_SECRET`; no browser authentication. |
-| `POST /api/send-email` | Firebase ID token and organization membership. |
-| `GET /api/communications/status` | Firebase ID token and organization membership. |
-| `/api/integrations/*`, `/api/coaching/sessions` | Firebase ID token and organization membership; OAuth callback validates signed, single-use state. |
-| `/api/operations`, `/api/operations/agent-jobs/replay` | Firebase ID token and organization membership. |
-| `GET|POST|PATCH /api/captured-work-items` | Firebase ID token and organization membership, or a user-bound tenant API client with `captured-work-items:read` / `captured-work-items:write`. |
-| `GET|PATCH /api/triage` | Firebase ID token and organization membership. |
-| `GET|POST|PATCH|DELETE /api/schedules` | Firebase ID token and organization membership. |
-| `POST /api/schedules/run` | Firebase ID token and organization membership. |
-| `GET|POST /api/schedules/tick` | `Authorization: Bearer $CRON_SECRET`, `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`, or for an empty `POST` the current timestamped Communications V2 HMAC headers. |
-| `POST /api/gemini/*` | Firebase ID token and organization membership. |
+| `POST /api/send-email` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `GET /api/communications/status` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `/api/integrations/*`, `/api/coaching/sessions` | Firebase ID token or scoped tenant API credential, plus organization membership; OAuth callback validates signed, single-use state. |
+| `/api/operations`, `/api/operations/agent-jobs/replay` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `GET\|POST\|PATCH /api/captured-work-items` | Firebase ID token and organization membership, or a user-bound tenant API client with `captured-work-items:read` / `captured-work-items:write`. |
+| `GET\|PATCH /api/triage` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `GET\|POST\|PATCH\|DELETE /api/schedules` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `POST /api/schedules/run` | Firebase ID token or scoped tenant API credential, plus organization membership. |
+| `GET\|POST /api/schedules/tick` | `Authorization: Bearer $CRON_SECRET`, `x-hyperflow-scheduler-secret: $SCHEDULER_SECRET`, or for an empty `POST` the current timestamped Communications V2 HMAC headers. |
+| `POST /api/gemini/*` | Firebase ID token or scoped tenant API credential, plus organization membership. |
 
-Common authentication responses are `401` for a missing, invalid, or expired Firebase token; `403` for missing organization membership or insufficient role; and `503` when server-side Firebase authentication is not configured.
+Common authentication responses are `401` for a missing, invalid, or expired bearer credential; `403` for missing organization membership or insufficient role; and `503` when server-side Firebase authentication is not configured.
 
 ## Endpoint index
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/api/organizations/create` | Create an organization and owner membership. |
-| `POST` | `/api/invites/create` | Create a one-use organization invite. |
-| `POST` | `/api/invites/consume` | Join the invited organization. |
-| `GET`, `POST`, `PATCH` | `/api/captured-work-items` | Capture, retrieve, clarify, dismiss, or confirm user-owned side items. |
-| `POST` | `/api/tasks/execute` | Execute one action. |
-| `POST` | `/api/flow/advance` | Advance one persisted project. |
-| `GET`, `POST` | `/forms/ask/{token}` | Render/read or answer one Ask. |
-| `GET`, `POST` | `/api/asks/{token}` | Direct Ask handler behind the form rewrite. |
-| `POST` | `/api/events` | Receive signed Communications events. |
-| `POST` | `/api/agent/voice-context` | Select an authorized project and return bounded live-call context. |
-| `POST` | `/api/send-email` | Submit a tenant-correlated email to Communications. |
-| `GET` | `/api/communications/status` | Check Communications connectivity and tenant identity selection. |
-| `GET`, `PATCH` | `/api/integrations` | List non-secret connection health and read/update the tenant agent profile. |
-| `POST`, `GET` | `/api/integrations/google/start`, `/api/integrations/google/callback` | Start/complete protected Google Workspace OAuth. |
-| `GET`, `PUT` | `/api/integrations/google/resources`, `/api/integrations/google/grant` | List Google files and save a project resource allowlist. |
-| `GET` | `/api/integrations/google/document`, `/api/integrations/google/sheet` | Read the project-allowlisted Doc or Sheet. |
-| `POST` | `/api/integrations/mailbox/start`, `/api/integrations/mailbox/sync` | Start Gmail/Outlook OAuth through Communications or reconcile the selected mailbox. |
-| `GET`, `POST`, `PUT` | `/api/service-projects/setup-draft` | Resume or save a tenant-and-user-scoped setup draft that expires after 24 hours. |
-| `POST` | `/api/service-projects/validate` | Authoritatively validate the selected mailbox or coaching resources before project creation. |
-| `GET` | `/api/service-projects/status` | Aggregate project readiness, connections/resources, schedule, last run/digest, and scheduler health. |
-| `GET` | `/api/coaching/sessions` | List tenant/project coaching session projections. |
-| `GET`, `POST` | `/api/operations`, `/api/operations/agent-jobs/replay` | Inspect tenant operations and replay a failed/review-held agent job. |
-| `GET`, `PATCH` | `/api/triage` | List and review tenant communications triage. |
-| `GET`, `POST`, `PATCH`, `DELETE` | `/api/schedules` | Manage tenant communications-reconciliation schedules. |
-| `POST` | `/api/schedules/run` | Run one tenant schedule immediately. |
-| `GET`, `POST` | `/api/schedules/tick` | Run due schedules from a platform timer. |
-| `POST` | `/api/gemini/brainstormSubtasks` | Generate five subtask suggestions. |
-| `POST` | `/api/gemini/generateProjectStructure` | Generate a milestone graph. |
+The [generated endpoint index](API_ENDPOINTS.md) covers all public logical paths and methods, including later flow, calendar, artifact, publishing, captured-work, configuration, discovery and test resources. The domain sections below document detailed operation behavior. Internal Vercel dispatch selectors are implementation aliases, not additional public contracts.
 
 ## Captured work items
 
@@ -549,7 +524,11 @@ Body:
 
 Success returns `200` with the server advancement outcome. Missing IDs return `400`; a missing project returns `404`; advancement failure returns `500`; and unavailable server persistence returns `503`.
 
-If `WEBHOOK_SECRET` is unset or the supplied shared secret does not match, the request must pass Firebase membership authentication instead.
+For a tenant-bound machine call, use a Bearer API credential with `flow:write` instead of the shared secret. If `WEBHOOK_SECRET` is unset or does not match, normal bearer membership and scope authentication applies. Email-triage projects dispatch their bound schedule on both hosts; no bound schedule returns 409.
+
+### `GET /api/flow/advance`
+
+Provide `orgId`, `projectId` and optional `limit` (bounded to 1–100, default 25). Requires normal bearer authentication (`flow:read` for clients), or the server shared secret. Returns `{ok,projectId,runs}` with sanitized recent occurrence history. This is a bounded history read, not an unbounded cursor stream.
 
 ## Read or answer an Ask
 
@@ -1026,7 +1005,7 @@ The [Phase 11 OpenAPI supplement](../contracts/phase11.openapi.json) and [standa
 - GET `/api/tenant` returns the authenticated administrator's redacted client registry, control revision, budget, usage and audit. POST accepts `create_client`, `rotate_client`, `revoke_client` or `budget`; only a current human owner/admin may mutate these controls.
 - Clients supply a high-entropy URL-safe secret, explicit read/write scopes and expiry within 366 days. Creation uses a stable `requestId`; rotation/revocation/budget use the latest control revision. The browser retains an uncertain request for explicit retry. Identical creation/rotation replay is safe; client secrets and hashes are never returned by the server. The browser displays its locally generated credential once.
 - Machine authorization uses `Bearer hf.<organization>.<client-id>.<secret>`. Current issuer membership, expiry, scope and revocation are checked for every request. Scopes do not override project permissions, provider grants or draft-only email policy. Tenant control writes require a human session even with a machine credential issued by an owner.
-- GET `/api/workspace` returns the existing workspace snapshot. PUT takes `{expectedRevision,data}` and checks tenant and project revisions, with a 3.8 MB request cap. Existing browser Firebase saves remain supported. This resource does not merge Communications data or the separate operational stores into the project snapshot.
+- GET `/api/workspace` returns the workspace snapshot (redacted for machine clients). PUT requires a human session and takes `{expectedRevision,data}` and checks tenant and project revisions, with a 3.8 MB request cap. Existing browser Firebase saves remain supported. This resource does not merge Communications data or the separate operational stores into the project snapshot.
 - GET `/api/flows?shape=summary` and `/api/artifacts?shape=summary&projectId=...` accept `after` and `limit` (1–100, default50). Follow `next` even when a filtered page is empty. Read an individual record by `id` for full details.
 
 Daily request limits count admitted API-client calls, including calls that later fail; scope-denied requests, browser sessions and provider charges are excluded. Zero means unlimited. Usage claims may advance the account revision, so reload before retrying an administrator edit that returns409. Revocation takes effect at the next authorization check; it does not recall already dispatched effects. The existing separate SMS/phone contact controls still apply.
@@ -1039,7 +1018,7 @@ The standalone client pins the destination origin, keeps its credential private,
 
 `POST` on the same view takes `{operation: "suspend" | "resume", revision, requestId}`. With `service: "communications"`, HyperFlow durably records the human initiator before forwarding and reconciles the same request after a lost response. Without it, only HyperFlow database activity changes. Suspend Communications first, then suspend HyperFlow; unresolved HyperFlow work blocks suspension and restores database access with a blocked receipt. A crash during inspection leaves a working receipt that can be retried by its original administrator and request identity. Do not invent new identities to bypass held work.
 
-HyperFlow mutations require `FIREBASE_ENFORCE_TENANT_LIFECYCLE=true` and deployed matching database rules. This uses Firebase's [limited Admin privileges](https://firebase.google.com/docs/database/admin/start#authenticate-with-limited-privileges), with a separate privileged controller reserved for current-owner recovery. Normal application writes are denied while paused. File storage and provider resources are outside this database-only boundary. HyperFlow erasure and automatic retention are not enabled by this release.
+HyperFlow mutations require `FIREBASE_ENFORCE_TENANT_LIFECYCLE=true` and deployed matching database rules. This uses Firebase's [limited Admin privileges](https://firebase.google.com/docs/database/admin/start#authenticate-with-limited-privileges), with a separate privileged controller reserved for current-owner recovery. Normal application writes are denied while paused. File storage and provider resources are outside this database-only boundary. HyperFlow supports the separately confirmed human-admin `erase_database` and `erase_managed_files` operations; see [managed files](MANAGED_FILES.md) and [lifecycle controls](API_PARITY.md). Automatic retention and external provider erasure are separate concerns.
 
 Export uses `dataset`, `revision` and byte `offset`. A current suspended revision is required. Each response contains up to512000 bytes encoded as base64, `nextOffset`, `totalBytes`, full `sha256` and `chunkSha256`. Concatenate decoded chunks, verify the full hash, then parse JSON. Credentials and capability links are redacted; credential stores, actual file contents and Communications records are excluded. The browser verifies the hash and caps a download at50MB; larger datasets use the paged API. Export reads the source dataset into server memory, so this is not an unlimited-size backup service. Audit retains up to1000 lifecycle entries and requires manual retention review at the cap.
 
@@ -1047,8 +1026,7 @@ An owner or administrator can reach recovery controls from the revoked-workspace
 
 ### Service-project setup parity
 
-Express and Vercel share the handlers for `/api/service-projects/setup-draft` (GET, POST, PUT), `/api/service-projects/validate` (POST) and `/api/service-projects/status` (GET). API credentials require `service-projects:read` or `service-projects:write` as appropriate, in addition to current membership. Drafts are scoped to both the authenticated tenant and user. Status reads do not change schedules: `upgradeRequired` and `unboundScheduleIds` identify legacy schedules requiring an explicit schedule update. `mailboxStatus` distinguishes `available` from `unavailable`; an unavailable lookup must not be treated as proof of no mailboxes. See the [coverage audit](API_PARITY.md) for current limits and remaining work.
-
+Express and Vercel share the handlers for `/api/service-projects/setup-draft` (GET, POST, PUT), `/api/service-projects/validate` (POST) and `/api/service-projects/status` (GET). API credentials require `service-projects:read` or `service-projects:write` as appropriate, in addition to current membership. Drafts are scoped to both the authenticated tenant and user. Status reads do not change schedules: `upgradeRequired` and `unboundScheduleIds` identify legacy schedules requiring an explicit schedule update. `mailboxStatus` distinguishes `available` from `unavailable`; an unavailable lookup must not be treated as proof of no mailboxes. See the [coverage status](API_PARITY.md) for current limits and release verification.
 
 ### Signed phone capture
 

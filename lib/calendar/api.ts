@@ -1,3 +1,4 @@
+import { assertHumanDecision } from '../http/authority.js';
 import { randomUUID } from "node:crypto";
 import {
   listTenantProjects,
@@ -41,6 +42,7 @@ export async function handleCalendar(
     sync?: (event: Record<string, unknown>) => Promise<any>;
   } = {},
 ) {
+  assertHumanDecision(member, 'calendar', request.body);
   const store = deps.store || calendarStore,
     body = request.body || {},
     query = request.query || {};

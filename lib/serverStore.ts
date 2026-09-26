@@ -58,6 +58,17 @@ export async function replaceTenantWorkspace(org:string,body:any){
   try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>JSON.parse(JSON.stringify(replaceWorkspace(current,body))),undefined,false);if(!result.committed)throw new Error('Workspace update was not saved');return result.snapshot.val();}finally{reference.off('value',listener);}
 }
 
+/** Shared transaction primitive for revision-checked configuration batches. */
+export async function transactWorkspaceConfiguration(org:string,update:(current:any)=>any){
+ const reference=getDb().ref(`projects/${safeRtdbKey(org)}`);let listener=()=>{};
+ try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>JSON.parse(JSON.stringify(update(current))),undefined,false);if(!result.committed)throw new Error('Configuration was not saved');return result.snapshot.val();}finally{reference.off('value',listener);}
+}
+export async function readAgentTestRuns(org:string){return (await getDb().ref(`agent_test_runs/${safeRtdbKey(org)}`).get()).val()||{};}
+export async function transactAgentTestRuns(org:string,update:(current:any)=>any){
+ const reference=getDb().ref(`agent_test_runs/${safeRtdbKey(org)}`);let listener=()=>{};
+ try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>JSON.parse(JSON.stringify(update(current||{}))),undefined,false);if(!result.committed)throw new Error('Test result was not saved');return result.snapshot.val()||{};}finally{reference.off('value',listener);}
+}
+
 export async function readTenantControl(org:string):Promise<import('./tenantControl/model.js').TenantControl|null>{
   const snapshot=await getDb().ref(`tenant_control/${safeRtdbKey(org)}`).get();return snapshot.exists()?snapshot.val():null;
 }

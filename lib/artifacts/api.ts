@@ -1,3 +1,4 @@
+import { assertHumanDecision } from '../http/authority.js';
 import { randomUUID } from "node:crypto";
 import { readPage, pageRows } from "../tenantControl/pagination.js";
 import {
@@ -46,6 +47,7 @@ export async function handleArtifacts(
     ) => Pick<ReportSheetProvider, "apply">;
   } = {},
 ) {
+  assertHumanDecision(member, 'artifacts', request.body);
   const store = deps.store || artifactStore,
     body = request.body || {},
     q = request.query || {},

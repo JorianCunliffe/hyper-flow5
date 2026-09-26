@@ -1,3 +1,4 @@
+import { redactTenantExport } from '../tenantLifecycle/model.js';
 import {
   readTenantControl,
   transactTenantControl,
@@ -20,8 +21,9 @@ export async function handleWorkspace(
   if (request.method === "GET")
     return {
       owner: "hyperflow",
-      data: workspaceView(await readTenantWorkspace(member.orgId)),
+      data: member.apiClientId ? redactTenantExport(workspaceView(await readTenantWorkspace(member.orgId))) : workspaceView(await readTenantWorkspace(member.orgId)),
     };
+  if (request.method === "PUT" && member.apiClientId) throw new TenantControlError(403, "Machine clients must use the validated configuration API, not workspace replacement");
   if (request.method === "PUT")
     return {
       owner: "hyperflow",

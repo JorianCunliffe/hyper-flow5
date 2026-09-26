@@ -1,0 +1,765 @@
+[
+  {
+    "path": "/api/organizations/create",
+    "method": "POST",
+    "description": "Create organization and owner",
+    "authorization": "Human Firebase identity",
+    "source": "api/organizations/create.ts"
+  },
+  {
+    "path": "/api/invites/create",
+    "method": "POST",
+    "description": "Create single-use invite",
+    "authorization": "Human owner/admin; machine scope group absent",
+    "source": "api/invites/create.ts"
+  },
+  {
+    "path": "/api/invites/consume",
+    "method": "POST",
+    "description": "Consume invite matching verified email",
+    "authorization": "Human Firebase identity",
+    "source": "api/invites/consume.ts"
+  },
+  {
+    "path": "/api/workspace",
+    "method": "GET",
+    "description": "Read/replace projects, milestones, subtasks, graph positions, settings, scratch, activity; expectedRevision",
+    "authorization": "workspace:read",
+    "source": "lib/tenantControl/workspace.ts"
+  },
+  {
+    "path": "/api/workspace",
+    "method": "PUT",
+    "description": "Read/replace projects, milestones, subtasks, graph positions, settings, scratch, activity; expectedRevision",
+    "authorization": "Human session only; agents use configuration commands",
+    "source": "lib/tenantControl/workspace.ts"
+  },
+  {
+    "path": "/api/capabilities",
+    "method": "GET",
+    "description": "Read/save capability policy; alias of triage?scope=capabilities",
+    "authorization": "capabilities:read; admin writes",
+    "source": "api/triage/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/capabilities",
+    "method": "PATCH",
+    "description": "Read/save capability policy; alias of triage?scope=capabilities",
+    "authorization": "capabilities:write; admin writes",
+    "source": "api/triage/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/workspace/resources",
+    "method": "GET",
+    "description": "Read/save named project resources; alias of triage?scope=workspace_resources",
+    "authorization": "workspace-resources:read; admin writes",
+    "source": "api/triage/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/workspace/resources",
+    "method": "PATCH",
+    "description": "Read/save named project resources; alias of triage?scope=workspace_resources",
+    "authorization": "workspace-resources:write; admin writes",
+    "source": "api/triage/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/tasks/execute",
+    "method": "POST",
+    "description": "Durable execution of 13 task types; stable correlation nodeId/runId",
+    "authorization": "tasks:write",
+    "source": "api/tasks/execute.ts; lib/taskTypes.ts"
+  },
+  {
+    "path": "/api/flow/advance",
+    "method": "GET",
+    "description": "Bounded sanitized occurrence run history",
+    "authorization": "flow:read or shared WEBHOOK_SECRET",
+    "source": "api/flow/advance.ts"
+  },
+  {
+    "path": "/api/flow/advance",
+    "method": "POST",
+    "description": "Advance persisted graph; Vercel special-cases email-triage schedule",
+    "authorization": "flow:write or shared WEBHOOK_SECRET",
+    "source": "api/flow/advance.ts; server.ts"
+  },
+  {
+    "path": "/api/flows",
+    "method": "GET",
+    "description": "List/detail/catalog; compile/create/revise/approve/reject/start/advance/pause/resume/cancel/review/promote/migrate/answer_update/reconcile/reconcile_artifact/reconcile_publication",
+    "authorization": "flows:read; reviewer identity checks",
+    "source": "lib/visibleFlows/api.ts"
+  },
+  {
+    "path": "/api/flows",
+    "method": "POST",
+    "description": "List/detail/catalog; compile/create/revise/approve/reject/start/advance/pause/resume/cancel/review/promote/migrate/answer_update/reconcile/reconcile_artifact/reconcile_publication",
+    "authorization": "flows:write; reviewer identity checks; human session for review decisions",
+    "source": "lib/visibleFlows/api.ts"
+  },
+  {
+    "path": "/api/cockpit",
+    "method": "GET",
+    "description": "Operating views; configure/template/schedule/question",
+    "authorization": "cockpit:read; admin configure",
+    "source": "lib/cockpit/api.ts"
+  },
+  {
+    "path": "/api/cockpit",
+    "method": "POST",
+    "description": "Operating views; configure/template/schedule/question",
+    "authorization": "cockpit:write; admin configure",
+    "source": "lib/cockpit/api.ts"
+  },
+  {
+    "path": "/api/calendar",
+    "method": "GET",
+    "description": "Calendars/events/ledgers; configure/observe/prepare/propose/approve/reject/execute/reconcile/sync_context",
+    "authorization": "calendar:read; provider grants/reviewer checks",
+    "source": "lib/calendar/api.ts"
+  },
+  {
+    "path": "/api/calendar",
+    "method": "POST",
+    "description": "Calendars/events/ledgers; configure/observe/prepare/propose/approve/reject/execute/reconcile/sync_context",
+    "authorization": "calendar:write; provider grants/reviewer checks; human session for review decisions",
+    "source": "lib/calendar/api.ts"
+  },
+  {
+    "path": "/api/artifacts",
+    "method": "GET",
+    "description": "Projects/templates/jobs/download/sheet_resources; configure_sheet/save_template/create_flow/prepare/draft_flow/propose_sheet/approve_sheet/export_sheet/reconcile_sheet/approve/reject/review/reconcile/generate",
+    "authorization": "artifacts:read; additional role/reviewer/grant checks",
+    "source": "lib/artifacts/api.ts"
+  },
+  {
+    "path": "/api/artifacts",
+    "method": "POST",
+    "description": "Projects/templates/jobs/download/sheet_resources; configure_sheet/save_template/create_flow/prepare/draft_flow/propose_sheet/approve_sheet/export_sheet/reconcile_sheet/approve/reject/review/reconcile/generate",
+    "authorization": "artifacts:write; additional role/reviewer/grant checks; human session for review decisions",
+    "source": "lib/artifacts/api.ts"
+  },
+  {
+    "path": "/api/publishing",
+    "method": "GET",
+    "description": "Projects/targets/items; configure_target/create/edit/preview/approve/reject/publish/reconcile/draft_flow",
+    "authorization": "publishing:read; admin/public-use/provider conditions",
+    "source": "lib/publishing/api.ts; lib/publishing/store.ts"
+  },
+  {
+    "path": "/api/publishing",
+    "method": "POST",
+    "description": "Projects/targets/items; configure_target/create/edit/preview/approve/reject/publish/reconcile/draft_flow",
+    "authorization": "publishing:write; admin/public-use/provider conditions; human session for review decisions",
+    "source": "lib/publishing/api.ts; lib/publishing/store.ts"
+  },
+  {
+    "path": "/api/files",
+    "method": "GET",
+    "description": "Paged metadata/detail/download; start/chunk/reconcile/delete",
+    "authorization": "files:read; ownership and storage activation",
+    "source": "lib/files/api.ts"
+  },
+  {
+    "path": "/api/files",
+    "method": "POST",
+    "description": "Paged metadata/detail/download; start/chunk/reconcile/delete",
+    "authorization": "files:write; ownership and storage activation",
+    "source": "lib/files/api.ts"
+  },
+  {
+    "path": "/api/commitments",
+    "method": "GET",
+    "description": "Obligation candidates/parties/list/detail/create/import/transitions; promise ledger and operational review multiplexed (see report)",
+    "authorization": "commitments:read; party/reviewer/source checks",
+    "source": "lib/commitments/api.ts"
+  },
+  {
+    "path": "/api/commitments",
+    "method": "POST",
+    "description": "Obligation candidates/parties/list/detail/create/import/transitions; promise ledger and operational review multiplexed (see report)",
+    "authorization": "commitments:write; party/reviewer/source checks; human session for review decisions; read scope suffices for promise query/read/coverage and operational review read/work",
+    "source": "lib/commitments/api.ts"
+  },
+  {
+    "path": "/api/commitments",
+    "method": "PATCH",
+    "description": "Obligation candidates/parties/list/detail/create/import/transitions; promise ledger and operational review multiplexed (see report)",
+    "authorization": "commitments:write; party/reviewer/source checks; human session for review decisions",
+    "source": "lib/commitments/api.ts"
+  },
+  {
+    "path": "/api/meetings",
+    "method": "GET",
+    "description": "Paged/detail transcript evidence; import/update source versions and topics",
+    "authorization": "meetings:read; accessible nonprivate evidence",
+    "source": "lib/communications/meetings.ts"
+  },
+  {
+    "path": "/api/meetings",
+    "method": "POST",
+    "description": "Paged/detail transcript evidence; import/update source versions and topics",
+    "authorization": "meetings:write; accessible nonprivate evidence",
+    "source": "lib/communications/meetings.ts"
+  },
+  {
+    "path": "/api/communications/memory",
+    "method": "POST",
+    "description": "Read context: search/person/thread/project/meeting/loose_ends",
+    "authorization": "communications:read",
+    "source": "lib/communications/memoryContext.ts"
+  },
+  {
+    "path": "/api/thread-register",
+    "method": "GET",
+    "description": "Paged threads and communication history",
+    "authorization": "thread-register:read",
+    "source": "lib/communications/threadRegister.ts"
+  },
+  {
+    "path": "/api/thread-register/candidates",
+    "method": "GET",
+    "description": "Candidate associations",
+    "authorization": "thread-register:read",
+    "source": "lib/communications/threadRegister.ts"
+  },
+  {
+    "path": "/api/thread-register/correction",
+    "method": "POST",
+    "description": "Correct communication/thread/person/project association",
+    "authorization": "thread-register:write",
+    "source": "lib/communications/threadRegister.ts"
+  },
+  {
+    "path": "/api/thread-register/thread",
+    "method": "PATCH",
+    "description": "Edit title/summary/status/project association",
+    "authorization": "thread-register:write",
+    "source": "lib/communications/threadRegister.ts"
+  },
+  {
+    "path": "/api/communications/email-policy",
+    "method": "GET",
+    "description": "Read/save versioned organization email authority",
+    "authorization": "communications:read; admin writes",
+    "source": "lib/communications/accountEmailPolicy.ts"
+  },
+  {
+    "path": "/api/communications/email-policy",
+    "method": "POST",
+    "description": "Read/save versioned organization email authority",
+    "authorization": "communications:write; admin writes",
+    "source": "lib/communications/accountEmailPolicy.ts"
+  },
+  {
+    "path": "/api/send-email",
+    "method": "POST",
+    "description": "Submit correlated email subject to policy",
+    "authorization": "send-email:write; organization email policy and project switch still apply",
+    "source": "api/send-email.ts; lib/tenantControl/clients.ts"
+  },
+  {
+    "path": "/api/communications/status",
+    "method": "GET",
+    "description": "Communications health and identity selection",
+    "authorization": "communications:read",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations",
+    "method": "GET",
+    "description": "Connections and agent profile read/update",
+    "authorization": "integrations:read; admin writes",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations",
+    "method": "PATCH",
+    "description": "Connections and agent profile read/update",
+    "authorization": "integrations:write; admin writes",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/start",
+    "method": "POST",
+    "description": "Generate OAuth authorization URL",
+    "authorization": "integrations:write then human consent",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/callback",
+    "method": "GET",
+    "description": "Exchange code using signed single-use state",
+    "authorization": "Signed OAuth state and current membership",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/resources",
+    "method": "GET",
+    "description": "List documents/spreadsheets",
+    "authorization": "integrations:read",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/grant",
+    "method": "GET",
+    "description": "Read/save project resource allowlist",
+    "authorization": "integrations:read; admin writes",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/grant",
+    "method": "PUT",
+    "description": "Read/save project resource allowlist",
+    "authorization": "integrations:write; admin writes",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/document",
+    "method": "GET",
+    "description": "Read allowed document",
+    "authorization": "integrations:read and resource grant",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/google/sheet",
+    "method": "GET",
+    "description": "Read allowed sheet",
+    "authorization": "integrations:read and resource grant",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/mailbox/start",
+    "method": "POST",
+    "description": "Begin Gmail/Outlook OAuth through Communications",
+    "authorization": "integrations:write then human consent",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/integrations/mailbox/sync",
+    "method": "POST",
+    "description": "Sync selected connected mailbox",
+    "authorization": "integrations:write",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/service-projects/setup-draft",
+    "method": "GET",
+    "description": "Read/save expiring per-user setup draft",
+    "authorization": "service-projects:read",
+    "source": "lib/serviceProjectApi.ts"
+  },
+  {
+    "path": "/api/service-projects/setup-draft",
+    "method": "POST",
+    "description": "Read/save expiring per-user setup draft",
+    "authorization": "service-projects:write",
+    "source": "lib/serviceProjectApi.ts"
+  },
+  {
+    "path": "/api/service-projects/setup-draft",
+    "method": "PUT",
+    "description": "Read/save expiring per-user setup draft",
+    "authorization": "service-projects:write",
+    "source": "lib/serviceProjectApi.ts"
+  },
+  {
+    "path": "/api/service-projects/validate",
+    "method": "POST",
+    "description": "Readiness checks; may perform live mailbox sync",
+    "authorization": "service-projects:write",
+    "source": "lib/serviceProjectApi.ts"
+  },
+  {
+    "path": "/api/service-projects/status",
+    "method": "GET",
+    "description": "Read project readiness and scheduler/connection state",
+    "authorization": "service-projects:read",
+    "source": "lib/serviceProjectApi.ts"
+  },
+  {
+    "path": "/api/coaching/sessions",
+    "method": "GET",
+    "description": "Bounded project coaching sessions",
+    "authorization": "coaching:read",
+    "source": "lib/http/express.ts"
+  },
+  {
+    "path": "/api/operations",
+    "method": "GET",
+    "description": "Recent jobs/sessions/receipts/schedules; diagnostics with reason",
+    "authorization": "operations:read; diagnostics admin and audit write",
+    "source": "lib/http/express.ts"
+  },
+  {
+    "path": "/api/operations/agent-jobs/replay",
+    "method": "POST",
+    "description": "Replay failed/review-held job",
+    "authorization": "operations:write",
+    "source": "lib/http/express.ts"
+  },
+  {
+    "path": "/api/triage",
+    "method": "GET",
+    "description": "List/draft preview/review/disposition; Vercel adds digests, agent-proposal approve/reject, capability/resource scopes",
+    "authorization": "triage:read; admin policy/resource changes",
+    "source": "server.ts; api/triage/index.ts"
+  },
+  {
+    "path": "/api/triage",
+    "method": "PATCH",
+    "description": "List/draft preview/review/disposition; Vercel adds digests, agent-proposal approve/reject, capability/resource scopes",
+    "authorization": "triage:write; admin policy/resource changes; human session for review decisions",
+    "source": "server.ts; api/triage/index.ts"
+  },
+  {
+    "path": "/api/schedules",
+    "method": "GET",
+    "description": "List/create/update/delete schedules; DELETE returns 204",
+    "authorization": "schedules:read",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules",
+    "method": "POST",
+    "description": "List/create/update/delete schedules; DELETE returns 204",
+    "authorization": "schedules:write",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules",
+    "method": "PATCH",
+    "description": "List/create/update/delete schedules; DELETE returns 204",
+    "authorization": "schedules:write",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules",
+    "method": "DELETE",
+    "description": "List/create/update/delete schedules; DELETE returns 204",
+    "authorization": "schedules:write",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules/run",
+    "method": "POST",
+    "description": "Run one schedule immediately (real effects)",
+    "authorization": "schedules:write",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules/tick",
+    "method": "GET",
+    "description": "Execute due schedules",
+    "authorization": "Platform cron/scheduler secret; signed V2 empty POST on both hosts",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/schedules/tick",
+    "method": "POST",
+    "description": "Execute due schedules",
+    "authorization": "Platform cron/scheduler secret; signed V2 empty POST on both hosts",
+    "source": "api/schedules/index.ts; server.ts"
+  },
+  {
+    "path": "/api/tenant",
+    "method": "GET",
+    "description": "Client registry/budgets/audit; view=lifecycle suspend/resume/export/erase_database/erase_managed_files",
+    "authorization": "tenant:read admin; all control/lifecycle writes human admin; lifecycle reads human too",
+    "source": "lib/tenantControl/api.ts; lib/tenantLifecycle/api.ts"
+  },
+  {
+    "path": "/api/tenant",
+    "method": "POST",
+    "description": "Client registry/budgets/audit; view=lifecycle suspend/resume/export/erase_database/erase_managed_files",
+    "authorization": "Human owner/admin session; control and lifecycle writes",
+    "source": "lib/tenantControl/api.ts; lib/tenantLifecycle/api.ts"
+  },
+  {
+    "path": "/api/asks/{token}",
+    "method": "GET",
+    "description": "Capability form/read/respond; attachments via managed files",
+    "authorization": "Ask token; optional verified member; asks machine scope absent",
+    "source": "api/asks/[token].ts"
+  },
+  {
+    "path": "/api/asks/{token}",
+    "method": "POST",
+    "description": "Capability form/read/respond; attachments via managed files",
+    "authorization": "Ask token; optional verified member; asks machine scope absent",
+    "source": "api/asks/[token].ts"
+  },
+  {
+    "path": "/forms/ask/{token}",
+    "method": "GET",
+    "description": "Alias of Ask endpoint",
+    "authorization": "Ask token; optional verified member",
+    "source": "api/asks/[token].ts; vercel.json"
+  },
+  {
+    "path": "/forms/ask/{token}",
+    "method": "POST",
+    "description": "Alias of Ask endpoint",
+    "authorization": "Ask token; optional verified member",
+    "source": "api/asks/[token].ts; vercel.json"
+  },
+  {
+    "path": "/api/events",
+    "method": "POST",
+    "description": "Receive signed Communications events",
+    "authorization": "Service signature, not ordinary client",
+    "source": "api/events.ts"
+  },
+  {
+    "path": "/api/agent/voice-context",
+    "method": "POST",
+    "description": "Return tenant/project-scoped live voice context",
+    "authorization": "Timestamped V2 service signature",
+    "source": "api/events.ts; server.ts"
+  },
+  {
+    "path": "/api/gemini/generateProjectStructure",
+    "method": "POST",
+    "description": "Generate milestone graph proposal",
+    "authorization": "workspace:write",
+    "source": "api/gemini/index.ts"
+  },
+  {
+    "path": "/api/gemini/brainstormSubtasks",
+    "method": "POST",
+    "description": "Generate subtask suggestions",
+    "authorization": "workspace:write",
+    "source": "api/gemini/index.ts"
+  },
+  {
+    "path": "/api/captured-work-items",
+    "method": "GET",
+    "description": "List/read/capture/update/resolve/dismiss deferred work; review decisions require human session",
+    "authorization": "captured-work-items:read",
+    "source": "lib/capturedWork/api.ts"
+  },
+  {
+    "path": "/api/captured-work-items",
+    "method": "POST",
+    "description": "List/read/capture/update/resolve/dismiss deferred work; review decisions require human session",
+    "authorization": "captured-work-items:write; human session for review decisions",
+    "source": "lib/capturedWork/api.ts"
+  },
+  {
+    "path": "/api/captured-work-items",
+    "method": "PATCH",
+    "description": "List/read/capture/update/resolve/dismiss deferred work; review decisions require human session",
+    "authorization": "captured-work-items:write; human session for review decisions",
+    "source": "lib/capturedWork/api.ts"
+  },
+  {
+    "path": "/api/configuration",
+    "method": "GET",
+    "description": "Read configuration/receipt; validate, plan or apply atomic changes",
+    "authorization": "configuration:read for GET/validate/plan; configuration:write for apply",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/configuration",
+    "method": "POST",
+    "description": "Read configuration/receipt; validate, plan or apply atomic changes",
+    "authorization": "configuration:read for GET/validate/plan; configuration:write for apply",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/projects",
+    "method": "GET",
+    "description": "Revision-checked granular projects configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/projects",
+    "method": "POST",
+    "description": "Revision-checked granular projects configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/projects",
+    "method": "PATCH",
+    "description": "Revision-checked granular projects configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/projects",
+    "method": "DELETE",
+    "description": "Revision-checked granular projects configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/nodes",
+    "method": "GET",
+    "description": "Revision-checked granular nodes configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/nodes",
+    "method": "POST",
+    "description": "Revision-checked granular nodes configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/nodes",
+    "method": "PATCH",
+    "description": "Revision-checked granular nodes configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/nodes",
+    "method": "DELETE",
+    "description": "Revision-checked granular nodes configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/subtasks",
+    "method": "GET",
+    "description": "Revision-checked granular subtasks configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/subtasks",
+    "method": "POST",
+    "description": "Revision-checked granular subtasks configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/subtasks",
+    "method": "PATCH",
+    "description": "Revision-checked granular subtasks configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/subtasks",
+    "method": "DELETE",
+    "description": "Revision-checked granular subtasks configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/ui-views",
+    "method": "GET",
+    "description": "Revision-checked granular ui-views configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/ui-views",
+    "method": "POST",
+    "description": "Revision-checked granular ui-views configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/ui-views",
+    "method": "PATCH",
+    "description": "Revision-checked granular ui-views configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/ui-views",
+    "method": "DELETE",
+    "description": "Revision-checked granular ui-views configuration; writes require a reviewed planHash and requestId",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/settings",
+    "method": "GET",
+    "description": "Read/update non-authority application settings",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/settings",
+    "method": "PATCH",
+    "description": "Read/update non-authority application settings",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/test-runs",
+    "method": "GET",
+    "description": "Create isolated fixture tests, inspect assertions and delete old tests",
+    "authorization": "test-runs:read",
+    "source": "lib/configuration/testRuns.ts"
+  },
+  {
+    "path": "/api/test-runs",
+    "method": "POST",
+    "description": "Create isolated fixture tests, inspect assertions and delete old tests",
+    "authorization": "test-runs:write",
+    "source": "lib/configuration/testRuns.ts"
+  },
+  {
+    "path": "/api/test-runs",
+    "method": "DELETE",
+    "description": "Create isolated fixture tests, inspect assertions and delete old tests",
+    "authorization": "test-runs:write",
+    "source": "lib/configuration/testRuns.ts"
+  },
+  {
+    "path": "/api/discovery",
+    "method": "GET",
+    "description": "Complete API and configuration schemas, primitives and handoff requirements",
+    "authorization": "discovery:read",
+    "source": "lib/http/discovery.ts"
+  },
+  {
+    "path": "/api/openapi.json",
+    "method": "GET",
+    "description": "Consolidated OpenAPI 3.1 contract",
+    "authorization": "discovery:read",
+    "source": "lib/http/discovery.ts"
+  },
+  {
+    "path": "/api/scratch-tasks",
+    "method": "GET",
+    "description": "Read/create/update/delete scratch tasks with reviewed plan and revision",
+    "authorization": "configuration:read",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/scratch-tasks",
+    "method": "POST",
+    "description": "Read/create/update/delete scratch tasks with reviewed plan and revision",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/scratch-tasks",
+    "method": "PATCH",
+    "description": "Read/create/update/delete scratch tasks with reviewed plan and revision",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/scratch-tasks",
+    "method": "DELETE",
+    "description": "Read/create/update/delete scratch tasks with reviewed plan and revision",
+    "authorization": "configuration:write",
+    "source": "lib/configuration/api.ts"
+  },
+  {
+    "path": "/api/agent/capture-work",
+    "method": "POST",
+    "description": "Capture a side item from trusted voice context; no resolve or execution",
+    "authorization": "Timestamped V2 service signature; verified tenant caller and call correlation",
+    "source": "api/events.ts"
+  }
+]

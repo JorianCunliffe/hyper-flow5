@@ -1,3 +1,4 @@
+import { assertHumanDecision } from '../http/authority.js';
 import {handleOperationalReview} from '../operationalReview.js';
 import { randomUUID } from 'node:crypto';
 import { handlePromiseLedger, ledgerSource } from './promiseLedger.js';
@@ -28,6 +29,8 @@ const visible = (row: Commitment) => {
   return { ...data, ...(data.source ? { source: { ...data.source, wording: '' } } : {}), asks: asks.map(publicAsk), ...(review ? { review: { ...review, ask: publicAsk(review.ask) } } : {}), timing: commitmentTiming(row) };
 };
 export async function handleCommitments(request: { method?: string; query?: Record<string, any>; body?: any }, member: Member, overrides: Partial<CommitmentDependencies> = {}) {
+  assertHumanDecision(member, 'commitments', request.body);
+  if (request.query?.view === 'promise_ledger') assertHumanDecision(member, 'commitments', {...request.body, action:'promise_ledger'});
   const deps = { ...defaults, ...overrides }; const body = request.body || {}; const query = request.query || {};
   if(body.action==='operational_review'){if(request.method!=='POST')throw new CommitmentError(405,'Use POST');return handleOperationalReview(body,member);}
   const projects = await deps.projects(member.orgId); const allowed = new Set(projects.map(row => String(row.id)));

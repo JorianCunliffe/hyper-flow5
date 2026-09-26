@@ -1,3 +1,5 @@
+import { validateProject } from '../configuration/model.js';
+import { projectConfiguration } from '../configuration/schema.js';
 import { projectCollectionsShareRevisions } from "../projectRevisionGuard.js";
 import { TenantControlError } from "./model.js";
 /** Same optimistic boundary as the existing browser workspace save. Business ledgers are separate. */
@@ -43,6 +45,8 @@ export function replaceWorkspace(current: any, body: any, now = Date.now()) {
       409,
       "Workspace changed; reload and review before saving",
     );
+  const issues=value.projects.flatMap((p:any)=>validateProject(projectConfiguration(p)));
+  if(issues.length)throw new TenantControlError(422,JSON.stringify(issues));
   const result = {
     ...(current || {}),
     projects: value.projects.map((p: any) => ({

@@ -4,6 +4,10 @@ Phase 01 adds an organization-wide email option: Draft only (default) or Allow a
 
 HyperFlow is a visual workflow engine for projects that combine human milestones, automated actions, decisions, loops, and review gates. Server-side execution and durable schedules let flows continue without an open browser, while signed event handling reconnects email, SMS, and voice results to the exact tenant, action run, and Human Ask that started them.
 
+## External agent API
+
+Configure projects, nodes, subtasks, settings and saved UI views through revision-checked REST commands, then run isolated fixture assertions without provider calls. Start with [the agent guide](docs/AGENT_API.md), [OpenAPI](contracts/openapi.json) and [TypeScript client](lib/client/hyperflow.ts). Discovery is available at `/api/discovery`. Human reviews and OAuth retain their separate authority.
+
 ## Capabilities
 
 | Capability | Current behavior |

@@ -116,14 +116,15 @@ test("Phase 11 tenant API credentials and workspace revisions use real isolated 
       settings: { name: "Controlled API edit" },
       projects: [{ ...current.data.projects[0], name: "Revised" }],
     };
+    await assert.rejects(handleWorkspace({method:'PUT',body:{expectedRevision:0,data}},actor),/validated configuration API/);
     const writes = await Promise.allSettled([
       handleWorkspace(
         { method: "PUT", body: { expectedRevision: 0, data } },
-        actor,
+        member,
       ),
       handleWorkspace(
         { method: "PUT", body: { expectedRevision: 0, data } },
-        actor,
+        member,
       ),
     ]);
     assert.equal(writes.filter((r) => r.status === "fulfilled").length, 1);

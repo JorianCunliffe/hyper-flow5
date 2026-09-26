@@ -1,3 +1,4 @@
+import { assertHumanDecision } from '../http/authority.js';
 import { randomUUID } from "node:crypto";
 import { readPage, pageRows } from "../tenantControl/pagination.js";
 import { GoogleGenAI } from "@google/genai";
@@ -51,6 +52,7 @@ export async function handleVisibleFlows(
     execute?: StepExecutor;
   } = {},
 ) {
+  assertHumanDecision(member, 'flows', request.body);
   const store = deps.store || flowStore;
   const projects = await (deps.projects || listTenantProjects)(member.orgId);
   const permitted = new Set(projects.map((p) => p.id));

@@ -1,3 +1,4 @@
+import rewrites from '../../vercel.json';
 import {
   createHash,
   randomUUID,
@@ -39,53 +40,32 @@ export type ControlMember = {
   role: string;
   apiClientId?: string;
 };
-export function requestScope(req: {
-  url?: string;
-  method?: string;
-  query?: any;
-}): string {
-  const path = String(req.url || "").split("?")[0];
-  let group = path.match(/^\/api\/([^/]+)/)?.[1];
-  const action = String(req.query?.action || path.split("/")[3] || "");
-  if (group === "gemini")
-    group = ["brainstormSubtasks", "generateProjectStructure"].includes(action)
-      ? "workspace"
-      : action;
-  if (
-    group === "communications" &&
-    path.startsWith("/api/communications/status") &&
-    req.query?.action
-  ) {
-    const groups: Record<string, string> = {
-      commitments: "commitments",
-      meetings: "meetings",
-      memory: "communications",
-      email_policy: "communications",
-      integrations: "integrations",
-      google_start: "integrations",
-      google_callback: "integrations",
-      google_resources: "integrations",
-      workspace_grant: "integrations",
-      google_doc: "integrations",
-      google_sheet: "integrations",
-      mailbox_start: "integrations",
-      mailbox_sync: "integrations",
-      service_setup_draft: "service-projects",
-      service_setup_validate: "service-projects",
-      service_setup_status: "service-projects",
-      coaching_sessions: "coaching",
-      operations: "operations",
-      operations_replay: "operations",
-      thread_register: "thread-register",
-      thread_candidates: "thread-register",
-      thread_correction: "thread-register",
-      thread_update: "thread-register",
-    };
-    group = groups[action];
+export function requestScope(req: {url?:string; method?:string; query?:any; body?:any}): string {
+  let path=String(req.url||'').split('?')[0];
+  const query={...Object.fromEntries(new URL(String(req.url||'/'),'http://localhost').searchParams),...req.query};
+  // Normalize dispatcher URLs and canonical aliases to the same operation before authorization.
+  for(const rewrite of [...rewrites.rewrites].sort((a,b)=>b.destination.length-a.destination.length)) {
+    const target=new URL(rewrite.destination,'http://localhost');
+    if(target.pathname===path && [...target.searchParams].length && [...target.searchParams].every(([k,v])=>query[k]===v)) {path=rewrite.source;break;}
   }
-  if (!API_GROUPS.includes(group as any))
-    fail(403, "This endpoint requires a human session");
-  return `${group}:${req.method === "GET" ? "read" : "write"}`;
+  if(query.action && ['/api/communications/status','/api/gemini'].includes(path))fail(403,'This endpoint requires a human session');
+  let group=path.match(/^\/api\/([^/]+)/)?.[1];
+  if(path.startsWith('/api/gemini'))group='workspace';
+  if(path==='/api/workspace/resources')group='workspace-resources';
+  if(['projects','nodes','subtasks','settings','ui-views','scratch-tasks'].includes(group||''))group='configuration';
+  if(path==='/api/openapi.json')group='discovery';
+  if(path==='/api/triage') {
+    const scope=query.scope||req.body?.scope;
+    if(scope==='capabilities')group='capabilities';
+    if(scope==='workspace_resources')group='workspace-resources';
+  }
+  const b=req.body||{};
+  const read=req.method==='GET' || path==='/api/communications/memory' ||
+    (path==='/api/configuration' && ['validate','plan'].includes(b.operation)) ||
+    (path==='/api/commitments' && b.action==='promise_ledger' && ['query','read','coverage'].includes(b.operation||'query')) ||
+    (path==='/api/commitments' && b.action==='operational_review' && ['read','work'].includes(b.operation));
+  if(!API_GROUPS.includes(group as any))fail(403,'This endpoint requires a human session');
+  return `${group}:${read?'read':'write'}`;
 }
 export async function authenticateClient(
   token: string,
@@ -142,6 +122,10 @@ export async function authenticateClient(
       if (key < new Date(now - 90 * 86400000).toISOString().slice(0, 10))
         delete r.days[key];
     current.lastUsedAt = now;
+    if(scope.endsWith(':write')) {
+      r.audit.push({id:randomUUID(),at:now,actor:member.uid,operation:'api.'+scope,resource:id});
+      r.audit=r.audit.slice(-1000);
+    }
     r.revision++;
     return r;
   });

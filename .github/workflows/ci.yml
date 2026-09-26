@@ -49,6 +49,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: npm ci
+      - run: npm run api:check
       - run: npm run lint
       - run: npm test
       - run: npm run build
@@ -60,7 +61,7 @@ jobs:
           FIREBASE_ENFORCE_TENANT_LIFECYCLE: 'true'
         run: npx firebase-tools emulators:exec --project demo-hyperflow --only database --config firebase.test.json "node --import tsx --test tests/integration/phase06.test.ts"
       - name: Tenant credentials, workspace revisions and pagination
-        run: npx firebase-tools emulators:exec --project demo-hyperflow --only database --config firebase.test.json "node --import tsx --test tests/integration/phase11.test.ts"
+        run: npx firebase-tools emulators:exec --project demo-hyperflow --only database --config firebase.test.json "node --import tsx --test --test-concurrency=1 tests/integration/phase11.test.ts tests/integration/agentApi.test.ts"
 
   integrated-acceptance:
     runs-on: ubuntu-latest
