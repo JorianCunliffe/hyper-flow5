@@ -213,3 +213,7 @@ Ambient capture tests additionally cover duplicate retries, tenant/user scoping,
 ## API reference
 
 See [docs/API.md](./docs/API.md) for endpoint authentication, request and response contracts, event handling, and the outbound Communications Service integration. Use [docs/OMNICHANNEL_OPERATIONS.md](./docs/OMNICHANNEL_OPERATIONS.md) for deployment order, tenant onboarding, callback smoke testing, scheduler setup, controlled live acceptance, and recovery drills.
+
+## Primitives completion plan
+
+See [the Sharehouse primitives delivery plan](docs/FLOW_PRIMITIVES_DELIVERY_PLAN.md) for the current completion sequence, existing implementation evidence, UI/API acceptance gates and the original programme. This is a planning document; full Sharehouse acceptance remains to be demonstrated.
