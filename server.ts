@@ -1,3 +1,4 @@
+import { captureVoiceWork } from './lib/capturedWork/voice.js';
 import { handleCapturedWork } from './lib/capturedWork/api.js';
 import { CaptureError } from './lib/capturedWork/model.js';
 import { ambientCaptureInstructions, captureWorkItemTool } from './lib/capturedWork/tool.js';
@@ -268,6 +269,16 @@ async function startServer() {
     } catch (error: any) {
       return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
     }
+  });
+  app.post('/api/agent/capture-work', express.raw({ type: 'application/json', limit: '64kb' }), async (req, res) => {
+    const secret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
+    if (!secret) return res.status(503).json({ error: 'Capture service is not configured', saved: false });
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+    if (!verifyCommunicationsSignatureV2(rawBody, req.headers['x-communications-signature-v2'], req.headers['x-communications-timestamp'], secret)) {
+      return res.status(401).json({ error: 'Invalid or missing Communications signature', saved: false });
+    }
+    try { return res.json(await captureVoiceWork(parseSignedJsonBody(rawBody))); }
+    catch (error: any) { return res.status(error instanceof CaptureError ? error.status : 500).json({ error: error.message, saved: false }); }
   });
   app.post('/api/agent/voice-context', express.raw({ type: 'application/json', limit: '64kb' }), async (req, res) => {
     const secret = process.env.COMMUNICATIONS_WEBHOOK_SECRET;

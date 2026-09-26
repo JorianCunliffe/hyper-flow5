@@ -1,6 +1,6 @@
 # Ambient Work Capture — implementation and review guide
 
-**Delivery status:** [Draft PR #56](https://github.com/JorianCunliffe/hyper-flow5/pull/56); not a production-release claim. Start with the [README walkthrough](../README.md#ambient-work-capture-and-side-tasks), [full API reference](API.md#captured-work-items), and [operations runbook](OMNICHANNEL_OPERATIONS.md#11-ambient-capture-and-deferred-review-rollout).
+**Delivery status:** Core feature merged in [PR #56](https://github.com/JorianCunliffe/hyper-flow5/pull/56). The Communications phone adapter is implemented in both repositories; release and live acceptance must be verified separately. Start with the [README walkthrough](../README.md#ambient-work-capture-and-side-tasks), [full API reference](API.md#captured-work-items), and [operations runbook](OMNICHANNEL_OPERATIONS.md#11-ambient-capture-and-deferred-review-rollout).
 
 This implements the core of [the RFC](HYPERFLOW_RFC_AMBIENT_WORK_CAPTURE.md): capture now, keep going, review later. The RFC is preserved as the design input; this document describes the actual implementation and rollout boundaries.
 
@@ -65,16 +65,18 @@ The project must belong to the authenticated tenant. Source run/node references 
 
 `lib/capturedWork/tool.ts` exports the function declaration and non-blocking instructions. The Express `/api/live-voice` Gemini session registers and handles `captureWorkItem`, deriving tenant/user identity from the authenticated WebSocket upgrade. Optional `projectId`, `runId`, `nodeId` query context is validated through the same API handler. A tool failure produces `saved: false`; the agent must not claim it was saved.
 
-**External phone providers require configuration.** An outbound prompt cannot add a callable tool to VAPI/Bland/Communications Service by itself. Register `captureWorkItem` in the provider/Communications adapter and map it to authenticated `POST /api/captured-work-items`. Keep the tenant/user credential and run provenance in trusted adapter context, not model-controlled arguments. Use the source turn ID plus item ordinal as the idempotency key. The caller's configured account owns the capture. Do not expose a shared tenant capture credential to public receptionist callers.
+**Communications Service phone adapter:** `captureWorkItem` uses `POST /api/agent/capture-work` with timestamped V2 HMAC authentication. It reuses `HYPERFLOW_AGENT_CONTEXT_URL` (or `HYPERFLOW_EVENT_URL`) and `COMMUNICATIONS_WEBHOOK_SECRET`; no new credential or per-contact tool registration is needed. Inbound owner context advertises `captureEnabled`; configured outbound calls carry trusted call/thread identity into tool execution. Other providers need their own adapter.
 
-This PR changes HyperFlow only. It does not claim to have registered or tested external provider tools. Existing outbound prompts give conditional guidance: only claim capture after an available tool succeeds. The browser Gemini live endpoint requires the Express host; Vercel does not host that WebSocket.
+HyperFlow maps `primaryPersonId` to `primaryUserId`, verifies current organization membership and the configured service line, and retrieves the tenant-scoped communication to verify person/thread/channel. It derives source project and workflow run/node from that record. Model arguments cannot choose a tenant, owner or source. Public receptionist callers cannot write to the owner's queue. Retries are scoped by communication ID plus the stable thought key; success is acknowledged only after persistence succeeds. A timeout means the outcome is uncertain: reuse the same key and payload rather than creating another item.
+
+The browser Gemini live endpoint requires the Express host; Vercel does not host that WebSocket. The phone adapter uses ordinary HTTPS and works with the Vercel deployment.
 
 ## Setup and rollout
 
 1. Deploy the updated database rules and application. Existing data needs no migration. No new paid service or environment secret is introduced.
 2. Configure the tenant primary user, or set a valid organization user ID in the review node. Reviews never infer a Firebase user ID from a Communications person ID.
 3. Add **Review Unresolved Items** to the desired morning/management flow. A flow without this node can still capture and finish normally.
-4. Register the capture tool with the actual phone agent before enabling in-call capture there. Use a user-bound scoped credential and trusted source context.
+4. Deploy Communications Service with its ambient capture adapter. Confirm the tenant `primaryPersonId`, `primaryUserId`, and phone service identity are configured. Existing signed voice-context/event connection settings are reused.
 5. Run the smoke scenarios below against a test tenant and the actual provider before production rollout.
 
 ## Validation
@@ -91,7 +93,7 @@ npm test
 npm run build
 ```
 
-Local browser verification was attempted, but the browser daemon failed to start and the fallback Chromium download was unavailable. Visual/authenticated UI verification, Firebase emulator or deployed-rule verification, and real phone-provider execution remain open validation gates. Unit tests use injected storage; they do not substitute for a deployed Firebase transaction test.
+PR #56 passed CI including Firebase rules isolation and durable transaction checks. The production sign-in page was verified in the browser. The signed phone adapter has targeted tests for trusted ownership/provenance, rejected callers and forged sources, replay-key scoping, V2-only authentication, and truthful failure results. Authenticated queue interaction and real spoken-call acceptance still require a live signed-in session/call; these are not implied by unit-test or deployment success.
 
 Required pre-merge/rollout smoke checks:
 

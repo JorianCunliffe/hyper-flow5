@@ -1048,3 +1048,25 @@ An owner or administrator can reach recovery controls from the revoked-workspace
 ### Service-project setup parity
 
 Express and Vercel share the handlers for `/api/service-projects/setup-draft` (GET, POST, PUT), `/api/service-projects/validate` (POST) and `/api/service-projects/status` (GET). API credentials require `service-projects:read` or `service-projects:write` as appropriate, in addition to current membership. Drafts are scoped to both the authenticated tenant and user. Status reads do not change schedules: `upgradeRequired` and `unboundScheduleIds` identify legacy schedules requiring an explicit schedule update. `mailboxStatus` distinguishes `available` from `unavailable`; an unavailable lookup must not be treated as proof of no mailboxes. See the [coverage audit](API_PARITY.md) for current limits and remaining work.
+
+
+### Signed phone capture
+
+`POST /api/agent/capture-work` (Vercel alias `/api/events?action=capture_work`) accepts the Communications adapter's timestamped V2 HMAC signature, using the same headers/secret as voice context. Legacy signatures are rejected; bodies are limited to 64 KiB.
+
+```json
+{
+  "tenant_id": "org_123",
+  "person_id": "configured-primary-person",
+  "communication_id": "comm_123",
+  "thread_id": "thread_123",
+  "service_identity": "+61400000000",
+  "capture": {
+    "rawText": "Meet the buyer at one",
+    "idempotencyKey": "turn-8:item-0",
+    "kind": "meeting"
+  }
+}
+```
+
+Identity fields come from trusted call context, never model arguments. The caller must match the tenant primary person; the mapped primary user must be a current organization member. The communication must belong to that tenant/person/thread and be a voice record. Source project/run/node are derived from stored correlation. Only `rawText`, `idempotencyKey`, `kind`, `title`, and `proposedProjectName` are accepted from the model. The endpoint only captures; it cannot resolve or execute work. Success returns `{saved:true,id,acknowledgement}`. On an uncertain response retry the exact payload/key. Keys are scoped to the communication before reaching the user-owned queue.

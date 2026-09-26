@@ -1,3 +1,5 @@
+import { captureVoiceWork } from '../lib/capturedWork/voice.js';
+import { CaptureError } from '../lib/capturedWork/model.js';
 import {consumeReviewAction} from '../lib/reviewActions.js';
 import { parseSignedJsonBody, verifyIncomingCommunicationsSignature } from '../lib/communications/webhook.js';
 import { externalEventHttpStatus, receiveExternalEvent } from '../lib/externalEvents.js';
@@ -61,7 +63,7 @@ export const POST = async (request: Request): Promise<Response> => {
 
   const rawBody = Buffer.from(await request.arrayBuffer());
   const action = new URL(request.url).searchParams.get('action');
-  if (action === 'voice_context' && rawBody.length > 64 * 1024) return json({ error: 'Request body is too large' }, 413);
+  if (['voice_context', 'capture_work'].includes(action || '') && rawBody.length > 64 * 1024) return json({ error: 'Request body is too large' }, 413);
   const signature = request.headers.get('x-communications-signature') || undefined;
   const signatureV2 = request.headers.get('x-communications-signature-v2') || undefined;
   const timestamp = request.headers.get('x-communications-timestamp') || undefined;
@@ -69,7 +71,7 @@ export const POST = async (request: Request): Promise<Response> => {
     rawBody,
     { signature, signatureV2, timestamp },
     secret,
-    action === 'voice_context' ? true : undefined
+    ['voice_context', 'capture_work'].includes(action || '') ? true : undefined
   );
   if (!valid) return json({ error: 'Invalid or missing Communications signature' }, 401);
 
@@ -81,6 +83,7 @@ export const POST = async (request: Request): Promise<Response> => {
 
   try {
     const body = parseSignedJsonBody(rawBody);
+    if (action === 'capture_work') return json(await captureVoiceWork(body), 200);
     if (action === 'voice_context') {
       const requiredText = (value: unknown, name: string, max = 500): string => {
         if (typeof value !== 'string' || !value.trim()) throw new Error(`${name} is required`);
@@ -147,6 +150,7 @@ export const POST = async (request: Request): Promise<Response> => {
     }
     return json(outcome, externalEventHttpStatus(outcome));
   } catch (error: any) {
+    if (error instanceof CaptureError) return json({ error: error.message, saved: false }, error.status);
     if (/required|JSON object|valid JSON|reused|too large/.test(error?.message || '')) return json({ error: error.message }, 400);
     if (/not authorized|service identity/.test(error?.message || '')) return json({ error: error.message }, 403);
     console.error('External event handler failed', error);
