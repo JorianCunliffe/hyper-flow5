@@ -7,10 +7,11 @@ test("seven views contain every user destination exactly once, keeping administr
   const modes = WORKSPACE_VIEWS.flatMap((section) =>
     section.modes.map((mode) => mode.id),
   );
-  assert.equal(new Set(modes).size, 14);
-  assert.equal(modes.length, 14);
+  assert.equal(new Set(modes).size, 15);
+  assert.equal(modes.length, 15);
   assert.equal(workspaceViewFor("approvals")?.id, "overview");
   assert.equal(workspaceViewFor("scratch")?.id, "work");
+  assert.equal(workspaceViewFor("captures")?.id, "work");
   assert.equal(workspaceViewFor("meetings")?.id, "communications");
   assert.equal(workspaceViewFor("publishing")?.id, "documents");
   assert.equal(workspaceViewFor("tenant"), undefined);

@@ -51,6 +51,7 @@ Errors: 400 invalid input; 403 inaccessible project/party or unauthorized decisi
 | `GET /api/communications/status` | Firebase ID token and organization membership. |
 | `/api/integrations/*`, `/api/coaching/sessions` | Firebase ID token and organization membership; OAuth callback validates signed, single-use state. |
 | `/api/operations`, `/api/operations/agent-jobs/replay` | Firebase ID token and organization membership. |
+| `GET|POST|PATCH /api/captured-work-items` | Firebase ID token and organization membership, or a user-bound tenant API client with `captured-work-items:read` / `captured-work-items:write`. |
 | `GET|PATCH /api/triage` | Firebase ID token and organization membership. |
 | `GET|POST|PATCH|DELETE /api/schedules` | Firebase ID token and organization membership. |
 | `POST /api/schedules/run` | Firebase ID token and organization membership. |
@@ -66,6 +67,7 @@ Common authentication responses are `401` for a missing, invalid, or expired Fir
 | `POST` | `/api/organizations/create` | Create an organization and owner membership. |
 | `POST` | `/api/invites/create` | Create a one-use organization invite. |
 | `POST` | `/api/invites/consume` | Join the invited organization. |
+| `GET`, `POST`, `PATCH` | `/api/captured-work-items` | Capture, retrieve, clarify, dismiss, or confirm user-owned side items. |
 | `POST` | `/api/tasks/execute` | Execute one action. |
 | `POST` | `/api/flow/advance` | Advance one persisted project. |
 | `GET`, `POST` | `/forms/ask/{token}` | Render/read or answer one Ask. |
@@ -90,6 +92,66 @@ Common authentication responses are `401` for a missing, invalid, or expired Fir
 | `GET`, `POST` | `/api/schedules/tick` | Run due schedules from a platform timer. |
 | `POST` | `/api/gemini/brainstormSubtasks` | Generate five subtask suggestions. |
 | `POST` | `/api/gemini/generateProjectStructure` | Generate a milestone graph. |
+
+## Captured work items
+
+Available on Express and Vercel through the same handler. Vercel rewrites `/api/captured-work-items` to `/api/gemini?action=captured-work-items`; clients should use the public capture route. See the [implementation guide](AMBIENT_WORK_CAPTURE_IMPLEMENTATION.md) for review-node and provider setup.
+
+Tenant and owner come from the authenticated member. Body fields such as `orgId` and `capturedForUserId` cannot select another user's queue. The capture API has no administrator override to retrieve another user's items. A configured review node can review a different organization member's queue through the server runtime; its web Asks use the existing project/Ask access model.
+
+All successful operations return HTTP 200. Responses have `Cache-Control: no-store`.
+
+| Method | Contract | Result |
+| --- | --- | --- |
+| POST | `rawText`, `idempotencyKey`; `operation` omitted or `capture` | `{item, acknowledgement}` |
+| GET | Optional `status`, `sourceRunId`, `limit`, `after` | `{items, total, nextCursor}` |
+| GET | `id` | `{item}`, or 404 outside the caller's queue |
+| PATCH | `id`, current numeric `version`, editable suggestions | `{item}`; status becomes `clarifying` |
+| POST | `operation: "dismiss"`, `id`, `version` | `{item}` with `dismissed` status |
+| POST | `operation: "resolve"`, `id`, `version`, `confirmed: true`, `intent` | `{item}` with atomic intent and resolution link |
+
+### Capture and editable fields
+
+Only nonempty `rawText` (maximum 8,000 characters) and `idempotencyKey` (maximum 500 characters) are required in the body. A project, kind and time are optional.
+
+```json
+{
+  "rawText": "Remind me to call Peter about the filter",
+  "idempotencyKey": "communication-123:turn-8:item-0",
+  "kind": "reminder",
+  "proposedProjectName": "Hydrax"
+}
+```
+
+Capture and PATCH accept `title`, `kind`, `proposedProjectId`, `proposedProjectName`, `proposedAt`, `proposedDueAt`, `proposedLocation`, `proposedMode`, `proposedDurationMinutes`, and `notes`. Kinds are `task`, `meeting`, `reminder`, `follow_up`, `note`, `unknown`. Times are positive epoch milliseconds; modes are `in_person`, `phone`, `online`; durations are integers from 1–1,440. Text suggestions are limited to 500 characters, except notes (4,000). Null/empty editable strings clear that suggestion; null time fields clear the proposed time. Omitted fields remain unchanged on PATCH. Kind, mode and duration must use valid values when supplied.
+
+Capture also accepts immutable `sourceProjectId`, `sourceRunId`, `sourceNodeId`, `sourceCommunicationId`, `sourceThreadId` references. Source/proposed projects are checked against tenant membership. Supplying a source node or run requires both a source project and run; the run and node must exist in that project. Communication/thread IDs are provenance references, not a copied communication history or independent proof of a trusted provider event.
+
+The ID derives from tenant + authenticated user + idempotency key. Retry an uncertain capture with the **same key and original payload**, even if the saved item was subsequently edited. A different initial payload with the same key returns 409. Distinct utterances need distinct keys; semantic duplicate detection is not implemented.
+
+### Retrieval and updates
+
+`status=unresolved` includes `captured` and `clarifying`. Omit `status`, or use `all`, for all statuses; specific status values are `captured`, `clarifying`, `resolved`, `dismissed`. Filtering happens before pagination. Results are oldest-first with ID as tie-breaker. `limit` defaults to 100 and is bounded to 1–200. Pass `nextCursor` as `after` with the same filters; if that item no longer exists in the filtered list, the API returns 409 and the caller must refresh.
+
+Use the returned numeric `version` for changes. Raw wording, provenance, owner, ID and creation time are not editable. Closed records cannot be reopened through PATCH. Dismiss is replay-safe on a dismissed item; resolving to the same normalized intent is replay-safe on an already resolved item. Other stale/closed changes return 409. Dismissal retains the audit record; there is no per-item DELETE endpoint.
+
+### Confirmed intent
+
+```json
+{
+  "operation": "resolve",
+  "id": "<capture ID returned by POST>",
+  "version": 1,
+  "confirmed": true,
+  "intent": { "kind": "task", "title": "Call Peter about the filter" }
+}
+```
+
+Every intent needs a supported kind other than `unknown` and a nonempty title (maximum 500 characters). `projectId`, `notes` and `at` are optional for tasks, follow-ups and notes. Omitting `projectId` means general workspace. Reminders require `at`. Meetings require `at` and `mode`, plus `location` when in person; `durationMinutes` defaults to 30. Any selected project must belong to the tenant.
+
+The returned item contains `intent`, `resolvedObjectType: "work_intent"`, `resolvedObjectId`, and `resolvedAt`. `intent.executionStatus` is always `not_executed`; confirmation grants no calendar, messaging or reminder-delivery effect. Review nodes expose confirmed intents at `projectData.capture_review_results.<nodeId>` for explicit downstream actions.
+
+Errors: 400 unknown operation; 401/403 authentication or scope failure; 404 item absent from caller's queue; 405 unsupported method; 409 stale version, conflicting replay or changed pagination cursor; 422 invalid/missing content or resolution fields; 503 unavailable server authentication. Storage failures may return 500.
 
 ## Organizations and invites
 

@@ -1,3 +1,4 @@
+import { reviewCapturedWork } from './capturedWork/review.js';
 import { collapseCollections } from './flowCollections.js';
 import { randomUUID } from 'node:crypto';
 import { CoachingSession, HumanAsk, type FlowEvent, Project, NodeType } from '../types.js';
@@ -212,6 +213,7 @@ const advanceRunOnce = async (
   let checkpoint = run;
   const advanced = await advanceProjectFlow(runtimeProject, serverExecutor, {
     orgId,
+    reviewCaptures: reviewCapturedWork,
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
     checkpoint: async project => { checkpoint = await saveFlowRun(updateFlowRunFromProject(checkpoint, project)); }
   });

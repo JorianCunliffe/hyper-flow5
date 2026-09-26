@@ -1,7 +1,7 @@
 import { requireCurrentResults } from './flowInputs.js';
 import { expandCollection } from './flowCollections.js';
 import { ActionRun, HumanAsk, Milestone, Project, NodeType } from '../types.js';
-import { ACTION_TASK_TYPE, activeOccurrenceId, advanceFlow, getHoldConfig, getLoopBody, getNodeType, isActionNode } from './flowEngine.js';
+import { ACTION_TASK_TYPE, resolveNodeStates, isNodeReady, activeOccurrenceId, advanceFlow, getHoldConfig, getLoopBody, getNodeType, isActionNode } from './flowEngine.js';
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 import { createHumanHoldAsk } from './flowHoldAsk.js';
@@ -240,7 +240,7 @@ export const resolvePendingRun = (
 export const advanceProjectFlow = async (
   project: Project,
   executor: ActionExecutor,
-  opts: { orgId?: string; webhookBaseUrl?: string; maxRounds?: number; checkpoint?: (project: Project) => Promise<void> } = {}
+  opts: { orgId?: string; webhookBaseUrl?: string; maxRounds?: number; checkpoint?: (project: Project) => Promise<void>; reviewCaptures?: (project: Project, node: Milestone, orgId: string) => Promise<{ node: Milestone; ask?: HumanAsk; log: string[] }> } = {}
 ): Promise<OrchestrationResult> => {
   const maxRounds = opts.maxRounds ?? 5;
   let current = project;
@@ -249,6 +249,16 @@ export const advanceProjectFlow = async (
   const askedFor: { nodeId: string; ask: HumanAsk }[] = [];
 
   for (let round = 0; round < maxRounds; round++) {
+    for (const node of current.milestones) {
+      if (node.nodeType !== NodeType.CAPTURE_REVIEW || node.completedAt || !isNodeReady(node, resolveNodeStates(current))) continue;
+      if (!opts.reviewCaptures || !opts.orgId) throw new Error('Unresolved item review requires authenticated server execution');
+      const review = await opts.reviewCaptures(current, node, opts.orgId);
+      current = { ...current, milestones: current.milestones.map(m => m.id === node.id ? review.node : m),
+        projectData: { ...current.projectData, capture_review_results: { ...(current.projectData?.capture_review_results || {}), [node.id]: review.node.captureReviewState?.intents || [] } } };
+      if (review.ask) askedFor.push({ nodeId: node.id, ask: review.ask });
+      log.push(...review.log);
+      await opts.checkpoint?.(current);
+    }
     const { project: advanced, actionsToRun, asksToOpen, log: advanceLog } = advanceFlow(current);
     current = advanced;
     log.push(...advanceLog);
@@ -270,7 +280,12 @@ export const advanceProjectFlow = async (
       return run?.status !== 'pending' && run?.status !== 'error';
     });
 
-    if (runnable.length === 0) break;
+    if (runnable.length === 0) {
+      const reviewReady = current.milestones.some(node => node.nodeType === NodeType.CAPTURE_REVIEW && !node.completedAt &&
+        isNodeReady(node, resolveNodeStates(current)) && !(node.asks || []).some(ask => ask.status === 'open'));
+      if (reviewReady) continue;
+      break;
+    }
 
     for (const nodeId of runnable) {
       // Persist routing, loop iteration and input state before an action can claim dispatch.

@@ -478,6 +478,7 @@ export enum NodeType {
   COACHING_EXTRACT = 'coaching_extract',
   MAILBOX_DRAFT = 'mailbox_draft',
   MAILBOX_DRAFT_UPDATE = 'mailbox_draft_update',
+  CAPTURE_REVIEW = 'capture_review',
   EMAIL_TRIAGE = 'email_triage'
 }
 
@@ -778,6 +779,8 @@ export interface Milestone {
   x?: number;
   y?: number;
   nodeType?: NodeType;
+  captureReviewConfig?: import('./lib/capturedWork/model').CaptureReviewConfig;
+  captureReviewState?: import('./lib/capturedWork/model').CaptureReviewState;
   decisionConfig?: DecisionConfig;
   loopConfig?: LoopConfig;
   waitConfig?: WaitConfig;

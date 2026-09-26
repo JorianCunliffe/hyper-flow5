@@ -362,7 +362,7 @@ export const applyAskToProject = (project: Project, askId: string): Project => {
   let projectData = { ...(project.projectData || {}) };
 
   // Direct values first, then any explicit writeBack mapping on top.
-  if (decision !== 'rejected' && decision !== 'revise') {
+  if (found.node.nodeType !== NodeType.CAPTURE_REVIEW && decision !== 'rejected' && decision !== 'revise') {
     projectData = { ...projectData, ...values };
     for (const v of ask.writeBack || []) {
       if (v.value_source === 'static') projectData[v.name] = v.value;

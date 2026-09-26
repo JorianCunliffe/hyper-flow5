@@ -1,5 +1,6 @@
 /** HyperFlow owns these existing roots. Communications exports remain separate. */
 export const TENANT_DATA_ROOTS = [
+  "captured_work_items",
   "projects",
   "operational_commitments",
   "visible_flows",

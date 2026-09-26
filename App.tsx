@@ -1,3 +1,4 @@
+import { CapturedWorkPanel } from './components/CapturedWorkPanel';
 import { ViewOptions } from './components/ViewOptions';
 import { ViewBoundary } from './components/ViewBoundary';
 import { ProjectScopeContext } from './components/ProjectScope';
@@ -269,6 +270,7 @@ export const App: React.FC = () => {
   const [isFeedMode, setIsFeedMode] = useState(initialView === 'feed');
   const [isApprovalsMode, setIsApprovalsMode] = useState(initialView === 'approvals');
   const [isReportingMode, setIsReportingMode] = useState(initialView === 'reports');
+  const [isCapturesMode, setIsCapturesMode] = useState(initialView === 'captures');
   const [isTriageMode, setIsTriageMode] = useState(initialView === 'activity');
   const [isObligationsMode, setIsObligationsMode] = useState(initialView === 'obligations');
   const [isMeetingsMode, setIsMeetingsMode] = useState(initialView === 'meetings');
@@ -289,13 +291,14 @@ export const App: React.FC = () => {
   const [kanbanFilterToday, setKanbanFilterToday] = useState<boolean>(false);
   const [kanbanFilterLate, setKanbanFilterLate] = useState<boolean>(false);
 
-  const activeView: AppView = isTenantMode ? 'tenant' : isPublishingMode ? 'publishing' : isArtifactsMode ? 'artifacts' : isDiaryMode ? 'diary' : isCockpitMode ? 'cockpit' : isFlowsMode ? 'flows' : isMeetingsMode ? 'meetings' : isObligationsMode ? 'obligations' : isTriageMode ? 'activity' : isReportingMode ? 'reports' : isApprovalsMode ? 'approvals' : isFeedMode ? 'feed' : isScratchMode ? 'scratch' : isKanbanMode ? 'kanban' : 'projects';
+  const activeView: AppView = isCapturesMode ? 'captures' : isTenantMode ? 'tenant' : isPublishingMode ? 'publishing' : isArtifactsMode ? 'artifacts' : isDiaryMode ? 'diary' : isCockpitMode ? 'cockpit' : isFlowsMode ? 'flows' : isMeetingsMode ? 'meetings' : isObligationsMode ? 'obligations' : isTriageMode ? 'activity' : isReportingMode ? 'reports' : isApprovalsMode ? 'approvals' : isFeedMode ? 'feed' : isScratchMode ? 'scratch' : isKanbanMode ? 'kanban' : 'projects';
   const openView = useCallback((view: AppView) => {
     setIsKanbanMode(view === 'kanban');
     setIsScratchMode(view === 'scratch');
     setIsFeedMode(view === 'feed');
     setIsApprovalsMode(view === 'approvals');
     setIsReportingMode(view === 'reports');
+    setIsCapturesMode(view === 'captures');
     setIsTriageMode(view === 'activity');
     setIsObligationsMode(view === 'obligations');
     setIsMeetingsMode(view === 'meetings');
@@ -2277,7 +2280,7 @@ export const App: React.FC = () => {
         </ViewOptions>}
         <ViewBoundary key={activeView}>
         {/* MAIN VIEW CONTENT */}
-        {isTenantMode ? (<TenantOperationsPanel key={currentOrgId || 'none'} />) : isPublishingMode ? (<PublishingPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isArtifactsMode ? (<ArtifactsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isDiaryMode ? (<DiaryPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isCockpitMode ? (
+        {isCapturesMode ? (<CapturedWorkPanel key={currentOrgId || 'none'} />) : isTenantMode ? (<TenantOperationsPanel key={currentOrgId || 'none'} />) : isPublishingMode ? (<PublishingPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isArtifactsMode ? (<ArtifactsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isDiaryMode ? (<DiaryPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} />) : isCockpitMode ? (
           <CockpitPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} projectId={selectedProjectId} />
         ) : isFlowsMode ? (
           <VisibleFlowsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} projects={projects} />

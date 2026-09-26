@@ -1,3 +1,4 @@
+import { ambientCaptureInstructions } from './capturedWork/tool.js';
 import { renderActionTemplate } from './flowData.js';
 import type { HyperFlowCallOverrides } from './communications/types.js';
 
@@ -24,7 +25,7 @@ export function buildCallOverrides(instruction: string, purpose: string, greetin
     : coaching ? COACHING_CONVERSATION
     : 'Briefly introduce yourself and explain the purpose of this call. Follow the supplied instructions, ask one question at a time, and stay within this task.';
   return {
-    systemMessage: `You are making an outbound call for HyperFlow.\n${guidance}\n\nCall instructions:\n${instruction.slice(0, 20_000)}`,
+    systemMessage: `You are making an outbound call for HyperFlow.\n${guidance}\nIf captureWorkItem is available as a tool: ${ambientCaptureInstructions} Otherwise do not claim a side item was saved; offer to return to it at review.\n\nCall instructions:\n${instruction.slice(0, 20_000)}`,
     greetingText: greeting?.trim().slice(0, 500) || (test
       ? "Hello, this is the HyperFlow assistant making a test call. Can you hear me clearly?"
       : coaching ? "Hello, it's your HyperFlow coaching assistant. Let's start with what we agreed last time."

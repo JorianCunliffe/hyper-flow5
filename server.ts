@@ -1,3 +1,6 @@
+import { handleCapturedWork } from './lib/capturedWork/api.js';
+import { CaptureError } from './lib/capturedWork/model.js';
+import { ambientCaptureInstructions, captureWorkItemTool } from './lib/capturedWork/tool.js';
 import {consumeReviewAction,retryReviewActions} from './lib/reviewActions';
 import { readDiagnostics } from './lib/tenantControl/diagnostics';
 import { serviceProjectRequest, SERVICE_PROJECT_ROUTES } from './lib/serviceProjectApi.js';
@@ -186,6 +189,11 @@ async function startServer() {
   app.all('/api/flows', async(req,res)=>{
     try{return res.status(200).json(publicFlowResponse(await handleVisibleFlows(req,await requireAppMember(req as any))));}
     catch(error:any){return res.status(error instanceof ApiAuthError||error instanceof FlowError?error.status:503).json({error:error.message});}
+  });
+  app.all('/api/captured-work-items', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try { return res.status(200).json(await handleCapturedWork(req, await requireAppMember(req as any))); }
+    catch (error: any) { return res.status(error instanceof ApiAuthError || error instanceof CaptureError ? error.status : 500).json({ error: error.message }); }
   });
   app.all('/api/cockpit', async(req,res)=>{
     try{return res.status(200).json(publicFlowResponse(await handleCockpit(req,await requireAppMember(req as any))));}
@@ -923,7 +931,7 @@ async function startServer() {
       try {
         const token = new URL(request.url || '', `http://${request.headers.host}`).searchParams.get('token') || '';
         const identity = await verifyFirebaseIdToken(token);
-        await requireOrganizationMember(identity.uid);
+        (request as any).captureMember = await requireOrganizationMember(identity.uid);
       } catch {
         socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
         socket.destroy();
@@ -939,6 +947,9 @@ async function startServer() {
     console.log("WebSocket connected to /api/live-voice");
     const urlContext = (new URL(req.url || '', `http://${req.headers.host}`).searchParams.get('context') || "You are a helpful assistant.").slice(0, 4000);
     
+    const captureMember = (req as any).captureMember;
+    const voiceParams = new URL(req.url || '', `http://${req.headers.host}`).searchParams;
+    const captureSource = { sourceProjectId: voiceParams.get('projectId') || undefined, sourceRunId: voiceParams.get('runId') || undefined, sourceNodeId: voiceParams.get('nodeId') || undefined };
     let session: any = null;
 
     try {
@@ -952,13 +963,23 @@ async function startServer() {
         model: "gemini-3.1-flash-live-preview",
         config: {
           responseModalities: [Modality.AUDIO],
-          systemInstruction: { parts: [{ text: urlContext }] },
+          systemInstruction: { parts: [{ text: `${urlContext}\n${ambientCaptureInstructions}` }] },
+          tools: [{ functionDeclarations: [captureWorkItemTool] }],
           speechConfig: {
              voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } }
           }
         },
         callbacks: {
-          onmessage: (msg: LiveServerMessage) => {
+          onmessage: async (msg: LiveServerMessage) => {
+             for (const call of msg.toolCall?.functionCalls || []) {
+               if (call.name !== 'captureWorkItem') continue;
+               let response: any;
+               try {
+                 if (!captureMember) throw new Error('Authenticated capture context is unavailable');
+                 response = await handleCapturedWork({ method: 'POST', body: { ...call.args, ...captureSource } }, captureMember);
+               } catch (error: any) { response = { error: error.message, saved: false }; }
+               session?.sendToolResponse({ functionResponses: [{ id: call.id, name: call.name, response }] });
+             }
              const audio = msg.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
              if (audio) {
                if (clientWs.readyState === 1) { // OPEN

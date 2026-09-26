@@ -26,6 +26,7 @@ const nodeStatus = (project: Project, node: Milestone): NodeRunStatus => {
   if (resolution === 'skipped') return 'skipped';
   if (resolution === 'complete') return 'completed';
   const action = node.actionConfig?.lastRun;
+  if ((node.asks || []).some(ask => ask.status === 'open')) return 'waiting';
   if (action?.status === 'pending') return 'waiting';
   if (action?.status === 'error' && node.actionConfig?.failureMode !== 'continue') return 'failed';
   if (waitConfig(node)?.holdId && !waitConfig(node)?.resolvedAt) return 'waiting';

@@ -5,6 +5,7 @@
   "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/captured-work-items", "destination": "/api/gemini?action=captured-work-items" },
     { "source": "/api/capabilities", "destination": "/api/triage?scope=capabilities" },
     { "source": "/api/workspace/resources", "destination": "/api/triage?scope=workspace_resources" },
     { "source": "/api/files", "destination": "/api/gemini?action=files" },
