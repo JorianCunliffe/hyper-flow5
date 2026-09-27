@@ -225,3 +225,5 @@ Ambient capture tests additionally cover duplicate retries, tenant/user scoping,
 ## API reference
 
 See [docs/API.md](./docs/API.md) for endpoint authentication, request and response contracts, event handling, and the outbound Communications Service integration. Use [docs/OMNICHANNEL_OPERATIONS.md](./docs/OMNICHANNEL_OPERATIONS.md) for deployment order, tenant onboarding, callback smoke testing, scheduler setup, controlled live acceptance, and recovery drills.
+
+Contacts can be added in Settings or through `POST /api/communications/contacts` by an owner/admin. Scoped HyperFlow API credentials use `communications:write`; the upstream Communications key stays server-side. See [contact API and credential guidance](docs/API_REFERENCE.md#communications-contacts).

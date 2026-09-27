@@ -1,4 +1,5 @@
 import { waitUntil } from '@vercel/functions';
+import { handleContacts } from '../../lib/communications/contacts.js';
 import { processAgentInbox } from '../../lib/agentRouter.js';
 import { readDiagnostics } from '../../lib/tenantControl/diagnostics.js';
 import { TenantControlError } from '../../lib/tenantControl/model.js';
@@ -83,6 +84,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const member = await requireAppMember(req);
+    if (action === 'contacts') {
+      const result = await handleContacts(req, member);
+      return res.status(result.status).json(result.body);
+    }
     if (action === 'meetings') return res.status(200).json(await handleMeetingRequest(req, member));
     if (action === 'commitments') return res.status(200).json(await handleCommitments(req, member));
     if (action === 'memory') return res.status(200).json(await handleMemoryContextRequest(req, member));
@@ -218,6 +223,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ connected: false, error: error?.message || 'Communications Service unavailable' });
     }
   } catch (error: any) {
+    if (action === 'contacts' && error instanceof CommunicationsApiError) return res.status(502).json({ error: 'Communications contact service failed; check service availability and tenant access' });
     if (error instanceof TenantControlError) return res.status(error.status).json({error:error.message});
     if (error instanceof MeetingRequestError) return res.status(error.status).json({error:error.message,details:error.details});
     if (error instanceof CommitmentError) return res.status(error.status).json({ error: error.message });

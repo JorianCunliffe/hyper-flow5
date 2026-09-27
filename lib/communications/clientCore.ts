@@ -313,6 +313,13 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     })) : [];
   }
 
+  async createPerson(tenantId: string, input: { name: string; phone_number: string }): Promise<CommunicationsPersonRef> {
+    this.requireTenant(tenantId);
+    const person = await this.rawRequest('/v1/contacts', { method: 'POST', tenantId, body: input });
+    if (!person?.id && !person?.person_id) throw new CommunicationsApiError('Contact service omitted the contact ID', 502);
+    return { id: String(person.person_id || person.id), name: person.name, phone: person.phone_number };
+  }
+
   async listPeople(tenantId: string): Promise<CommunicationsPersonRef[]> {
     this.requireTenant(tenantId);
     const body = await this.rawRequest('/v1/contacts', { method: 'GET', tenantId });

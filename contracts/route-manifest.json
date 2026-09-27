@@ -761,5 +761,19 @@
     "description": "Capture a side item from trusted voice context; no resolve or execution",
     "authorization": "Timestamped V2 service signature; verified tenant caller and call correlation",
     "source": "api/events.ts"
+  },
+  {
+    "path": "/api/communications/contacts",
+    "method": "GET",
+    "description": "List tenant contacts",
+    "authorization": "Organization member; communications:read",
+    "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/communications/contacts",
+    "method": "POST",
+    "description": "Create phone contact; reuse existing matching name and phone",
+    "authorization": "Owner/admin; communications:write",
+    "source": "api/communications/status.ts"
   }
 ]

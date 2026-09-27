@@ -122,6 +122,10 @@
       "destination": "/api/communications/status?action=integrations"
     },
     {
+      "source": "/api/communications/contacts",
+      "destination": "/api/communications/status?action=contacts"
+    },
+    {
       "source": "/api/integrations/google/start",
       "destination": "/api/communications/status?action=google_start"
     },

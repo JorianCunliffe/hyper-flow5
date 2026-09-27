@@ -1,3 +1,4 @@
+import { ContactCreator } from '../ContactCreator';
 import { CapabilityPolicyEditor } from '../CapabilityPolicyEditor';
 import { WorkspaceResourcesEditor } from '../WorkspaceResourcesEditor';
 import { WEEKDAYS, scheduleDaysLabel } from '../../lib/scheduleDays';
@@ -725,7 +726,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <input id="agent-timezone" value={agentDraft.timezone || 'Australia/Brisbane'} onChange={event => setAgentDraft(current => ({ ...current, timezone: event.target.value }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-primary-person">Primary Communications person</label>
+                  <ContactCreator onCreated={person => setIntegrationStatus(current => ({ ...current, people: [...current.people.filter(item => item.id !== person.id), person] }))} />
+<label className="block text-sm font-bold text-slate-700 mb-2" htmlFor="agent-primary-person">Primary Communications person</label>
                   <select id="agent-primary-person" value={agentDraft.primaryPersonId || ''} onChange={event => setAgentDraft(current => ({ ...current, primaryPersonId: event.target.value || undefined }))} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm">
                     <option value="">Not selected</option>
                     {integrationStatus.people.map(person => <option key={person.id} value={person.id}>{person.name || person.email || person.phone || person.id}</option>)}

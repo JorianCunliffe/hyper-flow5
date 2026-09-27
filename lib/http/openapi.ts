@@ -445,6 +445,15 @@ export function buildOpenApi() {
           });
     if (["post", "put", "patch", "delete"].includes(method) && !op.requestBody)
       op.requestBody = body(object);
+    if (row.path === '/api/communications/contacts' && method === 'post') {
+      op.requestBody = body({ type: 'object', additionalProperties: false,
+        required: ['name', 'phone_number'], properties: {
+          name: { type: 'string', minLength: 1, maxLength: 200 },
+          phone_number: { type: 'string', pattern: '^\\+[1-9]\\d{7,14}$' }
+        } });
+      op.responses['201'] = { description: 'Contact created', ...json(object) };
+      op.responses['409'] = { description: 'Conflicting phone identity', ...json(object) };
+    }
     if (domainOperations[row.path] && method === "post") {
       op["x-operations"] = domainOperations[row.path];
       op.requestBody = body({
