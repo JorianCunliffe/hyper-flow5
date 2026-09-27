@@ -1,4 +1,4 @@
-import rewrites from '../../vercel.json';
+import rewrites from '../../vercel.json' with { type: "json" };
 import {
   createHash,
   randomUUID,

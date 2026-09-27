@@ -1,6 +1,6 @@
 /** The same handlers and rewrite table serve both hosts. No duplicated business routes. */
 import express, { type Express } from "express";
-import config from "../../vercel.json";
+import config from "../../vercel.json" with { type: "json" };
 import gemini from "../../api/gemini/index.js";
 import communications from "../../api/communications/status.js";
 import triage from "../../api/triage/index.js";

@@ -1,9 +1,9 @@
 import { requestScope } from "../tenantControl/clients.js";
 import { taskContracts } from "./taskContracts.js";
-import manifest from "../../contracts/route-manifest.json";
-import phase01 from "../../contracts/phase01.openapi.json";
-import phase02 from "../../contracts/phase02.openapi.json";
-import phase11 from "../../contracts/phase11.openapi.json";
+import manifest from "../../contracts/route-manifest.json" with { type: "json" };
+import phase01 from "../../contracts/phase01.openapi.json" with { type: "json" };
+import phase02 from "../../contracts/phase02.openapi.json" with { type: "json" };
+import phase11 from "../../contracts/phase11.openapi.json" with { type: "json" };
 import { configurationSchemas } from "../configuration/schema.js";
 import { TASK_TYPES } from "../taskTypes.js";
 const string = { type: "string" },

@@ -1,7 +1,7 @@
 import { writeFileSync, readFileSync } from "node:fs";
 import openapiTS, { astToString } from "openapi-typescript";
 import { buildOpenApi } from "../lib/http/openapi.js";
-import manifest from "../contracts/route-manifest.json";
+import manifest from "../contracts/route-manifest.json" with { type: "json" };
 
 const spec = buildOpenApi();
 const types = astToString(await openapiTS(spec as any));

@@ -2,6 +2,9 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 const root = path.resolve(import.meta.dirname, '..');
 
@@ -11,6 +14,23 @@ const walkTs = (directory: string): string[] => fs.readdirSync(directory, { with
 });
 
 describe('Vercel Hobby deployment configuration', () => {
+  test('server JSON imports load in native Node without the tsx loader', () => {
+    let checked = 0;
+    for (const file of walkTs(path.join(root, 'lib'))) {
+      const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !statement.moduleSpecifier.text.endsWith('.json')) continue;
+        const url = pathToFileURL(path.resolve(path.dirname(file), statement.moduleSpecifier.text)).href;
+        const declaration = statement.getText(source).replace(statement.moduleSpecifier.getText(source), JSON.stringify(url));
+        const result = spawnSync(process.execPath, ['--input-type=module', '--eval', declaration], {
+          encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' },
+        });
+        assert.equal(result.status, 0, `${file}: ${result.stderr}`);
+        checked++;
+      }
+    }
+    assert.ok(checked >= 6, 'Expected runtime JSON imports to be exercised');
+  });
   const config = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 

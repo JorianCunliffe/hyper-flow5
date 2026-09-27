@@ -1,4 +1,5 @@
 import { initializeApp } from 'firebase/app';
+import { checkApiResponse } from './apiResponse';
 import { getDatabase, ref as dbRef, onValue, get, runTransaction } from 'firebase/database';
 import { uploadManagedFile } from './managedFiles';
 import { getAuth, signInWithPopup, GoogleAuthProvider, signInAnonymously, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -300,7 +301,7 @@ export const firebaseService = {
     const token = await currentUser.getIdToken();
     const headers = new Headers(init.headers || {});
     headers.set('Authorization', `Bearer ${token}`);
-    return fetch(input, { ...init, headers });
+    return checkApiResponse(await fetch(input, { ...init, headers }));
   },
 
   createOrganization: async (orgName: string) => {
