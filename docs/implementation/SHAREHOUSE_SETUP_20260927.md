@@ -2,6 +2,23 @@
 
 Source base: `71bec0c4685a07701c143daeaca66bda164a381d`, with the fixture/tests in this change. **SH-01: BLOCKED. Overall Sharehouse acceptance: NOT ACCEPTED.** No production configuration, schedule, mailbox, Sheet, SMS or call was changed.
 
+## Field-preservation fix follow-up
+
+The initial findings below are retained as failure evidence. After the fixture was published as `274e4a6`, `NodeConfigModal` was changed to preserve the existing `human` configuration before applying explicit edits. Static fields (including type, required flags and options), response policy and quorum now survive saves. Editable values can still be changed or cleared normally; this fix does not restore schema information already lost from a previously saved definition.
+
+The [browser regression](../../tests/ui/sharehouse-preservation-check.js) failed on the original editor with `Static fields, types, required flags and options survive save`, then passed **9/9 checks** with the fix. It loads two static fields and a quorum policy, edits prompt/channel, saves twice, and checks dynamic schema source and escalation separately. An additional browser reload verified the stored fields, edited values and quorum remained intact. No browser errors or provider calls were reported.
+
+Run on the isolated fixture while Vite is running:
+
+```powershell
+npx.cmd --yes agent-browser --session sharehouse-fix open http://127.0.0.1:3017/tests/ui/sharehouse-setup.html
+Get-Content tests/ui/sharehouse-preservation-check.js -Raw | npx.cmd --yes agent-browser --session sharehouse-fix eval --stdin
+```
+
+The fixture now uses the supported `question` Ask kind instead of its earlier `form` value. This corrects the fixture/dropdown mismatch; the regression reproduces the field-loss bug with the supported kind before the fix. The editor defect is resolved, but complete UI/API setup, finalisation and live-provider acceptance remain open. SH-01 is not promoted to PASS by this repair.
+
+Post-fix validation: type-check and production build passed; the full suite again passed **779/779**, with no skipped tests. The existing build-size warning remains. Browser regression: **9/9**, plus persisted-state inspection after reload. The browser script is a separate check, not included in the Node suite count.
+
 ## What ran
 
 - [Candidate 18-node graph and synthetic data](../../tests/fixtures/sharehouse/fullWorkflow.ts): morning intake, reads, task batch, planning, native draft batch, Human Wait, draft updates, enquiry upsert, slots, notifications, audit; separate inbound acknowledgement, team Ask, reply and audit.

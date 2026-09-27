@@ -34,6 +34,18 @@ function Fixture() {
     <p>18-node candidate graph. Mock APIs only. No provider dispatch or scheduler is available.</p>
     <p><strong>Acceptance: BLOCKED</strong> — graph persistence and editor round trips are supporting checks.</p>
     <button onClick={() => { localStorage.removeItem(key); location.reload(); }}>Reset isolated fixture</button>
+    <button onClick={() => {
+      const next = fullWorkflow();
+      const human = next.milestones.find((n: any) => n.id === 'incident_answers').holdConfig.human;
+      human.kind = 'question';
+      human.fields[0].options = ['At the property', 'On the way'];
+      human.fields.push({ name: 'arrival_minutes', label: 'Minutes until arrival', type: 'number', required: true });
+      human.responsePolicy = 'quorum'; human.quorum = 2;
+      human.assignees = ['team-primary', 'team-fallback'];
+      human.escalation = undefined;
+      human.channels = ['web', 'sms'];
+      state.project = next; persist(); setProject(next); setSelected('incident_answers'); setEditing(false); setMessage('Preservation regression loaded.');
+    }}>Load preservation regression</button>
     <section><h2>Graph editor round trip</h2>
       <label>Workflow node <select aria-label="Workflow node" value={selected} onChange={e => { setSelected(e.target.value); setMessage(''); }}>{project.milestones.map((n: any) => <option key={n.id} value={n.id}>{n.name}</option>)}</select></label>
       <button onClick={() => setEditing(true)}>Edit selected node</button>

@@ -33,7 +33,7 @@ const action = (id: string, nodeType: NodeType, dependsOn: string[], template: o
 const hold = (id: string, dependsOn: string[], prompt: string, fieldsSource?: string): any => ({
   id, name: id.replaceAll('_', ' '), nodeType: NodeType.WAIT, subtasks: [], dependsOn,
   holdConfig: { kind: 'human', payloadVariable: `${id}_answer`, human: {
-    kind: 'form', prompt, ...(fieldsSource ? { fieldsSource } : { fields: [{ name: 'team_answer', label: 'Where is the team?', type: 'string', required: true }] }),
+    kind: 'question', prompt, ...(fieldsSource ? { fieldsSource } : { fields: [{ name: 'team_answer', label: 'Where is the team?', type: 'string', required: true }] }),
     channels: ['web', 'voice', 'sms'], assignees: ['team-primary'],
     escalation: { ...setup.team, retryMinutes: 10, repeatLocalTime: '09:15', timezone: 'Australia/Brisbane', daysOfWeek: [1, 2, 3, 4, 5] },
   } },
@@ -77,7 +77,6 @@ export const fixtures = {
 };
 
 export const knownGaps = [
-  'Observed browser failure: saving incident_answers deletes its static team_answer field.',
   'Provider outcomes and planning/classification are canned, not acceptance evidence.',
   'Generic test-runs do not resume human answers or external callbacks; finalisation is unexecuted.',
   'Integrated morning escalation does not express inbound primary-no-answer SMS-before-fallback order.',

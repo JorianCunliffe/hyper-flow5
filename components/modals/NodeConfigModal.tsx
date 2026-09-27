@@ -221,6 +221,9 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         };
       } else if (holdKind === 'human') {
         holdConfig.human = {
+          // Preserve schema and response policy that this editor does not expose.
+          // Explicit edits below still replace (or clear) the editable settings.
+          ...initialHold.human,
           kind: holdHumanKind,
           prompt: holdHumanPrompt.trim() || undefined,
           fieldsSource: holdHumanFieldsSource.trim() || undefined,
