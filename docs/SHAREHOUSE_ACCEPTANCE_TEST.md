@@ -1,6 +1,6 @@
 # Sharehouse full-workflow acceptance test
 
-Updated: 27 September 2026. Source baseline: HyperFlow `f103bbcc95c5fb359ffc376d5b5666273f5adf9f`. **Overall result: NOT RUN / NOT ACCEPTED.** This is the executable test procedure and evidence contract, not a record of a completed run or an automated end-to-end test runner.
+Updated: 27 September 2026. Requirements baseline: HyperFlow `f103bbcc95c5fb359ffc376d5b5666273f5adf9f`; isolated setup checked against `71bec0c` plus the fixture changes. **Overall result: BLOCKED / NOT ACCEPTED.** This is the test procedure and evidence contract, not a complete automated end-to-end test runner. See the [isolated setup evidence](implementation/SHAREHOUSE_SETUP_20260927.md).
 
 ## Mandatory acceptance baseline
 
@@ -107,4 +107,4 @@ Allowed results: PASS, FAIL, BLOCKED, NOT RUN. All required cases must PASS with
 
 ## Current evidence state
 
-As of this documentation update, the source contains reusable capabilities described in [CAIRNS_WORKFLOW_CAPABILITIES.md](CAIRNS_WORKFLOW_CAPABILITIES.md) and the API publication/configuration layer described in [API_PARITY.md](API_PARITY.md). No fresh complete morning/inbound, browser or provider run was performed for this update. **Every SH case remains NOT RUN; the complete Sharehouse baseline has not passed.** This is not a claim that every case is broken; it is the absence of complete acceptance evidence.
+The [27 September isolated setup run](implementation/SHAREHOUSE_SETUP_20260927.md) adds a candidate full-workflow graph, handler-level setup tests and browser checks using real editors with mock persistence. **SH-01 is BLOCKED:** saving the inbound Human Wait removes its static answer field. Morning processing up to the human gate and isolated inbound acknowledgement have supporting simulated evidence only. Required end-to-end/provider layers remain NOT RUN; no complete SH case has passed. The evidence record distinguishes observed failures, fixture limitations and remaining implementation work.

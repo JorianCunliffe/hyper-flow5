@@ -4,7 +4,11 @@ Last updated: 27 September 2026. Reviewed HyperFlow source: `f103bbcc95c5fb359ff
 
 ## Current acceptance decision
 
-**NOT ACCEPTED: the complete Sharehouse workflow has not been demonstrated.** The [Sharehouse full-workflow acceptance test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory product acceptance baseline. Morning intake through confirmed finalisation, ongoing inbound handling, cross-channel continuation and all required failure/recovery cases must pass. Existing component tests, partial recipes, API route coverage and historical provider checks cannot substitute for that result. Every SH case currently remains NOT RUN under this baseline.
+**NOT ACCEPTED: the complete Sharehouse workflow has not been demonstrated.** The [Sharehouse full-workflow acceptance test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory product acceptance baseline. Morning intake through confirmed finalisation, ongoing inbound handling, cross-channel continuation and all required failure/recovery cases must pass. Existing component tests, partial recipes, API route coverage and historical provider checks cannot substitute for that result. SH-01 is now BLOCKED by a reproduced editor field-loss bug; no complete SH case has passed.
+
+### Isolated setup run, 27 September
+
+The [setup evidence record](implementation/SHAREHOUSE_SETUP_20260927.md) covers a reusable candidate graph, six new handler/orchestrator tests and a real-editor browser fixture. Four resource ranges survive UI save/reload; morning processing remains held before finalisation; inbound acknowledgement stays separate. Saving the incident Human Wait deletes its required static `team_answer` field. Full regression tests pass 779/779, but do not cover that browser failure. Post-confirmation execution, dedicated live setup and provider acceptance remain unverified. The next step is to preserve Human Wait fields through editor saves and extend the isolated harness through validated answers and finalisation.
 
 This update establishes current source/documentation status, not a deployment or live-provider audit. Exact current Communications source/build, production rules/migrations, mailbox/Sheet grants, scheduler health and full provider acceptance are **UNVERIFIED** in this review. The 16 September deployment blocker below is historical evidence, not a confirmed current outage.
 
