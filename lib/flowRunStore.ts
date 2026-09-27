@@ -1,3 +1,4 @@
+import { encodeRtdbRecord, decodeRtdbRecord } from './rtdbJson.js';
 import type { HumanAsk, Milestone } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
@@ -29,7 +30,9 @@ const normalizeNodeRuns = (value: unknown): Record<string, NodeRun[]> => {
   return result;
 };
 
-export const normalizeFlowRun = (value: any): FlowRun => ({
+export const normalizeFlowRun = (stored: any): FlowRun => {
+ const value = decodeRtdbRecord(stored);
+ return ({
   ...value,
   revision: Number(value?.revision || 0),
   state: {
@@ -38,6 +41,7 @@ export const normalizeFlowRun = (value: any): FlowRun => ({
   },
   nodeRuns: normalizeNodeRuns(value?.nodeRuns)
 });
+};
 
 export const readFlowRun = async (orgId: string, projectId: string, runId: string): Promise<FlowRun | null> => {
   const db = await runtimeDatabase();
@@ -49,7 +53,7 @@ export const readFlowRun = async (orgId: string, projectId: string, runId: strin
 export const createFlowRunIfAbsent = async (run: FlowRun): Promise<FlowRun> => {
   const db = await runtimeDatabase();
   const reference = db.ref(runPath(run.orgId, run.projectId, run.id));
-  const result = await reference.transaction(current => current || JSON.parse(JSON.stringify(run)), undefined, false);
+  const result = await reference.transaction(current => current || encodeRtdbRecord(run), undefined, false);
   if (!result.committed || !result.snapshot.exists()) throw new Error('FlowRun creation was not committed');
   return normalizeFlowRun(result.snapshot.val());
 };
@@ -65,7 +69,7 @@ export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
   const expected = Number(run.revision || 0);
   const nextRevision = expected + 1;
   // Match creation serialization: Firebase rejects optional undefined fields.
-  const persisted = JSON.parse(JSON.stringify({ ...run, revision: nextRevision }));
+  const persisted = encodeRtdbRecord({ ...run, revision: nextRevision });
   const keepCurrent = () => {};
   let result;
   try {

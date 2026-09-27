@@ -1,3 +1,4 @@
+import { encodeWorkspace, decodeWorkspace } from '../lib/rtdbJson';
 import { initializeApp } from 'firebase/app';
 import { checkApiResponse } from './apiResponse';
 import { getDatabase, ref as dbRef, onValue, get, runTransaction } from 'firebase/database';
@@ -376,7 +377,7 @@ export const firebaseService = {
     const dataRef = dbRef(db, `projects/${currentOrgId}`);
     return onValue(dataRef,
       (snapshot) => {
-        const data = snapshot.val();
+        const data = decodeWorkspace(snapshot.val());
         currentDataRevision = Number(data?.dataRevision || 0);
         callback(data);
       },
@@ -405,7 +406,8 @@ export const firebaseService = {
     const savingUserId = currentUser.uid;
     const dataRef = dbRef(db, `projects/${savingOrgId}`);
     const expectedRevision = scheduledAtRevision;
-    const result = await runTransaction(dataRef, current => {
+    const result = await runTransaction(dataRef, stored => {
+      const current = decodeWorkspace(stored);
       const remoteRevision = Number(current?.dataRevision || 0);
       if (!base && (remoteRevision !== expectedRevision || !projectCollectionsShareRevisions(current?.projects, cleanData.projects))) return;
       const remoteProjects: Project[] = Array.isArray(current?.projects) ? current.projects : Object.values(current?.projects || {});
@@ -415,7 +417,7 @@ export const firebaseService = {
         lastUpdated: current?.lastUpdated
       }) : cleanData;
       const revisions = new Map(remoteProjects.map((project: Project) => [String(project.id), Number(project.revision || 0)]));
-      return {
+      return encodeWorkspace({
         ...(current || {}),
         ...merged,
         projects: merged.projects.map((project: Project) => ({
@@ -423,12 +425,12 @@ export const firebaseService = {
           revision: Number(revisions.get(String(project.id)) || 0) + 1
         })),
         dataRevision: remoteRevision + 1
-      };
+      });
     }, { applyLocally: false });
     if (!result.committed) throw new Error('Cloud data changed while saving. The latest version has been loaded; review and retry your edit.');
     if (currentOrgId !== savingOrgId || currentUser?.uid !== savingUserId) throw new Error('Account changed while saving; reload the current organization.');
     currentDataRevision = Number(result.snapshot.val()?.dataRevision || expectedRevision + 1);
-    return result.snapshot.val();
+    return decodeWorkspace(result.snapshot.val());
   },
 
   uploadFile: async (file: Blob, name: string): Promise<string | null> => {

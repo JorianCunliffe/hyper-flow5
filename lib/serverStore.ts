@@ -1,3 +1,4 @@
+import { encodeRtdbRecord, decodeRtdbRecord, encodeWorkspace, decodeWorkspace } from './rtdbJson.js';
 import { normalizeScheduleDays } from './scheduleDays.js';
 import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
@@ -51,17 +52,17 @@ const APP_NAME = 'hyperflow-server';
 
 export class ServerStoreUnavailable extends Error {}
 
-export async function readTenantWorkspace(org:string){const snap=await getDb().ref(`projects/${safeRtdbKey(org)}`).get();return snap.exists()?snap.val():null;}
+export async function readTenantWorkspace(org:string){const snap=await getDb().ref(`projects/${safeRtdbKey(org)}`).get();return snap.exists()?decodeWorkspace(snap.val()):null;}
 export async function replaceTenantWorkspace(org:string,body:any){
   const {replaceWorkspace}=await import('./tenantControl/workspace.js');
   const reference=getDb().ref(`projects/${safeRtdbKey(org)}`);let listener=()=>{};
-  try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>JSON.parse(JSON.stringify(replaceWorkspace(current,body))),undefined,false);if(!result.committed)throw new Error('Workspace update was not saved');return result.snapshot.val();}finally{reference.off('value',listener);}
+  try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>encodeWorkspace(replaceWorkspace(decodeWorkspace(current),body)),undefined,false);if(!result.committed)throw new Error('Workspace update was not saved');return decodeWorkspace(result.snapshot.val());}finally{reference.off('value',listener);}
 }
 
 /** Shared transaction primitive for revision-checked configuration batches. */
 export async function transactWorkspaceConfiguration(org:string,update:(current:any)=>any){
  const reference=getDb().ref(`projects/${safeRtdbKey(org)}`);let listener=()=>{};
- try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>JSON.parse(JSON.stringify(update(current))),undefined,false);if(!result.committed)throw new Error('Configuration was not saved');return result.snapshot.val();}finally{reference.off('value',listener);}
+ try{await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});const result=await reference.transaction(current=>encodeWorkspace(update(decodeWorkspace(current))),undefined,false);if(!result.committed)throw new Error('Configuration was not saved');return decodeWorkspace(result.snapshot.val());}finally{reference.off('value',listener);}
 }
 export async function readAgentTestRuns(org:string){return (await getDb().ref(`agent_test_runs/${safeRtdbKey(org)}`).get()).val()||{};}
 export async function transactAgentTestRuns(org:string,update:(current:any)=>any){
@@ -516,7 +517,7 @@ const toArray = <T>(value: any): T[] =>
   Array.isArray(value) ? value : value && typeof value === 'object' ? (Object.values(value) as T[]) : [];
 
 export const normalizeServiceTemplate = (project: Project): Project => {
-  return upgradeLegacyEmailTriageProject(project);
+  return upgradeLegacyEmailTriageProject(decodeRtdbRecord(project));
 };
 
 export interface LocatedProject {
@@ -654,11 +655,11 @@ export const resolveReviewerActor = async (orgId: string, email: string | undefi
  */
 export const writeProject = async (orgId: string, index: number, project: Project): Promise<void> => {
   const expectedRevision = Number(project.revision || 0);
-  const clean = JSON.parse(JSON.stringify({
+  const clean = encodeRtdbRecord({
     ...project,
     revision: expectedRevision + 1,
     updatedAt: Date.now()
-  }));
+  });
   let conflictReason = 'transaction_not_committed';
   const tenantRef = getDb().ref(`projects/${orgId}`);
   const projectRef = tenantRef.child(`projects/${index}`);

@@ -1,3 +1,4 @@
+import { encodeRtdbRecord, decodeRtdbRecord } from './rtdbJson.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ActionExecutionContext, ActionExecutor, ActionOutcome } from './flowOrchestrator.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
@@ -44,26 +45,26 @@ export const dispatchStore: DispatchStore = {
         reference.on('value', listener, reject);
         reference.once('value', () => resolve(), reject);
       });
-      const result = await reference.transaction(current => clean(update(current)), undefined, false);
+      const result = await reference.transaction(current => encodeRtdbRecord(update(decodeRtdbRecord(current))), undefined, false);
       if (!result.committed) throw new ActionRecoveryRequired('Action dispatch transaction was not committed');
-      return result.snapshot.val();
+      return decodeRtdbRecord(result.snapshot.val());
     } finally { reference.off('value', listener); }
   }
 };
 
 export const readActionDispatch = async (orgId: string, id: string): Promise<ActionDispatch | null> =>
-  (await (await runtimeDatabase()).ref(`action_dispatches/${key(orgId)}/${key(id)}`).get()).val();
+  decodeRtdbRecord((await (await runtimeDatabase()).ref(`action_dispatches/${key(orgId)}/${key(id)}`).get()).val());
 
 export const listRunDispatches = async (orgId: string, flowRunId: string): Promise<ActionDispatch[]> => {
   const snapshot = await (await runtimeDatabase()).ref(`action_dispatches/${key(orgId)}`)
     .orderByChild('flowRunId').equalTo(flowRunId).get();
-  return Object.values(snapshot.val() || {});
+  return Object.values(snapshot.val() || {}).map(decodeRtdbRecord) as ActionDispatch[];
 };
 
 export const findDispatchByExternalId = async (orgId: string, projectId: string, externalId: string): Promise<ActionDispatch | null> => {
   const snapshot = await (await runtimeDatabase()).ref(`action_dispatches/${key(orgId)}`)
     .orderByChild('externalId').equalTo(externalId).get();
-  const matches = (Object.values(snapshot.val() || {}) as ActionDispatch[]).filter(row => row.projectId === projectId);
+  const matches = (Object.values(snapshot.val() || {}).map(decodeRtdbRecord) as ActionDispatch[]).filter(row => row.projectId === projectId);
   return matches.length === 1 ? matches[0] : null;
 };
 
