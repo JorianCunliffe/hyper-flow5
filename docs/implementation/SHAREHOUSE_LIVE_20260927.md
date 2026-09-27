@@ -36,3 +36,11 @@ The failed planner input was reproduced with the installed Firebase Database SDK
 The repair stores private structural metadata on project, FlowRun and action-dispatch records, decoding it at browser/server/API read boundaries. Browser and API writes regenerate the metadata after edits. It preserves empty and nested collection results, null array entries and cached action outcomes without treating legacy missing inputs as successful empty results. Existing lossy records require fresh producer execution; no guessed-output backfill is performed.
 
 Regression coverage uses the actual Firebase serializer for workspace save/reload, the Sharehouse planner bindings, FlowRun state, durable action replay, removed/legacy inputs, and prototype-safe metadata handling. Live recheck is recorded below after deployment.
+
+### Production recheck
+
+- Repair commit `47af42a3850b8f81ca5413fcb365e925f8d98ed0`: GitHub CI succeeded; Vercel production deployment `dpl_HXmh2bYuamX8RC9KgU6ngeTqug4X` Ready. Local validation: 794 tests passed, lint and production build passed.
+- Re-executed both Sheet reads successfully and Outlook intake (21:45:46, processed 0, skipped 0). Reloaded the app, restored the project, and inspected the planner's resolved template: `messages`, `enquiries` and `inspections` were all present as `[]`. This verifies saved database values, not only immediate execution output.
+- Retried planning at 21:49:28: **COMPLETED**, with structured output validated against the configured schema. The output explained that no source messages were supplied and contained `tasks: []`, `drafts: []`, `open_questions: []`.
+- Empty-result persistence blocker is repaired in production. This was a current-code persistence gap, not an old deployed build. Existing list-specific restoration did not cover dynamic action outputs.
+- These remain individual empty-input checks. No live call, SMS, email draft or Sheet write was triggered during the repair verification. The schedule stays paused and full Sharehouse acceptance remains **NOT ACCEPTED**; the Human Wait binding and remaining controlled end-to-end fixture still need completion.
