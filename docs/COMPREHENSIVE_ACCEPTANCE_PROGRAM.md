@@ -2,9 +2,11 @@
 
 This is the release test program for the HyperFlow application and the Communications service. It complements `OMNICHANNEL_OPERATIONS.md` with repeatable test IDs, execution gates, and evidence requirements.
 
+**27 September 2026 acceptance rule:** the [complete Sharehouse workflow test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory business acceptance baseline. Every SH case must pass with its required evidence; no partial workflow, reduced-scope alternative or passing infrastructure checks replaces it. The channel tests below are supporting checks. Their historical values must be reconciled with the pinned builds before a new run.
+
 ## Safety and evidence rules
 
-- Use one controlled tenant and one controlled person for live delivery.
+- Use a controlled tenant and explicitly authorized controlled recipients for live delivery. Single-person channel checks below do not replace the distinct primary/fallback/enquirer identities required by Sharehouse acceptance.
 - Give every live run a unique marker: `HF-ACCEPT-<UTC timestamp>`.
 - Require an explicit confirmation of the recipient phone number, email address, and marker immediately before live sends.
 - Never record API keys, OAuth tokens, raw email bodies, or full call transcripts in the evidence report.
@@ -22,6 +24,7 @@ This is the release test program for the HyperFlow application and the Communica
 | G-04 | Callback authentication | Run `npm run smoke:callbacks` against the stable production origin | Unsigned `401`, signed `200`, replay `duplicate: true` |
 | G-05 | Scheduler | Observe two consecutive five-minute ticks | Two `200` responses, unique occurrence claims, no duplicate action |
 | G-06 | Deployed build | Read Communications `/health` and HyperFlow deployment metadata | Expected commit/build identifiers and healthy dependencies |
+| G-07 | Complete Sharehouse workflow | Execute [SH-01 through SH-24](SHAREHOUSE_ACCEPTANCE_TEST.md) across the required layers | Every case PASS; morning, inbound, confirmation, recovery and provider evidence complete. Any FAIL, BLOCKED or NOT RUN means not accepted. |
 
 ## Automated capability matrix
 

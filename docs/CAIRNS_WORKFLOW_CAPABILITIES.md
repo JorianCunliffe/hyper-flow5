@@ -1,5 +1,7 @@
 # Cairns workflow capabilities
 
+The [complete Sharehouse acceptance test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory acceptance baseline. This page inventories implementations; it is not a pass record. All morning, inbound and recovery cases must pass before the workflow is accepted.
+
 This change supplies the application controls and execution primitives needed before configuring the Cairns Sharehouse workflow. It does not activate a schedule or contact anyone.
 
 | Gap | Implementation |

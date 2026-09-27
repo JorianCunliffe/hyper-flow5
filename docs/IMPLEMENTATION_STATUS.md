@@ -1,8 +1,38 @@
 # HyperFlow implementation programme status
 
-Last updated: 16 September 2026.
+Last updated: 27 September 2026. Reviewed HyperFlow source: `f103bbcc95c5fb359ffc376d5b5666273f5adf9f`.
 
-## 16 September repository and live-readiness update
+## Current acceptance decision
+
+**NOT ACCEPTED: the complete Sharehouse workflow has not been demonstrated.** The [Sharehouse full-workflow acceptance test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory product acceptance baseline. Morning intake through confirmed finalisation, ongoing inbound handling, cross-channel continuation and all required failure/recovery cases must pass. Existing component tests, partial recipes, API route coverage and historical provider checks cannot substitute for that result. Every SH case currently remains NOT RUN under this baseline.
+
+This update establishes current source/documentation status, not a deployment or live-provider audit. Exact current Communications source/build, production rules/migrations, mailbox/Sheet grants, scheduler health and full provider acceptance are **UNVERIFIED** in this review. The 16 September deployment blocker below is historical evidence, not a confirmed current outage.
+
+## Current source capabilities and remaining proof
+
+| Area | Present in reviewed HyperFlow source | Required acceptance evidence |
+|---|---|---|
+| Sharehouse data/configuration | Named resource editor, four-range grants, typed bindings, structured report output, bounded per-item actions, weekday scheduling and separate scheduled/inbound roots. See [capabilities](CAIRNS_WORKFLOW_CAPABILITIES.md). | Configure and execute the complete scenario through UI and supported API; verify saved weekdays, bindings, row deduplication and run isolation. |
+| Questions and escalation | Dynamic Ask snapshots, stepped SMS and integrated Human Wait escalation, including primary retry, fallback and later weekday cycles. | Confirmed answers must gate finalisation; prove real voice-to-SMS/callback continuation, next-day intake and concurrency. Unsupported schema/authoring behavior remains a blocker when needed. |
+| Outlook draft lifecycle | Create/update nodes and live draft preview/refresh; PR #55 merged. Drafts use provider IDs and remain available with sending disabled. | Actual provider create/read/update, same-draft identity and human-edit/delete/send conflict handling; no automatic email sending. |
+| Execution/recovery | Durable FlowRun/Holds, per-item receipts, fresh run inputs, persisted approval checkpoint and cloud conflict handling. | Full connected recovery cases: duplicate/delayed events, restart, ambiguous provider effects, concurrent writes and cancellation. |
+| API configuration/publication | `f103bbc` adds validated revision-bound configuration, discovery, isolated fixture runs, consolidated OpenAPI, generated endpoint index and CI drift checks. See [API status](API_PARITY.md). | Equivalent full UI/API configuration and deployed two-tenant acceptance. Fixture runs do not call providers or establish full business success. |
+| Ambient work capture | PR #56 and signed phone integration #58 merged; incomplete work can be retained for later review. | Separate authenticated UI and spoken-call acceptance; capture is not execution or evidence that the Sharehouse workflow passed. |
+
+## Next acceptance work
+
+1. Pin both applications and required deployed configuration; prepare the controlled fixtures and evidence ledger in the Sharehouse test.
+2. Build/configure the whole morning and inbound workflows using existing capabilities; record actual setup, compiler or runtime blockers without reducing scope.
+3. Exercise SH-01 through SH-24 across deterministic integration, UI/API and controlled provider layers. Record observed results and repair demonstrated blockers.
+4. Mark overall acceptance only when every required case passes. Keep production activation pending until the complete baseline passes; a partial flow is not an accepted substitute.
+
+The older phase ledger is retained for traceability. Its statements about source, deployment and tests apply to their recorded dates only; it is not a current release certificate.
+
+### Checks performed for this update
+
+On 27 September, the focused `cairnsCapabilities`, `primitivesPlan` and `flowInputs` suites passed **23/23 tests** against the reviewed source. API generation produced no tracked content changes, and `npm run api:check` passed after regeneration normalized the Windows checkout's line endings. Relative documentation file links and `git diff --check` passed. These are supporting checks only: no full SH scenario, browser acceptance, deployment or live-provider run was executed, and none of the SH cases is marked PASS from these results.
+
+## Historical: 16 September repository and live-readiness update
 
 - Main includes durable FlowRun execution/holds, dynamic Ask schemas and stepped SMS Ask delivery.
 - Mailbox draft-update integration PR40 is merged. The live Communications service is healthy at v2.8.2/build `9e3e2d0ae799`, but its draft PATCH route still returns route-not-found. The separate Communications release is blocked by Replit's database-publishing step; source integration is not live provider acceptance.
@@ -18,6 +48,7 @@ Last updated: 16 September 2026.
 
 ## Programme documents
 
+- [Mandatory Sharehouse acceptance baseline](SHAREHOUSE_ACCEPTANCE_TEST.md)
 - [Master implementation plan](HYPERFLOW_IMPLEMENTATION_PLAN.md)
 - [Codex phase goal and evidence template](CODEX_PHASE_GOAL_TEMPLATE.md)
 - [Product model](HYPERFLOW_PRODUCT_MODEL.md) — broader vision; the master plan supersedes its separate-memory/new-wiki direction for this programme.
@@ -53,7 +84,7 @@ Last updated: 16 September 2026.
 
 Replace “No phase record yet” with links to the actual per-app records when they are created. Do not pre-create pass results or mark a whole phase complete from one work package.
 
-## Next goal
+## Historical next goal (16 September; superseded by the acceptance work above)
 
 Implement and verify Phase 11 tenant operations and API parity, then repeat implementation, verification and release through Phase 12 under the user's continuing authorization. Preserve the application boundaries and existing channel authority. Generic transcript upload is the initial source; selected calendar/social/CMS/provider details are pending user clarification. Missing provider authority must not be replaced with invented grants or reported as passed live acceptance.
 

@@ -4,6 +4,8 @@ The publication entry point is the [consolidated OpenAPI 3.1 contract](../contra
 
 Express and Vercel now mount the same handlers. Machine credentials cannot submit human review decisions or replace the raw workspace. See the migration notes in the agent guide before updating existing clients.
 
+Product acceptance uses the [complete Sharehouse workflow test](SHAREHOUSE_ACCEPTANCE_TEST.md). The published contract, configuration validation and isolated `/api/test-runs` fixtures are supporting evidence; they do not certify live Outlook/Sheets/voice/SMS behavior or complete workflow acceptance. Required setup and recovery must be reproducible through the supported API under the same grants and human-decision boundaries as the UI.
+
 Phase 01: direct task/email requests require a project in the authenticated organization. GET/POST `/api/communications/email-policy` reads/saves the organization email authority; writes require owner/admin and `{mode, version}` from the last read. Modes: draft_only (default), allow_send. Returns `{mode, configuredMode, version}`; 409 means reload before saving. Communications owns persistence and independently enforces policy. See [boundaries](architecture/BOUNDARIES.md) and [API fragment](../contracts/phase01.openapi.json).
 
 This reference describes the HTTP handlers under `api/`, their local Express equivalents, and the Communications Service requests emitted by the current HyperFlow client.
@@ -847,6 +849,9 @@ POST {COMMUNICATIONS_API_URL}/v1/calls
     "aiSpeaksFirst": true,
     "liveTranscript": true
   },
+  "purpose": {
+    "type": "workflow_action"
+  },
   "correlation": {
     "tenant_id": "org_1",
     "external_project_id": "project_1",
@@ -857,7 +862,26 @@ POST {COMMUNICATIONS_API_URL}/v1/calls
 }
 ```
 
-HyperFlow sends only the allow-listed voice overrides shown above.
+HyperFlow sends only the four allow-listed voice override keys shown above. Their values are built server-side from the instructions, purpose and optional `greeting`; they are not arbitrary provider overrides. `purpose.type` defaults to `workflow_action` and uses the action template's `purpose_type` when supplied. See [purpose-specific prompts](OUTBOUND_CALL_PROMPTS.md) for `coaching_session` and `test_call`.
+
+### Outbound conversation context
+
+For ordinary workflow calls, HyperFlow resolves the destination number to one Communications person and checks project access under the tenant profile. Disabled history, missing profile, ambiguous identity, denied access or a lookup failure yields explicit unavailable/disabled-history guidance, not invented history. A `test_call` bypasses historical lookup entirely.
+
+The lookup first uses recent inbound, memory-eligible messages from the last seven days to select a single relevant thread where possible, excluding `human_ask`, `workflow_action` and `workflow_notification` purposes from that thread-selection step. It then requests person/project-scoped evidence from Communications. **The seven-day/inbound filter selects the thread; it is not a blanket age/direction restriction on the returned evidence.** Returned evidence is filtered for person, project or selected thread, memory eligibility and privacy, then bounded to 30 sources and 14,000 text characters. It is transient context, not a new memory store.
+
+The server appends continuity instructions, configured voice style and a delimited evidence block to `systemMessage`. History is untrusted data; missing or ambiguous details require clarification. The voice action response includes `output.conversation_context`, alongside `call_data`:
+
+```json
+{
+  "conversation_context": {
+    "status": "current",
+    "sourceIds": ["comm_earlier_1"]
+  }
+}
+```
+
+Statuses are `current`, `stale`, `unavailable`, `disabled`, and `not_requested` (explicit test calls). Source IDs identify evidence offered to the call; they do not prove delivery, accurate interpretation or confirmed Human Ask completion. The action log records context status and source count. Implementation: [outbound lookup](../lib/outboundConversationContext.ts), [evidence filtering](../lib/conversationContinuity.ts), and [voice executor](../lib/executeTask.ts).
 
 ### Send email
 
@@ -867,7 +891,7 @@ POST {COMMUNICATIONS_API_URL}/v1/emails
 
 The body contains recipients, subject, text or HTML, `service_identity_id` or an explicit sender, optional `provider_connection_id`, purpose, callback URL, and the same tenant/project/run/task correlation used by other channels. HyperFlow does not store or expose provider credentials.
 
-Connected Gmail is a different adapter and is never passed to `/v1/emails`. HyperFlow uses:
+Connected Gmail/Outlook mailboxes use separate draft-only adapters and are never sent through `/v1/emails`. HyperFlow uses:
 
 ```http
 GET  {COMMUNICATIONS_API_URL}/v1/mailboxes
@@ -877,9 +901,12 @@ POST {COMMUNICATIONS_API_URL}/v1/mailboxes/oauth/{gmail|outlook}/start
 POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/sync
 POST {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts
 GET  {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts/{draftId}
+PATCH {COMMUNICATIONS_API_URL}/v1/mailboxes/{connectionId}/drafts/{draftId}
 ```
 
 Draft creation requires its own stable `Idempotency-Key`, preserves provider thread/reply identifiers when present, and has no connected-mailbox send counterpart. The agent router prefers this draft route whenever a selected connected mailbox exists; a separately provisioned send-capable service identity is required for automatic transactional email.
+
+The `update_mailbox_draft` task targets the original `provider_draft_id` through PATCH with a stable operation idempotency key. Both draft tasks use the project's connected mailbox and remain available with project email sending disabled. This source contract does not establish the deployed Communications route or provider behavior: Sharehouse acceptance must verify same-draft updates and human edit/delete/send conflicts against the actual provider. See [Cairns capabilities](CAIRNS_WORKFLOW_CAPABILITIES.md).
 
 ### Deliver a Human Ask
 
@@ -950,12 +977,16 @@ HyperFlow also reads `GET /v1/communications` with tenant-scoped filters, `GET /
 | `WEBHOOK_SECRET` | Shared secret for machine calls to `/api/flow/advance`. |
 | `FIREBASE_SERVICE_ACCOUNT` | Privileged server-side Firebase credentials, as JSON or base64. |
 | `FIREBASE_DATABASE_URL` | Server-side Realtime Database URL; must match the browser database. |
-| `FIREBASE_STORAGE_BUCKET` | Server-side Firebase Storage bucket; required only for external Ask uploads. |
+| `FIREBASE_STORAGE_BUCKET` | Server-side Firebase Storage bucket for Ask uploads and enabled managed file storage. |
 | `GOOGLE_CLIENT_ID` | Backend Google OAuth web-client ID for Workspace. |
 | `GOOGLE_CLIENT_SECRET` | Backend Google OAuth web-client secret for Workspace. |
 | `GOOGLE_OAUTH_STATE_SECRET` | At least 32 random characters used to sign tenant/user-bound OAuth state. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Optional exact callback; defaults to `{PUBLIC_BASE_URL}/api/integrations/google/callback`. |
 | `INTEGRATION_ENCRYPTION_KEY` | Exactly 32 random bytes encoded as 64 hex characters or base64; seals Workspace tokens. |
+| `EMAIL_TRIAGE_BATCH_SIZE` | Optional default threads per triage batch (5); supplied `batchSize` takes precedence. Unfinished intake checkpoints and resumes. |
+| `EMAIL_SEND_POLICY_BY_TENANT` | Optional organization-to-email-policy JSON map, such as `{"org_1":"draft_only"}`; cannot override saved draft-only authority. See [boundaries](architecture/BOUNDARIES.md). |
+| `HYPERFLOW_MANAGED_FILES` | Set `true` to enable managed files after configuring storage, permissions and lifecycle guards; see [managed files](MANAGED_FILES.md). |
+| `FIREBASE_ENFORCE_TENANT_LIFECYCLE` | Enables guarded lifecycle mutations and is required for managed file writes; matching deployed database rules remain necessary. |
 
 Cross-service values must be paired as follows:
 

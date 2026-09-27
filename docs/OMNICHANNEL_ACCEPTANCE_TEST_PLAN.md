@@ -2,6 +2,8 @@
 
 Prepared: 8 September 2026. Status: implementation plan; no tests or live communications were executed to prepare this document.
 
+Updated acceptance precedence, 27 September 2026: the [complete Sharehouse workflow test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory business baseline. This earlier cross-channel plan remains supporting coverage; passing it alone cannot establish product acceptance or waive a required Sharehouse case.
+
 ## 1. Outcome to prove
 
 Run one business case from initial email through triage, a reviewed draft, SMS clarification, a phone response, and final human approval. Prove that HyperFlow preserves the correct person, project, conversation, and workflow state throughout. Run deliberate distractions and failures alongside it so that a successful-looking UI cannot hide incorrect routing or duplicate execution.

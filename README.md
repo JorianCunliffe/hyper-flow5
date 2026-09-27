@@ -4,6 +4,10 @@ Phase 01 adds an organization-wide email option: Draft only (default) or Allow a
 
 HyperFlow is a visual workflow engine for projects that combine human milestones, automated actions, decisions, loops, and review gates. Server-side execution and durable schedules let flows continue without an open browser, while signed event handling reconnects email, SMS, and voice results to the exact tenant, action run, and Human Ask that started them.
 
+## Acceptance baseline
+
+The **complete Cairns Sharehouse workflow** is the acceptance baseline: morning intake, task extraction, planning, native Outlook drafts, confirmed human answers, finalisation, notifications, ongoing inbound handling and failure recovery must all work. Follow the [Sharehouse acceptance test](docs/SHAREHOUSE_ACCEPTANCE_TEST.md) for the required setup, cases and evidence. Partial flows, reduced-scope substitutes and passing component tests do not pass acceptance. The full baseline is **not yet accepted**; see [implementation status](docs/IMPLEMENTATION_STATUS.md) for source capabilities versus verified results.
+
 ## External agent API
 
 Configure projects, nodes, subtasks, settings and saved UI views through revision-checked REST commands, then run isolated fixture assertions without provider calls. Start with [the agent guide](docs/AGENT_API.md), [OpenAPI](contracts/openapi.json) and [TypeScript client](lib/client/hyperflow.ts). Discovery is available at `/api/discovery`. Human reviews and OAuth retain their separate authority.
@@ -75,7 +79,7 @@ workspace API; missing or non-boolean values do not enable sending.
 2. Open **New Project → Daily Email Triage** or **Settings → Service Projects**. The shared wizard selects the Communications people permitted to use the project, connects or selects Gmail/Outlook, runs an authoritative health check, configures policy/drafts/digest and schedule, and creates the project only after every readiness check passes. Each triage project owns exactly one mailbox and an independent cursor.
 3. Open the same wizard for **Daily Coaching**. Select the Communications person and phone/voice identity, Google Workspace connection, Doc, Sheet/range, retry policy, reviewer and review channels. The wizard verifies Doc/Sheet read access and Sheet edit capability before it creates the project.
 4. Use the project **Service Configuration** panel for health, prior/next run, last digest, pause/resume, **Run now**, and configuration changes. **Advance Flow**, **Run now**, and the daily schedule execute the same project flow; no raw action JSON is required.
-5. Call `POST /api/schedules/tick` at least every five minutes. The checked-in Hobby cron is only a daily fallback and cannot reliably honor arbitrary local times, agent inbox work, or 30-minute call retries.
+5. Call `POST /api/schedules/tick` at least every five minutes. The checked-in Hobby cron is only a daily fallback and cannot reliably honor arbitrary local times, agent inbox work, or ten-minute call retries.
 
 Inbound messages are persisted before routing. Trusted correlation wins, then an explicit project name, active thread, configured default, or the sole visible project; ambiguity produces a clarification. Read-only replies can be delivered automatically only under channel policy and a durable per-thread limit of one every 15 seconds and six per hour. Coaching commitments, next actions, and requested calls appear as typed proposals in Communications triage and execute only after an authenticated reviewer clicks **Approve action**. Sheet updates use an idempotent action receipt; requested calls use a stable one-off schedule occurrence.
 
@@ -111,6 +115,8 @@ Every outbound SMS or call carries:
 - a deterministic `Idempotency-Key` derived from the tenant, project, run, task, channel, and Ask identity;
 - `tenant_id`, `external_project_id`, `run_id`, and `task_id` correlation;
 - an HTTPS callback URL derived from `PUBLIC_BASE_URL`.
+
+Ordinary outbound workflow calls also request bounded, authorized cross-channel conversation context; explicit `test_call` calls omit history. The call result records context status and source IDs. Missing or disabled history is not permission to invent prior statements. See the [outbound conversation contract](docs/API.md#outbound-conversation-context) and [purpose-specific call guidance](docs/OUTBOUND_CALL_PROMPTS.md).
 
 ## Ambient work capture and side tasks
 
@@ -196,6 +202,8 @@ External services cannot call localhost. Use a secure public tunnel for local ca
 For a full channel check, verify each boundary independently: the outbound create returns a canonical `comm_*` ID; the provider reaches a terminal status; Communications delivers the matching `evt_*` callback to HyperFlow; and any human reply creates a new inbound communication. An ordinary SMS/email reply should appear in triage when admitted by the tenant's triage policy and, when eligible, complete Communications memory enrichment. Only a reply carrying `human_ask` correlation should progress an Ask through `respondToAsk`.
 
 ## Verification
+
+The commands below verify supporting code. Full acceptance additionally requires every case in the [Sharehouse test](docs/SHAREHOUSE_ACCEPTANCE_TEST.md), including UI/API configuration and controlled deployed-provider evidence.
 
 ```powershell
 npm.cmd run lint
