@@ -223,7 +223,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ connected: false, error: error?.message || 'Communications Service unavailable' });
     }
   } catch (error: any) {
-    if (action === 'contacts' && error instanceof CommunicationsApiError) return res.status(502).json({ error: 'Communications contact service failed; check service availability and tenant access' });
+    if (action === 'contacts' && error instanceof CommunicationsApiError) {
+      const detail = String(error.message).replaceAll(process.env.COMMUNICATIONS_API_KEY || '\u0000', '[redacted]');
+      console.error('[contacts] upstream failure', { status: error.status, detail });
+      return res.status(502).json({ error: 'Communications contact service failed; check service availability and tenant access' });
+    }
     if (error instanceof TenantControlError) return res.status(error.status).json({error:error.message});
     if (error instanceof MeetingRequestError) return res.status(error.status).json({error:error.message,details:error.details});
     if (error instanceof CommitmentError) return res.status(error.status).json({ error: error.message });
