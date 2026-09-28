@@ -298,13 +298,23 @@ export const upsertGrantedGoogleSheet = async (
   keyColumn: number,
   keyValue: unknown,
   values: unknown[],
-  expectedRow?: unknown[] | null
+  expectedRow?: unknown[] | null,
+  expectedRows?: unknown[][]
 ): Promise<Record<string, unknown>> => {
   if (!idempotencyKey.trim()) throw new Error('idempotencyKey is required');
   if (!Number.isInteger(keyColumn) || keyColumn < 0 || keyColumn >= 50) throw new Error('keyColumn must be a zero-based column index from 0 to 49');
   if (keyValue === undefined || keyValue === null || String(keyValue).trim() === '') throw new Error('keyValue is required');
   if (!Array.isArray(values) || values.length === 0 || values.length > 50) throw new Error('Google Sheet upsert values must contain 1-50 columns');
   if (String(values[keyColumn] ?? '') !== String(keyValue)) throw new Error('The upsert row value at keyColumn must equal keyValue');
+  if (expectedRows !== undefined) {
+    if (expectedRow !== undefined) throw new Error('Use expected_row or expected_rows, not both');
+    if (!Array.isArray(expectedRows) || expectedRows.length > 500 || expectedRows.some(row => !Array.isArray(row) || row.length > 50)) {
+      throw new Error('expected_rows must be a planning snapshot of at most 500 rows and 50 columns');
+    }
+    const plannedMatches = expectedRows.filter(row => String(row[keyColumn] ?? '') === String(keyValue));
+    if (plannedMatches.length > 1) throw new Error('Google Sheet planning snapshot has duplicate matching keys');
+    expectedRow = plannedMatches[0] ?? null;
+  }
   if (expectedRow !== undefined && expectedRow !== null && (!Array.isArray(expectedRow) || expectedRow.length > 50)) {
     throw new Error('expected_row must be a row of at most 50 cells, or null for a new row');
   }

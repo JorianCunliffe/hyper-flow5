@@ -14,6 +14,32 @@ const fixture = () => project([
   action('triage', NodeType.EMAIL_TRIAGE, { dependsOn: ['availability'], actionConfig: { template: '{"reference_context":{"rooms":"{{rooms_output.webhook_response.details.userMessage}}","facts":"{{facts}}"}}', requiredResults: ['rooms'] } })
 ], { flow_occurrence_id: 'now', facts: { price: 371 }, rooms_output: { stale: true } });
 
+test('Sheet upserts bind the saved typed snapshot and fail closed when its read is missing or stale', async () => {
+  for (const rows of [[], [['date', 'Enquirer', 'e@example.test', '', '80 Martyn', 'attended']]]) {
+    let p = project([
+      action('read', NodeType.GOOGLE_SHEET_READ, { actionConfig: { template: '{}', resultVariable: 'enquiries' } }),
+      action('write', NodeType.GOOGLE_SHEET_UPSERT, { dependsOn: ['read'], actionConfig: {
+        template: '{"expected_rows":"{{enquiries_output.google_sheet_values}}","values":["planned"]}', requiredResults: ['enquiries']
+      } })
+    ], { flow_occurrence_id: 'morning', enquiries_output: { google_sheet_values: rows } });
+    let calls = 0;
+    const dispatch = async (_type: any, template: string, data: any) => {
+      calls++;
+      assert.deepEqual(renderActionTemplate(template, data).templateData.expected_rows, rows);
+      return { status: 'success' as const };
+    };
+    await runActionNode(p, 'write', dispatch);
+    assert.equal(calls, 0, 'unverified project data is not a current read');
+    p = applyActionRun(p, 'read', { status: 'success', at: 1, scheduleOccurrenceId: 'morning', output: { google_sheet_values: rows } });
+    const result = await runActionNode(p, 'write', dispatch);
+    assert.equal(result.run?.status, 'success');
+    assert.equal(calls, 1);
+    p = applyActionRun(p, 'read', { status: 'error', at: 2, scheduleOccurrenceId: 'morning', error: 'read failed' });
+    await runActionNode(p, 'write', dispatch);
+    assert.equal(calls, 1, 'failed refresh cannot reuse the earlier snapshot');
+  }
+});
+
 test('stale project values and previous-occurrence success cannot authorize dispatch', async () => {
   let p = fixture();
   p = applyActionRun(p, 'availability', { status: 'success', at: 1, scheduleOccurrenceId: 'old', output: { webhook_response: {} } });

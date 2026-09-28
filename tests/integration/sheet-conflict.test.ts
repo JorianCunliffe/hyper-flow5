@@ -63,6 +63,23 @@ test('Sheet planning snapshots hold changed, deleted and newly inserted rows wit
     assert.equal(writes.length, 2);
     assert.equal(writes[1].method, 'POST');
     await assert.rejects(update('invalid', {} as any), /expected_row must/);
+    const fromSnapshot = (key: string, snapshot: unknown[][]) => google.upsertGrantedGoogleSheet(
+      tenant, 'morning', key, 0, 'enquirer@example.test', ['enquirer@example.test', 'booked', 'false'], undefined, snapshot);
+    rows = [['unrelated@example.test', 'changed'], baseline];
+    await fromSnapshot('snapshot-update', [baseline, ['unrelated@example.test', 'old']]);
+    assert.equal(writes.at(-1)?.method, 'PUT', 'match the key, not the old row index');
+    rows = [['enquirer@example.test', 'attended', 'true']];
+    const beforeConflict = writes.length;
+    await assert.rejects(fromSnapshot('snapshot-conflict', [baseline]), /row changed since planning/);
+    await assert.rejects(fromSnapshot('snapshot-inserted', []), /row changed since planning/);
+    await assert.rejects(fromSnapshot('snapshot-duplicate', [baseline, baseline]), /snapshot has duplicate/);
+    await assert.rejects(fromSnapshot('snapshot-invalid', null as any), /expected_rows must/);
+    await assert.rejects(google.upsertGrantedGoogleSheet(tenant, 'morning', 'both', 0,
+      'enquirer@example.test', baseline, null, []), /not both/);
+    assert.equal(writes.length, beforeConflict);
+    rows = [];
+    await fromSnapshot('snapshot-new', []);
+    assert.equal(writes.at(-1)?.method, 'POST');
     loseWriteResponse = true;
     await assert.rejects(google.appendGrantedGoogleSheet(tenant, 'morning', 'lost-response', [['one slot']]), /response was lost/);
     const acceptedWrites = writes.length;

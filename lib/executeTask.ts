@@ -447,7 +447,8 @@ export async function executeTask(
         Number(templateData.key_column),
         templateData.key_value,
         templateData.values,
-        templateData.expected_row
+        templateData.expected_row,
+        templateData.expected_rows
       );
       return { httpStatus: 200, body: { status: 'success', output: { google_sheet_updated: true, google_sheet_write: receipt }, logs: [...logs, 'Google Sheet upsert completed idempotently'] } };
     } catch (error: any) {

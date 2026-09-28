@@ -52,7 +52,7 @@ export function fullWorkflow(): any {
       hold('morning_answers', ['drafts'], 'Read the plan {{plan_output.summary}} and each draft {{drafts_output}}. Ask every open question and confirm each answer.', 'plan_output.open_questions'),
       action('finalise', NodeType.REPORT, ['morning_answers'], { prompt: 'Use only confirmed answers to finalise existing drafts and inspection allocations.', answers: '{{morning_answers_answer}}', drafts: '{{drafts_output}}' }, 'final'),
       action('update_drafts', NodeType.MAILBOX_DRAFT_UPDATE, ['finalise'], { provider_draft_id: '{{item.provider_draft_id}}', to: ['{{item.email}}'], subject: 'Confirmed fixture inspection', text: '{{item.text}}' }, 'updated', { source: 'final_output.drafts', key: 'provider_draft_id' }),
-      action('upsert_enquiries', NodeType.GOOGLE_SHEET_UPSERT, ['update_drafts'], { resource_name: 'enquiries', values: '{{item.row}}', key_column: 2, key_value: '{{item.email}}', idempotency_key: '{{item.operationId}}' }, 'allocated', { source: 'final_output.enquiries', key: 'email' }),
+      action('upsert_enquiries', NodeType.GOOGLE_SHEET_UPSERT, ['update_drafts'], { resource_name: 'enquiries', values: '{{item.row}}', key_column: 2, key_value: '{{item.email}}', idempotency_key: '{{item.operationId}}', expected_rows: '{{existing_output.google_sheet_values}}' }, 'allocated', { source: 'final_output.enquiries', key: 'email' }),
       action('write_slots', NodeType.GOOGLE_SHEET_APPEND, ['upsert_enquiries'], { resource_name: 'inspections', values: '{{item.rows}}', idempotency_key: '{{item.id}}' }, 'booked', { source: 'final_output.slots', key: 'id' }),
       action('notify', NodeType.SMS, ['write_slots'], { person_id: '{{item.personId}}', body: '{{item.body}}' }, 'notified', { source: 'final_output.notifications', key: 'personId' }),
       action('audit', NodeType.GOOGLE_SHEET_APPEND, ['notify'], { resource_name: 'communications', values: '{{final_output.auditRows}}', idempotency_key: '{{final_output.auditOperationId}}' }, 'audited'),
@@ -68,7 +68,7 @@ export function fullWorkflow(): any {
 // Canned boundaries are intentionally explicit: this does not test classifier/model/providers.
 export const fixtures = {
   triage: { status: 'success', output: { tasks: taskRows, enquiries } },
-  read_enquiries: { status: 'success', output: { attended: ['E4'] } },
+  read_enquiries: { status: 'success', output: { attended: ['E4'], google_sheet_values: [['2026-09-28', 'Fixture E4', 'e4@example.invalid', '', 'Fixture House', 'attended', '', 'true', '', '2026-09-28']] } },
   read_inspections: { status: 'success', output: { slots: [] } },
   write_tasks: { status: 'success', output: { appended: true } },
   plan: { status: 'success', output: planned },
