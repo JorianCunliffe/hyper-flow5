@@ -18,6 +18,73 @@ import { createFlowRun, materializeFlowRunProject } from '../lib/flowRun';
 import { applyFlowEvent } from '../lib/flowEvents';
 import { continuationHold } from '../lib/flowHoldStore';
 import { updateFlowRunFromProject } from '../lib/flowRun';
+import { claimContactDay, contactWindowOpen, type ContactDay } from '../lib/cockpit/contactPolicy';
+
+test('no-answer escalation retains its callback step when the shared contact budget is exhausted', async () => {
+  let now = Date.parse('2026-09-28T00:00:00Z');
+  const policy = { startHour: 9, endHour: 17, maxPerDay: 20, maxPerContact: 2 };
+  let day: ContactDay | null = null;
+  const sent: string[] = [];
+  const rows = new Map<string, any>();
+  const store: DispatchStore = { async transact(org, id, update) {
+    const key = `${org}/${id}`;
+    const row = JSON.parse(JSON.stringify(update(rows.get(key) || null)));
+    rows.set(key, row); return row;
+  } };
+  const plan = { primaryPersonId: 'primary', fallbackPersonId: 'fallback', retryMinutes: 10,
+    repeatLocalTime: '09:15', timezone: 'Australia/Brisbane', daysOfWeek: [1,2,3,4,5] };
+  const wait: any = { id: 'wait', name: 'Team answers', nodeType: NodeType.WAIT, subtasks: [],
+    holdConfig: { kind: 'human', human: { kind: 'question', channels: ['voice'], prompt: 'Confirm the plan',
+      fields: [{ name: 'slot', type: 'string', required: true }], escalation: plan } } };
+  const p = project([wait], { flow_run_id: 'run', flow_occurrence_id: 'day' });
+  let ask = createHumanHoldAsk(p, wait);
+  const deps: any = {
+    now: () => now,
+    client: () => ({ getCommunication: async () => ({ id: 'call', status: 'completed', outcome: { disposition: 'no_answer' } }) }),
+    readTenantAgentProfile: async () => ({ automaticActions: ['draft', 'send', 'call', 'sheet_write'] }),
+    readTenantCapabilityPolicy: async () => ({}),
+    resolveGrantedPersonTarget: async ({ personId }: any) => personId === 'primary' ? '+61400000001' : '+61400000002',
+    claimContactDispatch: async (_org: string, input: any) => {
+      if (!contactWindowOpen(now, plan.timezone, policy)) return { allowed: false, reason: 'Outside the configured contact hours.' };
+      const claim = claimContactDay(day, { ...input, now }, policy); day = claim.row; return claim;
+    },
+    readTenantCommunicationsSettings: async () => ({ fromNumber: '+61400000003' }),
+    durableActionExecutor: (execute: any) => durableActionExecutor(execute, store, () => now),
+    deliverAsk: async ({ personId, channel }: any) => { sent.push(`${personId}:${channel}`); return { id: `c${sent.length}`, status: 'accepted' }; }
+  };
+  for (let step = 0; step < 3; step++) {
+    now = Math.max(now, ask.escalationState?.nextAt || now);
+    ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+    now = ask.escalationState!.nextAt;
+    ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+  }
+  assert.deepEqual(sent, ['primary:voice', 'primary:voice', 'fallback:voice']);
+  ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+  assert.equal(ask.escalationState?.step, 3);
+  assert.match(ask.escalationState?.error || '', /budget/);
+  assert.equal(ask.deliveries?.length, 3);
+  assert.equal(ask.status, 'open');
+  now = ask.escalationState!.nextAt;
+  ask = await deliverEscalatedAsk(p, 'org', JSON.parse(JSON.stringify(ask)), plan, deps);
+  assert.equal(sent.length, 3);
+  assert.equal(ask.escalationState?.step, 3);
+
+  // Fixture-only authority change: resume the held step, never replay the calls.
+  policy.maxPerContact = 3;
+  now = ask.escalationState!.nextAt;
+  ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+  assert.equal(ask.escalationState?.step, 4);
+  now = Date.parse('2026-09-28T08:00:00Z'); // 18:00 Brisbane
+  ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+  assert.equal(ask.escalationState?.step, 4);
+  assert.match(ask.escalationState?.error || '', /contact hours/);
+  assert.equal(sent.length, 4);
+  now = Date.parse('2026-09-28T23:00:00Z'); day = null;
+  ask = await deliverEscalatedAsk(p, 'org', ask, plan, deps);
+  assert.deepEqual(sent, ['primary:voice', 'primary:voice', 'fallback:voice', 'primary:sms', 'fallback:sms']);
+  assert.equal(ask.escalationState?.cycle, 1);
+  assert.equal(ask.status, 'open');
+});
 
 test('weekday scheduling skips weekends at Brisbane local time and rejects an empty week', () => {
   const friday = Date.parse('2026-09-17T23:15:00Z');

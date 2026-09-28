@@ -54,4 +54,12 @@ A read-only audit of the persisted 13-node Morning Run graph verified no cycles 
 
 ## Remaining acceptance work
 
-The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. The live graph still needs complete finalisation bindings, draft-update wiring and appropriate provider/contact checks. Real Gmail recovery, full team-answer/callback paths, provider failures and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.
+The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. Finalisation collections and same-draft update wiring are saved, but still require live execution evidence. Real Gmail recovery, full team-answer/callback paths, provider failures, inbound incident handling and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.
+
+### Contact-policy audit and regression
+
+Read-only production inspection confirmed Brisbane contact hours 09:00–17:00, a tenant daily budget of 20 and a per-contact daily budget of 2. Carol has only the Morning Run project grant; Jorian also has its grant. The separate capability-policy record is absent. Legacy actions include `send`, which enables SMS as well as email authority; Communications settings retain `draft_only` email policy. Absence of a literal `sms` action does not mean SMS is disabled.
+
+The required no-answer sequence needs three contacts to the primary person (two calls plus callback SMS), so its callback SMS cannot pass the saved per-contact limit after both calls. Contact hours were also closed during this audit. No live policy was widened and no calls or messages were dispatched.
+
+A regression using the real escalation runner, contact-budget logic and durable dispatch wrapper confirms: three expected call attempts; denied primary SMS remains at step 3 with an actionable error; saved-state reload produces no additional delivery; a fixture-only limit change resumes the same SMS without repeating calls; an after-hours fallback SMS stays at step 4; and reopening the simulated window completes both callback messages while retaining the unanswered Ask. All 12 focused capability tests passed. This establishes safe holding under the current limits, not live callback acceptance.
