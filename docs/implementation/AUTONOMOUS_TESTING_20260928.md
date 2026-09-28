@@ -62,6 +62,16 @@ Provider adapter regressions reproduced three failures: text-only Outlook update
 
 Deployment follow-up: Replit publication succeeded and production `/health` returned `status: ok`, build `e8124c0893d3`, matching the repaired source fingerprint. All 21 cross-service/Firebase integration tests passed against this Communications checkout. One health request during promotion returned HTTP 500; the next check returned healthy. This verifies the running code, not a provider mailbox update. Replit's publish checkpoints were preserved and pushed to main (`128ee24`).
 
+### Provider edit detection
+
+Communications `dba3886` compares Gmail's current message ID with the saved last-written message ID before replacement. `5f7c0c8` adds Outlook change-key comparison and migration 041, which stores the marker at creation/recovery and commits subsequent markers atomically with service revisions. Changed drafts return `DRAFT_PROVIDER_CHANGED`; missing baselines return `DRAFT_VERSION_UNAVAILABLE`. Normal previews do not adopt externally changed versions. A failed key remains failed on replay without another mutation.
+
+All 422 Communications isolated tests and all 21 cross-service/Firebase integration tests passed. The added real-database Outlook scenario verifies two successive updates, external edit rejection, unchanged revision/baseline after rejection, legacy missing-version hold, and denied public-role execution of the finalization function. Two older test fixtures were updated for the new schema/migration count. Replit's development migration and a read-only column query succeeded; publication requires the additive production schema review.
+
+Replit's production schema review showed only an additive nullable text column. After approving that reviewed change, publication completed and live `/health` returned `status: ok`, build `210b4be6ad4f`, matching Communications `5f7c0c8`. The startup command includes the repository migration runner. No provider mutation was used to verify this deployment.
+
+These guards detect changes already present at the provider GET. They are not atomic provider compare-and-swap and do not establish SH-21's concurrent-edit guarantee. Live provider conflict tests and an explicit operator reconciliation workflow for old drafts remain outstanding; the existing Morning Run Outlook draft must not be silently re-baselined to bypass this hold.
+
 ### Contact-policy audit and regression
 
 Read-only production inspection confirmed Brisbane contact hours 09:00–17:00, a tenant daily budget of 20 and a per-contact daily budget of 2. Carol has only the Morning Run project grant; Jorian also has its grant. The separate capability-policy record is absent. Legacy actions include `send`, which enables SMS as well as email authority; Communications settings retain `draft_only` email policy. Absence of a literal `sms` action does not mean SMS is disabled.
