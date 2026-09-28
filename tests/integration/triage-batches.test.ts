@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { ref, set } from 'firebase/database';
+import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
+import { ref, set, update, get } from 'firebase/database';
 
 test('resumed intake retains earlier enquiries and delivers only the complete digest', async () => {
   assert.equal(process.env.FIREBASE_DATABASE_EMULATOR_HOST, '127.0.0.1:9010');
@@ -33,6 +33,10 @@ test('resumed intake retains earlier enquiries and delivers only the complete di
     assert.equal(first.hasMore, true);
     assert.equal(first.items.length, 5);
     assert.equal(drafts.length, 0, 'partial digest must not be delivered');
+    // Unrelated mailbox activity must not evict this occurrence's planner input.
+    await env.withSecurityRulesDisabled(c => update(ref(c.database(), 'triage_items/batch_fixture'), Object.fromEntries(
+      Array.from({ length: 500 }, (_, i) => [`noise-${i}`, { id: `noise-${i}`, communicationId: `noise-${i}`, projectId: 'other', connectionId: 'gmail', updatedAt: Date.now() + 60000 }])
+    )));
     await Promise.all(getApps().map(deleteApp));
     const resumed = await runEmailTriage(input, client);
     assert.equal(resumed.hasMore, false);
@@ -42,6 +46,15 @@ test('resumed intake retains earlier enquiries and delivers only the complete di
     assert.match(drafts[0].text, /^7 new messages/);
     assert.equal(new Set(reads).size, 7);
     assert.equal(reads.length, 7, 'completed enquiries are not fetched and processed again');
+    const checkpoint = 'triage_occurrence_items/batch_fixture/occurrence';
+    for (const context of [env.unauthenticatedContext(), env.authenticatedContext('member')]) {
+      await assertFails(get(ref(context.database(), checkpoint)));
+      await assertFails(set(ref(context.database(), `${checkpoint}/forged`), { id: 'forged' }));
+    }
+    const runtime = env.authenticatedContext('hyperflow-runtime-v1', { hyperflow_runtime: true }).database();
+    await assertSucceeds(get(ref(runtime, checkpoint)));
+    await env.withSecurityRulesDisabled(c => set(ref(c.database(), 'tenant_lifecycle/batch_fixture/state'), 'suspended'));
+    await assertFails(get(ref(runtime, checkpoint)));
   } finally {
     await env.cleanup();
     await Promise.all(getApps().map(deleteApp));

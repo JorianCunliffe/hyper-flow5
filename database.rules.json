@@ -69,6 +69,14 @@
         ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
       }
     },
+    "triage_occurrence_items": {
+      ".read": false,
+      ".write": false,
+      "$orgId": {
+        ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
+        ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
+      }
+    },
     "triage_digests": {
       ".read": false,
       ".write": false,

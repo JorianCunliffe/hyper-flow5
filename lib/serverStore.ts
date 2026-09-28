@@ -1014,6 +1014,18 @@ export const listTenantTriageItems = async (orgId: string, limit = 100): Promise
   return Object.values(snap.val() || {}).sort((a: any, b: any) => Number(b.updatedAt) - Number(a.updatedAt)) as TriageItem[];
 };
 
+const triageOccurrenceRef = (orgId: string, runId: string) =>
+  getDb().ref(`triage_occurrence_items/${safeRtdbKey(orgId)}/${safeRtdbKey(runId)}`);
+
+export const saveTriageOccurrenceItem = async (runId: string, item: TriageItem): Promise<void> => {
+  await triageOccurrenceRef(item.orgId, runId).child(safeRtdbKey(item.id)).set(JSON.parse(JSON.stringify(item)));
+};
+
+export const listTriageOccurrenceItems = async (orgId: string, runId: string): Promise<TriageItem[]> => {
+  const snap = await triageOccurrenceRef(orgId, runId).get();
+  return Object.values(snap.val() || {}) as TriageItem[];
+};
+
 const triageDigestRef = (orgId: string, digestId: string) =>
   getDb().ref(`triage_digests/${safeRtdbKey(orgId)}/${safeRtdbKey(digestId)}`);
 

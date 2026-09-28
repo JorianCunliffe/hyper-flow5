@@ -15,6 +15,7 @@ export const TENANT_DATA_ROOTS = [
   "ask_resolutions",
   "communication_delivery",
   "triage_items",
+  "triage_occurrence_items",
   "triage_digests",
   "schedules",
   "schedule_runs",

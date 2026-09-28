@@ -3,6 +3,8 @@ import type { CommunicationResult, CommunicationsClient } from '../communication
 import { createCommunicationsClient } from '../communications/client.js';
 import {
   listTenantTriageItems,
+  listTriageOccurrenceItems,
+  saveTriageOccurrenceItem,
   readCommunicationCursor,
   readTenantCommunicationsSettings,
   saveTriageDigest,
@@ -208,7 +210,14 @@ export const runEmailTriage = async (
   // committed but before the cursor is moved. Reuse those project-scoped audit
   // records as checkpoints instead of classifying and drafting them again.
   const recentItems = await listTenantTriageItems(input.orgId, 500);
-  const completedIds = new Set(recentItems
+  const occurrenceMatches = (item: TriageItem) => item.projectId === input.projectId && item.connectionId === input.connectionId;
+  // Backfill existing in-flight occurrences and recover a crash between the
+  // triage projection and its occurrence checkpoint, before advancing a cursor.
+  for (const item of recentItems.filter(item => occurrenceMatches(item) && item.audit?.some(entry => entry.action === 'project_reconciliation' && entry.detail === input.runId))) {
+    await saveTriageOccurrenceItem(input.runId, item);
+  }
+  const checkpointItems = (await listTriageOccurrenceItems(input.orgId, input.runId)).filter(occurrenceMatches);
+  const completedIds = new Set([...recentItems, ...checkpointItems]
     .filter(item => item.projectId === input.projectId
       && item.connectionId === input.connectionId
       && item.audit?.some(entry => entry.action === 'project_reconciliation'))
@@ -276,11 +285,13 @@ export const runEmailTriage = async (
       audit: [...item.audit, { at: Date.now(), action: 'project_reconciliation', actor: input.actor || input.runId, detail: input.runId }]
     });
     processedItems.push(stored);
+    await saveTriageOccurrenceItem(input.runId, stored);
     completedIds.add(communication.id);
   }
 
-  const current = await listTenantTriageItems(input.orgId, 500);
-  const occurrenceItems = current.filter(item => item.projectId === input.projectId && item.connectionId === input.connectionId && item.audit?.some(entry => entry.action === 'project_reconciliation' && entry.detail === input.runId));
+  const occurrenceItems = (await listTriageOccurrenceItems(input.orgId, input.runId)).filter(occurrenceMatches);
+  const recent = await listTenantTriageItems(input.orgId, 500);
+  const current = [...new Map([...occurrenceItems, ...recent].map(item => [item.id, item])).values()];
   let contiguousCount = 0;
   while (contiguousCount < candidates.length && completedIds.has(candidates[contiguousCount].id)) {
     contiguousCount += 1;

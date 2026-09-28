@@ -30,6 +30,12 @@ Follow-up production checks: Responses now displays exactly its four linked draf
 
 After the batch-digest repair, all **21 integration tests** and **24 focused scheduler/digest tests** passed, as did lint and production build. The pre-repair integration failed specifically because a draft was prepared during the incomplete batch.
 
+## Occurrence checkpoint repair
+
+The resumed-intake test was extended with 500 unrelated mailbox updates between batches. It reproduced silent loss of all seven planner input items because intake used the tenant's rolling 500-item inbox query. Occurrence-specific checkpoints now preserve the complete intake output independently of that query. Existing in-flight records are backfilled when still available; already-evicted historical records cannot be reconstructed by this migration. Checkpoints are included in tenant export/deletion scope, deny browser reads/writes, and follow tenant suspension rules.
+
+After this repair, all 21 integration tests and 26 focused scheduler/digest/lifecycle tests passed, with lint and build. Production rules inspection also found five committed runtime roots absent from the deployed rules (review execution/work/owner bindings, captured work and agent test runs). The tested repository rules, including the new occurrence checkpoint root, were deployed to the production database before the code release.
+
 ## Remaining acceptance work
 
 The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. The live graph still needs complete finalisation bindings, draft-update wiring and appropriate provider/contact checks. Real Gmail recovery, full team-answer/callback paths, provider failures and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.
