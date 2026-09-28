@@ -26,6 +26,21 @@ export const threadRegisterErrorStatus = (error: unknown): number => {
   return 500;
 };
 
+async function saveAttributedChange(change: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await change();
+  } catch (error) {
+    if (error instanceof CommunicationsApiError && error.status === 403
+      && error.message.includes('API client lacks required capability: threads:actor:assert')) {
+      throw new ThreadRegisterRequestError(403,
+        'Conversation changes are unavailable because the HyperFlow service credential lacks threads:actor:assert. '
+        + 'Ask an administrator to review that credential in Communications Service. '
+        + 'Your change was not saved; user attribution must remain enabled.');
+    }
+    throw error;
+  }
+}
+
 /** Shared by Vercel and the local server. Tenant and actor come only from verified membership. */
 export async function handleThreadRegisterRequest(
   action: string,
@@ -107,7 +122,7 @@ export async function handleThreadRegisterRequest(
       const destination = await client.getThread(member.orgId, threadId);
       assertProject(destination.external_project_id || destination.correlation?.external_project_id);
     }
-    return client.correctThread(member.orgId, communicationId, correction);
+    return saveAttributedChange(() => client.correctThread(member.orgId, communicationId, correction));
   }
 
   const threadId = required(body.threadId, 'threadId');
@@ -125,5 +140,5 @@ export async function handleThreadRegisterRequest(
   if (Object.keys(patch).length === 1) throw new ThreadRegisterRequestError(400, 'Supply an editable thread field');
   const thread = await client.getThread(member.orgId, threadId);
   assertProject(thread.external_project_id || thread.correlation?.external_project_id);
-  return client.updateThread(member.orgId, threadId, patch);
+  return saveAttributedChange(() => client.updateThread(member.orgId, threadId, patch));
 }

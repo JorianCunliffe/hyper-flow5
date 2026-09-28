@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { HttpCommunicationsClient } from '../lib/communications/client';
+import { CommunicationsApiError } from '../lib/communications/errors';
 import { handleThreadRegisterRequest, ThreadRegisterRequestError } from '../lib/communications/threadRegister';
 
 const member = { orgId: 'org_1', uid: 'verified_user' };
@@ -17,6 +18,39 @@ const harness = () => {
 };
 
 describe('tenant-scoped thread register proxy', () => {
+  for (const action of ['thread_update', 'thread_correction']) {
+    test(`${action} explains missing actor capability without retrying anonymously`, async () => {
+      const dependencies = harness();
+      const writes: any[] = [];
+      const rejectWrite = async (...args: any[]) => {
+        writes.push(args);
+        throw new CommunicationsApiError('Communications API returned 403: API client lacks required capability: threads:actor:assert', 403);
+      };
+      dependencies.client.updateThread = rejectWrite;
+      dependencies.client.correctThread = rejectWrite;
+      const request = action === 'thread_update'
+        ? { method: 'PATCH', body: { threadId: 'thread_1', external_project_id: 'project_1' } }
+        : { method: 'POST', body: { communicationId: 'comm_1', create_new: true, reason_code: 'wrong_project', external_project_id: 'project_1' } };
+      await assert.rejects(handleThreadRegisterRequest(action, request, member, dependencies), (error: any) => {
+        assert.equal(error.status, 403);
+        assert.match(error.message, /administrator.*Communications Service/);
+        assert.match(error.message, /not saved/);
+        return true;
+      });
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0][2].initiator_id, member.uid);
+    });
+  }
+
+  test('preserves unrelated permission failures unchanged', async () => {
+    const dependencies = harness();
+    const denied = new CommunicationsApiError('Tenant is not permitted', 403);
+    dependencies.client.updateThread = async () => { throw denied; };
+    await assert.rejects(handleThreadRegisterRequest('thread_update', {
+      method: 'PATCH', body: { threadId: 'thread_1', title: 'Review' }
+    }, member, dependencies), error => error === denied);
+  });
+
   test('reads the register and candidates using verified membership, never caller tenant input', async () => {
     const dependencies = harness();
     await handleThreadRegisterRequest('thread_register', { method: 'GET', query: { tenant_id: 'other_org', status: 'all', personId, projectId: 'project_1', limit: '500' } }, member, dependencies);
