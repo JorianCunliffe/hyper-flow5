@@ -1,16 +1,24 @@
 # HyperFlow implementation programme status
 
-Last updated: 27 September 2026. Reviewed HyperFlow source: `f103bbcc95c5fb359ffc376d5b5666273f5adf9f`.
+Last updated: 29 September 2026. Current functional release reviewed: HyperFlow `4f61f7e`; Communications `3046dc8` (publication checkpoint `1c7a6c5`). Older phase records below retain their original dates and evidence.
 
 ## Current acceptance decision
 
 **NOT ACCEPTED: the complete Sharehouse workflow has not been demonstrated.** The [Sharehouse full-workflow acceptance test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory product acceptance baseline. Morning intake through confirmed finalisation, ongoing inbound handling, cross-channel continuation and all required failure/recovery cases must pass. Existing component tests, partial recipes, API route coverage and historical provider checks cannot substitute for that result. The reproduced editor field-loss bug is fixed and browser-verified; complete SH-01 setup and subsequent workflow acceptance remain open. No complete SH case has passed.
 
-### Isolated setup run, 27 September
+### Autonomous repairs and live configuration, 28–29 September
+
+The [current requirement-by-requirement audit](implementation/SHAREHOUSE_ACCEPTANCE_AUDIT_20260929.md) records all SH-01–SH-24 cases as incomplete. HyperFlow `4f61f7e` passed 818 unit tests, 22 integration tests and all CI jobs, and reached Vercel production Ready. Communications health matches the deployed mailbox repair build `2cb054e83fc4`. See the [execution evidence](implementation/AUTONOMOUS_TESTING_20260928.md) for individual test scopes and intermediate failures.
+
+Repairs include retained partial Ask answers, complete triage occurrence inputs, correct response filtering, same-draft revision forwarding, body preservation, Gmail/Outlook saved-provider-version checks, strict finalisation row schemas, and held uncertain Sheet writes. The live enquiry upsert now compares the saved planning read before overwriting a row. These checks are not atomic provider compare-and-swap and do not prove concurrent inspection capacity.
+
+The controlled Outlook enquiry and its recovered native clarification draft are visible. Live project assignment is blocked by the service credential's missing `threads:actor:assert` capability. Inspection policy remains incomplete; the saved two-contact cap also blocks the primary two-call-plus-SMS sequence. The inbound incident path, per-contact failure audit, legacy-draft reconciliation and complete compiler parity remain open. The schedule remains paused and no full live run has passed.
+
+### Historical isolated setup run, 27 September
 
 The [setup evidence record](implementation/SHAREHOUSE_SETUP_20260927.md) covers a reusable candidate graph, six new handler/orchestrator tests and a real-editor browser fixture. Four resource ranges survive UI save/reload; morning processing remains held before finalisation; inbound acknowledgement stays separate. The incident Human Wait initially lost its static field on save. The editor now preserves existing human-question configuration before applying explicit edits. A browser regression failed before the fix and passes nine checks after it, including fields/options, quorum, prompt/channel edits, repeated saves and dynamic schema source; reload also retained the saved contract. Post-confirmation execution, dedicated live setup and provider acceptance remain unverified. Next: extend the isolated harness through validated answers and finalisation.
 
-This update establishes current source/documentation status, not a deployment or live-provider audit. Exact current Communications source/build, production rules/migrations, mailbox/Sheet grants, scheduler health and full provider acceptance are **UNVERIFIED** in this review. The 16 September deployment blocker below is historical evidence, not a confirmed current outage.
+The 27 September review did not verify deployments/providers. The later evidence above supersedes that limitation only for explicitly checked items; full provider acceptance remains unverified. The 16 September deployment blocker below is historical evidence, not a confirmed current outage.
 
 ## Current source capabilities and remaining proof
 

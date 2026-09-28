@@ -107,4 +107,6 @@ Allowed results: PASS, FAIL, BLOCKED, NOT RUN. All required cases must PASS with
 
 ## Current evidence state
 
+The [29 September completion audit](implementation/SHAREHOUSE_ACCEPTANCE_AUDIT_20260929.md) records the current result for every required case, deployed revisions, supporting test evidence and remaining blockers. It supersedes the older evidence snapshot below without changing the baseline: no complete SH case has passed all required layers.
+
 The [27 September isolated setup run and field-preservation fix](implementation/SHAREHOUSE_SETUP_20260927.md) add a candidate full-workflow graph, handler-level setup tests and browser checks using real editors with mock persistence. The editor's static-field loss is fixed, with a browser regression that failed before the change and passes afterward. **SH-01 remains incomplete:** full setup, authoring and authority checks still need to pass. Morning processing up to the human gate and isolated inbound acknowledgement have supporting simulated evidence only. Required end-to-end/provider layers remain NOT RUN; no complete SH case has passed. The evidence record distinguishes resolved defects, fixture limitations and remaining work.
