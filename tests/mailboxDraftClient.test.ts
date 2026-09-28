@@ -6,6 +6,16 @@ function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+test('email detail preserves its receiving mailbox identity for reply routing', async () => {
+  const client = new HttpCommunicationsClient({
+    baseUrl: 'https://communications.example.com', apiKey: 'secret',
+    fetchImpl: (async (url: string | URL | Request) => jsonResponse(200, String(url).includes('/emails/')
+      ? { communication_id: 'source', channel: 'email', email: { provider_connection_id: 'sharehouse-outlook' } }
+      : { communication_id: 'source', channel: 'email' })) as typeof fetch,
+  });
+  assert.equal((await client.getCommunication('tenant-a', 'source')).connectionId, 'sharehouse-outlook');
+});
+
 test('updateMailboxDraft PATCHes the same provider draft with tenant and idempotency headers', async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const client = new HttpCommunicationsClient({

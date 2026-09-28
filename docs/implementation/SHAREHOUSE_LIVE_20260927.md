@@ -44,3 +44,13 @@ Regression coverage uses the actual Firebase serializer for workspace save/reloa
 - Retried planning at 21:49:28: **COMPLETED**, with structured output validated against the configured schema. The output explained that no source messages were supplied and contained `tasks: []`, `drafts: []`, `open_questions: []`.
 - Empty-result persistence blocker is repaired in production. This was a current-code persistence gap, not an old deployed build. Existing list-specific restoration did not cover dynamic action outputs.
 - These remain individual empty-input checks. No live call, SMS, email draft or Sheet write was triggered during the repair verification. The schedule stays paused and full Sharehouse acceptance remains **NOT ACCEPTED**; the Human Wait binding and remaining controlled end-to-end fixture still need completion.
+
+## 28 September: live enquiry and draft recovery
+
+The test enquiry `comm_44abaf0a317f4804ad440c2cc5ca3b99` was received at 15:48:32 Brisbane and is visible in All projects. Morning Run's partial intake view did not yet include it. Its inbound agent job reports HTTP 409, `Draft operation requires provider reconciliation before retry`. Mail arrival is confirmed; draft creation is not. A user-run query in the Replit shell returned no receipt for that tenant/communication pair, which does not establish that the published app uses the same database or that no provider draft exists.
+
+Communications Service `ec345fe` repairs creation recovery: valid reservation status, safe pre-provider retries, retained Outlook partial-create IDs, read-only reconciliation of matching known drafts, and durable success despite an audit outage. Its 402 tests pass; publication and the existing receipt's recovery still need verification.
+
+An additional source inspection found that inbound agent replies used the organization default mailbox and the client omitted `email.provider_connection_id`. HyperFlow now preserves that source identity and chooses the receiving connected mailbox. Missing identities cannot fall back to an unrelated configured mailbox. New jobs record the source-routing contract; legacy jobs that could have used a different default stay held even after manual replay, until the original effect is reconciled. This is a confirmed code defect; the exact original provider error remains unverified.
+
+Full acceptance remains NOT ACCEPTED. Do not clear old receipts, change operation keys, or retry uncertain creates to bypass the 409.

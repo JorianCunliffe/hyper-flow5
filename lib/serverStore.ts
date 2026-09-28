@@ -1325,7 +1325,7 @@ export const enqueueAgentInboxJob = async (
 ): Promise<AgentInboxJob> => {
   const now = Date.now();
   const result = await agentInboxJobRef(input.orgId, input.id).transaction(current => current || {
-    ...JSON.parse(JSON.stringify(input)), status: 'pending', attemptCount: 0, createdAt: now, updatedAt: now
+    ...JSON.parse(JSON.stringify(input)), sourceMailboxRouting: true, status: 'pending', attemptCount: 0, createdAt: now, updatedAt: now
   });
   const job = result.snapshot.val() as AgentInboxJob;
   if (job.status === 'pending' || job.status === 'failed') {

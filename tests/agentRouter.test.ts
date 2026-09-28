@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agentReplyAllowance, agentReplyMode, decideProjectRoute as route, triageVisibleToProject } from '../lib/agentRouter.js';
+import { agentMailboxSettings, agentReplyAllowance, agentReplyMode, decideProjectRoute as route, triageVisibleToProject } from '../lib/agentRouter.js';
 import type { ConversationContext, Project, TenantAgentProfile } from '../types.js';
 // Routing fixtures represent the verified primary person unless a case overrides it.
 const decideProjectRoute = (input: Parameters<typeof route>[0]) => route({personId:'person_primary', ...input});
@@ -103,6 +103,15 @@ describe('omnichannel project routing', () => {
     assert.equal(agentReplyMode('email', { mailboxConnectionId: 'gmail_1' }, profile({ automaticActions: ['send'] })), 'none');
     assert.equal(agentReplyMode('email', { connectionId: 'resend_1' }, configured), 'send');
     assert.equal(agentReplyMode('sms', { mailboxConnectionId: 'gmail_1' }, configured), 'send');
+  });
+
+  test('inbound drafts use the receiving mailbox, never an unrelated default', () => {
+    const settings = { mailboxConnectionId: 'personal-gmail' };
+    assert.equal(agentMailboxSettings(settings, 'sharehouse-outlook', ['personal-gmail', 'sharehouse-outlook'], true).mailboxConnectionId, 'sharehouse-outlook');
+    assert.throws(() => agentMailboxSettings(settings, undefined, ['personal-gmail'], true), /receiving mailbox is unavailable/);
+    assert.throws(() => agentMailboxSettings(settings, 'revoked-mailbox', ['personal-gmail'], true), /receiving mailbox is unavailable/);
+    assert.throws(() => agentMailboxSettings(settings, 'sharehouse-outlook', ['sharehouse-outlook'], false), /reconcile/);
+    assert.equal(agentMailboxSettings(settings, 'personal-gmail', ['personal-gmail'], false).mailboxConnectionId, 'personal-gmail');
   });
 
   test('limits automatic replies per semantic thread and resets the hourly window', () => {

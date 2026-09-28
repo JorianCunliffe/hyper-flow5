@@ -229,6 +229,7 @@ export interface ProjectRoutingDecision {
 }
 
 export interface AgentInboxJob {
+  sourceMailboxRouting?: boolean;
   id: string;
   orgId: string;
   communicationId: string;

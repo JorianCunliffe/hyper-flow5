@@ -470,7 +470,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       direction: result?.direction,
       occurredAt: result?.occurred_at,
       personId: result?.person_id,
-      connectionId: result?.provider_connection_id || result?.connection_id,
+      connectionId: result?.email?.provider_connection_id || result?.provider_connection_id || result?.connection_id,
       content: result?.content,
       summary: result?.summary,
       subject: result?.email?.subject || result?.subject,

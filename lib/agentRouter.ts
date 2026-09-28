@@ -223,6 +223,22 @@ interface AgentReplyDelivery {
   id: string;
 }
 
+export const agentMailboxSettings = (
+  settings: CommunicationsSettings,
+  sourceConnectionId: string | undefined,
+  mailboxIds: string[],
+  sourceMailboxRouting: boolean
+): CommunicationsSettings => {
+  if (sourceConnectionId && mailboxIds.includes(sourceConnectionId)) {
+    if (!sourceMailboxRouting && settings.mailboxConnectionId && settings.mailboxConnectionId !== sourceConnectionId) {
+      throw new Error('Previous draft attempt may have used a different mailbox; reconcile it before changing the reply destination');
+    }
+    return { ...settings, mailboxConnectionId: sourceConnectionId };
+  }
+  if (settings.mailboxConnectionId) throw new Error('Inbound email receiving mailbox is unavailable; refusing to draft in the default mailbox');
+  return settings;
+};
+
 const deliverAgentReply = async (
   client: CommunicationsClient,
   job: AgentInboxJob,
@@ -231,7 +247,11 @@ const deliverAgentReply = async (
   projectId: string,
   profile: TenantAgentProfile
 ): Promise<AgentReplyDelivery> => {
-  const settings = await readTenantCommunicationsSettings(job.orgId);
+  let settings = await readTenantCommunicationsSettings(job.orgId);
+  if (job.channel === 'email') {
+    const mailboxes = await client.listMailboxes(job.orgId);
+    settings = agentMailboxSettings(settings, communication.connectionId, mailboxes.map(mailbox => mailbox.id), job.sourceMailboxRouting === true);
+  }
   const mode = agentReplyMode(job.channel, settings, profile);
   if (mode === 'none') throw new Error('Agent reply requires draft or send permission for this channel');
   const correlation = {
