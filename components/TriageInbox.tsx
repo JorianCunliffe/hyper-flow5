@@ -220,7 +220,7 @@ export const TriageInbox: React.FC = () => {
       if (projectFilter !== 'all' && item.projectId !== projectFilter) return false;
       if (tab === 'responses') {
         const response = triageResponsePresentation(item, jobsByCommunication.get(item.communicationId));
-        if (response.kind === 'none') return false;
+        if (response.kind !== 'draft_prepared' && response.kind !== 'response_created') return false;
       }
       if (!needle) return true;
       return [item.subject, item.sender, item.preview, item.summary, item.projectId, item.connectionId, item.communicationId]

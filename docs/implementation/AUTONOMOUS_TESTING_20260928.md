@@ -11,6 +11,7 @@ The deployed **Recover existing draft** action successfully linked the existing 
 - CI's cross-service jobs were pinned to obsolete Communications revisions and referenced removed `mailboxDraftUpdate.js` / `mailboxDraftUpdate.test.js` files. Pin both jobs to deployed Communications revision `1a456f7b9b47e4c357dc7279303bf63c19a80ce6`, run the current mailbox service/creation tests, and check the current shared provider-identity validation.
 - Human Wait finalisation previously copied only the last response's values into its payload. It now carries the combined accepted values and attachments, preserving earlier voice/SMS answers across continuation.
 - Provisional responses awaiting interpretation previously contributed values to `collectValues`, allowing an unreviewed field to count toward completion or overwrite an accepted field. Shared collection now excludes provisional values and attachments.
+- Live browser testing found that the Responses selector included excluded messages, failed attempts and review-only emails despite counting only prepared drafts and linked responses. Its filter now uses the same two categories as its count. Lint and production build passed after this UI correction.
 
 ## Added coverage
 
