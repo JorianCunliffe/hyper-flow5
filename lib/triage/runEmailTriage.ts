@@ -280,20 +280,26 @@ export const runEmailTriage = async (
   }
 
   const current = await listTenantTriageItems(input.orgId, 500);
-  let digest = buildTriageDigest({
-    orgId: input.orgId, projectId: input.projectId, scheduleId, scheduledFor,
-    timezone: input.timezone || 'Australia/Brisbane',
-    items: current.filter(item => item.channel === 'email' && item.connectionId === input.connectionId && (!input.projectId || item.projectId === input.projectId)),
-    newItemIds: processedItems.map(item => item.id), deliveryChannel: input.digestChannel || 'web'
-  });
-  await saveTriageDigest(digest);
-  try { digest = await deliverDigest(client, input, digest); }
-  catch (error: any) { digest = { ...digest, deliveryStatus: 'failed', deliveryError: String(error?.message || error).slice(0, 1_000), updatedAt: Date.now() }; }
-  await saveTriageDigest(digest);
+  const occurrenceItems = current.filter(item => item.projectId === input.projectId && item.connectionId === input.connectionId && item.audit?.some(entry => entry.action === 'project_reconciliation' && entry.detail === input.runId));
   let contiguousCount = 0;
   while (contiguousCount < candidates.length && completedIds.has(candidates[contiguousCount].id)) {
     contiguousCount += 1;
   }
+  const hasMore = contiguousCount < candidates.length;
+  let digest = buildTriageDigest({
+    orgId: input.orgId, projectId: input.projectId, scheduleId, scheduledFor,
+    timezone: input.timezone || 'Australia/Brisbane',
+    items: current.filter(item => item.channel === 'email' && item.connectionId === input.connectionId && (!input.projectId || item.projectId === input.projectId)),
+    newItemIds: occurrenceItems.map(item => item.id), deliveryChannel: input.digestChannel || 'web'
+  });
+  await saveTriageDigest(digest);
+  // A provider idempotency key identifies the complete occurrence, not a batch.
+  // Delivering partial summaries would reuse that key with changing content.
+  if (!hasMore) {
+    try { digest = await deliverDigest(client, input, digest); }
+    catch (error: any) { digest = { ...digest, deliveryStatus: 'failed', deliveryError: String(error?.message || error).slice(0, 1_000), updatedAt: Date.now() }; }
+  }
+  await saveTriageDigest(digest);
   const cursorAfter = cursorAfterCommunications(cursorBefore, candidates.slice(0, contiguousCount));
   if (cursorAfter) await writeCommunicationCursor(input.orgId, cursorKey, cursorAfter);
   return {
@@ -301,9 +307,9 @@ export const runEmailTriage = async (
     skippedCount,
     cursorBefore,
     cursorAfter,
-    hasMore: contiguousCount < candidates.length,
+    hasMore,
     remainingCount: Math.max(0, candidates.length - contiguousCount),
     digest,
-    items: current.filter(item => item.projectId === input.projectId && item.connectionId === input.connectionId && item.audit?.some(entry => entry.action === 'project_reconciliation' && entry.detail === input.runId))
+    items: occurrenceItems
   };
 };

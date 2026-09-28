@@ -12,6 +12,7 @@ The deployed **Recover existing draft** action successfully linked the existing 
 - Human Wait finalisation previously copied only the last response's values into its payload. It now carries the combined accepted values and attachments, preserving earlier voice/SMS answers across continuation.
 - Provisional responses awaiting interpretation previously contributed values to `collectValues`, allowing an unreviewed field to count toward completion or overwrite an accepted field. Shared collection now excludes provisional values and attachments.
 - Live browser testing found that the Responses selector included excluded messages, failed attempts and review-only emails despite counting only prepared drafts and linked responses. Its filter now uses the same two categories as its count. Lint and production build passed after this UI correction.
+- A seven-enquiry, two-batch Firebase integration test reproduced premature digest delivery after the first five messages. Delivery now waits until reconciliation finishes; the digest's new-message count covers all batches in the occurrence. The test simulates a worker restart, verifies all seven enquiries reach the planner output without reprocessing, and checks one complete digest draft.
 
 ## Added coverage
 
@@ -24,6 +25,10 @@ The deployed **Recover existing draft** action successfully linked the existing 
 Initial baseline: 806 HyperFlow tests and 409 Communications tests passed. Final post-repair verification: **810 HyperFlow tests, 20 cross-service/Firebase integration tests, 409 Communications tests, and 30 database-rule checks passed**, with zero skips in the test suites. Lint, API reference validation and production build passed. Both production dependency audits reported zero vulnerabilities. The expanded integration run initially found the stale mailbox contract; it passes after updating the deployed-revision pin and current contract assertions.
 
 Java 21 was installed in a local test-runtime directory from the official Adoptium distribution, with archive checksum verification, to run the Firebase emulator. Production database configuration was not changed.
+
+Follow-up production checks: Responses now displays exactly its four linked drafts after reload; CI for `9b239ef` passed and Vercel reports Ready. An existing Gmail draft preview successfully fetched native content (read-only); Gmail recovery itself is still unverified. Five unauthenticated probes (triage, operations, unsigned callback, Communications contacts and draft receipt) each returned JSON HTTP 401 as expected.
+
+After the batch-digest repair, all **21 integration tests** and **24 focused scheduler/digest tests** passed, as did lint and production build. The pre-repair integration failed specifically because a draft was prepared during the incomplete batch.
 
 ## Remaining acceptance work
 
