@@ -36,6 +36,14 @@ The resumed-intake test was extended with 500 unrelated mailbox updates between 
 
 After this repair, all 21 integration tests and 26 focused scheduler/digest/lifecycle tests passed, with lint and build. Production rules inspection also found five committed runtime roots absent from the deployed rules (review execution/work/owner bindings, captured work and agent test runs). The tested repository rules, including the new occurrence checkpoint root, were deployed to the production database before the code release.
 
+## Live Morning Run configuration continuation
+
+Code revision `fd91668` passed CI and reached production Ready. Through the supported node editor, the live Morning Run now has typed finalisation collections for enquiry upserts (key: email), inspection appends (key: slot id), and SMS notifications (key: person id). Fresh-result requirements prevent notifications before the enquiry/inspection outputs succeed. These steps remain manual, and no effects were executed during setup.
+
+Inserted `08b — Update existing mailbox drafts with confirmed answers` between finalisation and the communication log. It consumes `cairns_finalisation_text_output.structured_output.drafts`, keys each item by the original `provider_draft_id`, and requires fresh initial draft and finalisation results. Reload verified that this node and its collection configuration persist. The existing human-review gate on finalisation remains in place.
+
+Remaining configuration includes verified communication logging, the finalisation prompt's exact row contracts and attendance/contact eligibility checks, and confirming the team call identity. The controlled enquiry is still awaiting correct project routing. These configuration improvements are not live execution acceptance.
+
 ## Remaining acceptance work
 
 The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. The live graph still needs complete finalisation bindings, draft-update wiring and appropriate provider/contact checks. Real Gmail recovery, full team-answer/callback paths, provider failures and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.
