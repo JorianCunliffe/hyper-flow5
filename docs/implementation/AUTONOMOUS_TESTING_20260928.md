@@ -56,6 +56,12 @@ A read-only audit of the persisted 13-node Morning Run graph verified no cycles 
 
 The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. Finalisation collections and same-draft update wiring are saved, but still require live execution evidence. Real Gmail recovery, full team-answer/callback paths, provider failures, inbound incident handling and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.
 
+### Mailbox body replacement repair
+
+Provider adapter regressions reproduced three failures: text-only Outlook updates retained and selected old HTML; Gmail text-only and HTML-only updates retained the stale opposite MIME alternative. Communications revision `5a49f2c` makes a supplied body replace the old alternatives while subject-only edits preserve the body. Eight new provider-adapter cases cover both providers, single/dual body representations and omitted-body updates; all 417 Communications isolated tests passed with zero skips. API documentation now states these semantics and explicitly distinguishes service revision checks from detection of direct provider edits, which remains unresolved. Revision `cac5596` also includes mailbox modules in the deployed build fingerprint (expected `e8124c0893d3`); the earlier fingerprint could not prove mailbox changes had reached production.
+
+Deployment follow-up: Replit publication succeeded and production `/health` returned `status: ok`, build `e8124c0893d3`, matching the repaired source fingerprint. All 21 cross-service/Firebase integration tests passed against this Communications checkout. One health request during promotion returned HTTP 500; the next check returned healthy. This verifies the running code, not a provider mailbox update. Replit's publish checkpoints were preserved and pushed to main (`128ee24`).
+
 ### Contact-policy audit and regression
 
 Read-only production inspection confirmed Brisbane contact hours 09:00–17:00, a tenant daily budget of 20 and a per-contact daily budget of 2. Carol has only the Morning Run project grant; Jorian also has its grant. The separate capability-policy record is absent. Legacy actions include `send`, which enables SMS as well as email authority; Communications settings retain `draft_only` email policy. Absence of a literal `sms` action does not mean SMS is disabled.
