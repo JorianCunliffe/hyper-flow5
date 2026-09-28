@@ -553,6 +553,8 @@ export interface CommunicationOutcome {
 }
 
 export interface ActionRun {
+  /** Resume this durable operation instead of allocating another dispatch. */
+  recoveryRequired?: boolean;
   id?: string;
   scheduleOccurrenceId?: string;
   at: number;

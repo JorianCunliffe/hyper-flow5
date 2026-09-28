@@ -5,6 +5,7 @@ import { ACTION_TASK_TYPE, resolveNodeStates, isNodeReady, activeOccurrenceId, a
 import { createApprovalAsk, upsertAsk } from './humanAsk.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 import { createHumanHoldAsk } from './flowHoldAsk.js';
+import { isTriageCheckpoint } from './actionRecovery.js';
 
 /**
  * Environment-agnostic flow orchestration.
@@ -26,6 +27,7 @@ export interface ActionExecutionContext {
 }
 
 export interface ActionOutcome {
+  recoveryRequired?: boolean;
   status: 'success' | 'error' | 'pending';
   output?: any;
   logs?: string[];
@@ -59,6 +61,11 @@ export const actionAttemptIdentity = (project: Project, nodeId: string): { runId
   const occurrence = activeOccurrenceId(project.projectData);
   const history = [...(node?.actionConfig?.runHistory || []), ...(node?.actionConfig?.lastRun ? [node.actionConfig.lastRun] : [])];
   const attempt = history.filter(run => run.scheduleOccurrenceId === occurrence).length + 1;
+  const prior = node?.actionConfig?.lastRun;
+  if (prior?.id && prior.scheduleOccurrenceId === occurrence
+      && ((prior.status === 'pending' && prior.recoveryRequired) || (node && isTriageCheckpoint(node, prior)))) {
+    return { runId: prior.id, attempt: Math.max(1, attempt - 1) };
+  }
   const flowRunId = project.projectData?.flow_run_id;
   return { attempt, runId: flowRunId
     ? `op:${encodeURIComponent(String(flowRunId))}:${encodeURIComponent(nodeId)}:${attempt}`
@@ -183,6 +190,7 @@ export const runActionNode = async (
     scheduleOccurrenceId: activeOccurrenceId(project.projectData),
     at: Date.now(),
     status: outcome.status,
+    recoveryRequired: outcome.recoveryRequired,
     executionState:
       outcome.status === 'pending' ? 'waiting'
       : outcome.status === 'success' ? 'completed'
@@ -200,6 +208,7 @@ export const runActionNode = async (
 
   const label =
     outcome.status === 'success' ? 'executed successfully'
+    : outcome.recoveryRequired ? `held for continuation — ${run.error}`
     : outcome.status === 'pending' ? 'dispatched — awaiting callback'
     : `failed — ${run.error}`;
 

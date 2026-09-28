@@ -83,6 +83,7 @@ import { CommitmentsPanel } from './components/CommitmentsPanel';
 import { MeetingsPanel } from './components/MeetingsPanel';
 import { VisibleFlowsPanel } from './components/VisibleFlowsPanel';
 import { CockpitPanel } from './components/CockpitPanel';
+import { manualActionOutcome } from './lib/manualActionOutcome';
 import { DiaryPanel } from './components/DiaryPanel';
 import { PublishingPanel } from './components/PublishingPanel';
 import { TenantOperationsPanel } from './components/TenantOperationsPanel';
@@ -1683,18 +1684,7 @@ export const App: React.FC = () => {
     let data: any = {};
     try { data = JSON.parse(text); } catch (e) { data = { error: text.substring(0, 300) }; }
 
-    if (!res.ok || data.status !== 'success') {
-      return { status: 'error', error: data.error || `HTTP ${res.status}`, logs: data.logs };
-    }
-    return {
-      status: data.pending ? 'pending' : 'success',
-      output: data.output,
-      logs: data.logs,
-      externalId: data.externalId,
-      externalExecutionId: data.externalExecutionId,
-      externalService: data.externalService,
-      startedAt: data.startedAt
-    };
+    return manualActionOutcome(res.ok, res.status, data);
   };
 
   const commitProject = (updated: Project) => {

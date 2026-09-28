@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ActionExecutionContext, ActionExecutor, ActionOutcome } from './flowOrchestrator.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
 import { withActionExecutionScope } from './actionExecutionScope.js';
+import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 
 /** Infrastructure uncertainty must never enter a graph's business retry branch. */
 export class ActionRecoveryRequired extends Error {
@@ -126,6 +127,15 @@ export const durableActionExecutor = (
     if (!row.terminal && !row.outcome) throw new ActionRecoveryRequired('Action result needs reconciliation');
     return row.terminal || row.outcome!;
   } catch (error) {
+    if (taskType === 'run_email_triage' && error instanceof ActionRecoveryRequired && error.message === TRIAGE_BATCH_CHECKPOINT) {
+      // This batch has finished and committed its checkpoint; no request remains
+      // in flight. Release only our lease so the same operation can continue now.
+      await store.transact(orgId, id, current => {
+        if (!current) throw error;
+        return current.owner === owner && !current.outcome && !current.terminal
+          ? { ...current, leaseUntil: 0, updatedAt: now() } : current;
+      });
+    }
     if (error instanceof ActionRecoveryRequired) throw error;
     throw new ActionRecoveryRequired(error instanceof Error ? error.message : String(error));
   }

@@ -28,3 +28,7 @@ Authenticated app members can `POST /api/triage?scope=draft` with `{ "id": "<tri
 Contact creation neither grants project access nor sends communications. Settings exposes the same operation under **Add Communications contact**.
 
 For agent API access, issue a scoped, expiring HyperFlow API credential and supply it through a local environment variable or secret store. Use `Authorization: Bearer <HyperFlow key>`. Do not copy a Communications Service legacy key across tenants or commit credentials. HyperFlow keeps its upstream integration key server-side.
+
+### Manual action recovery
+
+`POST /api/tasks/execute` returns HTTP 503 with `recoverable: true` when the durable action must continue or reconcile. Clients must retain the original `correlation.runId` and treat this as a pending hold, rather than a terminal business failure or a new action. Frozen dispatch inputs remain authoritative. A triage batch checkpoint is immediately resumable; uncertain provider operations retain their existing lease/reconciliation requirements. Downstream actions remain blocked until the complete result succeeds.

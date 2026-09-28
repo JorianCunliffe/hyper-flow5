@@ -53,6 +53,27 @@ test('resumed intake retains earlier enquiries and delivers only the complete di
     }
     const runtime = env.authenticatedContext('hyperflow-runtime-v1', { hyperflow_runtime: true }).database();
     await assertSucceeds(get(ref(runtime, checkpoint)));
+    // Reproduce the deployed browser bug: partial batches used different IDs.
+    await env.clearDatabase();
+    drafts.length = 0;
+    reads.length = 0;
+    await env.withSecurityRulesDisabled(c => set(ref(c.database(), 'projects/batch_fixture/settings/communications'), { allowedAutomaticActions: ['create_draft'] }));
+    await runEmailTriage({ ...input, runId: 'manual-first', batchSize: 2 }, client);
+    await runEmailTriage({ ...input, runId: 'manual-second', batchSize: 2 }, client);
+    const { TRIAGE_BATCH_CHECKPOINT } = await import('../../lib/actionRecovery.js');
+    const { NodeType } = await import('../../types.js');
+    await env.withSecurityRulesDisabled(c => set(ref(c.database(), 'projects/batch_fixture/projects'), [{
+      id: 'morning', projectData: {}, milestones: [{ id: 'triage', nodeType: NodeType.EMAIL_TRIAGE,
+        actionConfig: { template: '{}', runHistory: [{ id: 'manual-first', at: 1, status: 'error', error: TRIAGE_BATCH_CHECKPOINT }],
+          lastRun: { id: 'manual-second', at: 2, status: 'error', error: TRIAGE_BATCH_CHECKPOINT } } }]
+    }]));
+    await Promise.all(getApps().map(deleteApp));
+    const repaired = await runEmailTriage({ ...input, runId: 'manual-second', nodeId: 'triage' }, client);
+    assert.equal(repaired.hasMore, false);
+    assert.equal(repaired.items.length, 7, 'earlier manual batches are recovered into the retained run');
+    assert.equal(drafts.length, 1);
+    assert.match(drafts[0].text, /^7 new messages/);
+    assert.equal(reads.length, 7, 'repair does not classify completed batches twice');
     await env.withSecurityRulesDisabled(c => set(ref(c.database(), 'tenant_lifecycle/batch_fixture/state'), 'suspended'));
     await assertFails(get(ref(runtime, checkpoint)));
   } finally {

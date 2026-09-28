@@ -1,8 +1,11 @@
 import { validateReferenceContext } from '../flowInputs.js';
+import { unfinishedTriageRunIds } from '../actionRecovery.js';
+import { activeOccurrenceId } from '../flowEngine.js';
 import type { CommunicationResult, CommunicationsClient } from '../communications/types.js';
 import { createCommunicationsClient } from '../communications/client.js';
 import {
   listTenantTriageItems,
+  findProject,
   listTriageOccurrenceItems,
   saveTriageOccurrenceItem,
   readCommunicationCursor,
@@ -21,6 +24,7 @@ export type EmailTriageSendPolicy = 'draft_only' | 'allow_approved_send' | 'auto
 export interface RunEmailTriageInput {
   orgId: string;
   projectId?: string;
+  nodeId?: string;
   connectionId: string;
   triagePolicy?: EmailTriagePolicy;
   createDrafts?: boolean;
@@ -205,6 +209,23 @@ export const runEmailTriage = async (
   const loadedThreads = new Map<string, CommunicationResult[]>();
   const processedItems: TriageItem[] = [];
   let skippedCount = 0;
+
+  // Older manual clients allocated a fresh ID for each saved batch. Recover only
+  // the unfinished suffix in this tenant's persisted node history, never caller IDs.
+  if (input.projectId && input.nodeId) {
+    const located = await findProject(input.orgId, input.projectId);
+    const node = located?.project.milestones.find(node => node.id === input.nodeId);
+    const siblings = node ? unfinishedTriageRunIds(node, activeOccurrenceId(located?.project.projectData)) : [];
+    if (siblings.includes(input.runId)) {
+      for (const sibling of siblings.filter(id => id !== input.runId)) {
+        for (const item of await listTriageOccurrenceItems(input.orgId, sibling)) {
+          if (item.projectId === input.projectId && item.connectionId === input.connectionId) {
+            await saveTriageOccurrenceItem(input.runId, item);
+          }
+        }
+      }
+    }
+  }
 
   // A serverless timeout can occur after individual triage items are safely
   // committed but before the cursor is moved. Reuse those project-scoped audit

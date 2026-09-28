@@ -1,5 +1,6 @@
 import { validateReferenceContext } from './flowInputs.js';
 import { ActionRecoveryRequired } from './actionDispatch.js';
+import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 import { executeMailboxDraft } from './mailboxDraftAction.js';
 import { renderActionTemplate, validateOutputSchema, validateFlowOutput } from './flowData.js';
 import { buildCallOverrides, resolveCallTemplate } from './callPrompts.js';
@@ -180,6 +181,7 @@ export async function executeTask(
       const result = await runEmailTriage({
         orgId: correlation.orgId,
         projectId: correlation.projectId,
+        nodeId: correlation.nodeId,
         connectionId,
         triagePolicy: ['all_inbound', 'human_only', 'correlated_only'].includes(String(templateData.triage_policy))
           ? templateData.triage_policy : 'human_only',
@@ -197,7 +199,7 @@ export async function executeTask(
         actor: `flow:${correlation.projectId}:${correlation.nodeId || 'TRIAGE_INBOX'}`,
         createdAt: Number(projectData?.service_configured_at || Date.now())
       });
-      if (result.hasMore) throw new ActionRecoveryRequired('Mailbox batch checkpoint saved; this occurrence will resume before planning');
+      if (result.hasMore) throw new ActionRecoveryRequired(TRIAGE_BATCH_CHECKPOINT);
       return {
         httpStatus: 200,
         body: {

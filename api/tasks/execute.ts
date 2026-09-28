@@ -18,6 +18,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     res.status(result.httpStatus).json(result.body);
   } catch (e: any) {
-    res.status(e instanceof ApiAuthError ? e.status : e?.recoverable ? 503 : 500).json({ error: e?.message || String(e) });
+    res.status(e instanceof ApiAuthError ? e.status : e?.recoverable ? 503 : 500).json({ error: e?.message || String(e), ...(e?.recoverable ? { recoverable: true } : {}) });
   }
 }
