@@ -13,15 +13,16 @@ function commFile(path: string): string {
 
 test('pinned Communications checkout exposes durable in-place mailbox draft revision', () => {
   const v1 = commFile('v1.js');
-  const service = commFile('mailboxDraftUpdate.js');
+  const service = commFile('mailboxService.js');
   const migration = commFile('migrations/026_mailbox_draft_updates.sql');
   const outlook = commFile('outlookMailbox.js');
   const gmail = commFile('gmailMailbox.js');
 
   assert.match(v1, /fastify\.patch\('\/mailboxes\/:connectionId\/drafts\/:draftId'/);
-  assert.match(service, /type:\s*'mailbox_draft_update'/);
-  assert.match(service, /providerDraft\?\.id\s*!==\s*draftId/);
-  assert.match(service, /Provider changed the draft identity during update/);
+  assert.match(service, /claim_mailbox_draft_update/);
+  assert.match(service, /finalize_mailbox_draft_update/);
+  assert.match(service, /providerDraft\.id\s*!==\s*draftId/);
+  assert.match(service, /Provider changed the draft identifier/);
   assert.match(migration, /mailbox_draft_update/);
   assert.match(outlook, /updateOutlookDraft/);
   assert.match(outlook, /isDraft\s*!==\s*true/);
@@ -29,7 +30,8 @@ test('pinned Communications checkout exposes durable in-place mailbox draft revi
   assert.doesNotMatch(outlook.slice(outlook.indexOf('export async function updateOutlookDraft')), /\/send/);
   assert.match(gmail, /updateGmailDraft/);
   assert.match(gmail, /method:\s*'PUT'/);
-  assert.match(gmail, /updated\.id\s*!==\s*draftId/);
+  // Gmail now shares identity validation through its assertion helper.
+  assert.match(gmail, /assertGmailDraft\(updated, draftId\)/);
 });
 
 test('HyperFlow client contract matches the pinned Communications draft PATCH route', async () => {

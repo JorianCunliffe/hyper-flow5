@@ -3,7 +3,7 @@ import type { AskChannel, AskDecision, Attachment, HumanAsk, HumanResponse, Proj
 import { validateResponse } from '../askResponses.js';
 import { getHoldConfig } from '../flowEngine.js';
 import { advanceProjectFlow } from '../flowOrchestrator.js';
-import { applyAskToProject, findAskById, findAskByToken, recordAskResponse, upsertAsk } from '../humanAsk.js';
+import { applyAskToProject, collectValues, collectAttachments, findAskById, findAskByToken, recordAskResponse, upsertAsk } from '../humanAsk.js';
 import { serverExecutor } from '../serverExecutor.js';
 import { findProject, writeProject } from '../serverStore.js';
 import { deliverRaisedAsks } from './deliverRaisedAsks.js';
@@ -81,15 +81,17 @@ const validVariable = (value: unknown): string | undefined => {
   return /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) ? key : undefined;
 };
 
-const resolveHumanWait = (
+export const resolveHumanWait = (
   project: Project,
   nodeId: string,
+  ask: HumanAsk,
   response: HumanResponse,
   now: number
 ): Project => {
   const node = project.milestones.find(item => item.id === nodeId);
   const cfg = node ? getHoldConfig(node) : undefined;
-  if (!node || cfg?.kind !== 'human' || !cfg.holdId || cfg.resolvedAt) return project;
+  if (!node || cfg?.kind !== 'human' || !cfg.holdId || cfg.resolvedAt
+    || ask.nodeId !== nodeId || ask.projectId !== project.id || ask.status !== 'answered') return project;
   const resolved: FlowHoldConfig = {
     ...cfg,
     resolvedAt: now,
@@ -102,8 +104,8 @@ const resolveHumanWait = (
   const payload = {
     decision: response.decision,
     text: response.text,
-    values: response.values,
-    attachments: response.attachments,
+    values: collectValues(ask),
+    attachments: collectAttachments(ask),
     actor: response.actor,
     via: response.via
   };
@@ -232,7 +234,7 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   };
   if (updatedAsk.status === 'answered') {
     project = applyAskToProject(project, updatedAsk.id);
-    project = resolveHumanWait(project, found.ask.nodeId, reviewed.response, input.occurredAt ?? Date.now());
+    project = resolveHumanWait(project, found.ask.nodeId, updatedAsk, reviewed.response, input.occurredAt ?? Date.now());
   }
 
   if (flowRun) {

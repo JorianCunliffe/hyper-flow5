@@ -306,12 +306,12 @@ export const recordAskResponse = (ask: HumanAsk, response: HumanResponse): Human
   return { ...merged, status: 'answered', answeredAt: response.at };
 };
 
-/** All values supplied across an ask's responses, later ones winning. */
+/** Accepted values across responses; provisional interpretations cannot release work. */
 export const collectValues = (ask: HumanAsk): Record<string, any> =>
-  arr<HumanResponse>(ask?.responses).reduce<Record<string, any>>((acc, r) => ({ ...acc, ...(r.values || {}) }), {});
+  arr<HumanResponse>(ask?.responses).filter(r => !r.needsInterpretation).reduce<Record<string, any>>((acc, r) => ({ ...acc, ...(r.values || {}) }), {});
 
 export const collectAttachments = (ask: HumanAsk) =>
-  arr<HumanResponse>(ask?.responses).flatMap(r => arr<Attachment>(r?.attachments));
+  arr<HumanResponse>(ask?.responses).filter(r => !r.needsInterpretation).flatMap(r => arr<Attachment>(r?.attachments));
 
 /** Replaces an ask on a node, preserving order. */
 export const upsertAsk = (node: Milestone, ask: HumanAsk): Milestone => {
