@@ -374,6 +374,11 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     });
   }
 
+  async getMailboxDraftByReceipt(tenantId: string, receiptId: string): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/drafts/receipts/${encodeURIComponent(receiptId)}`, { method: 'GET', tenantId });
+  }
+
   async getMailboxDraft(tenantId: string, connectionId: string, draftId: string): Promise<Record<string, unknown>> {
     this.requireTenant(tenantId);
     return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts/${encodeURIComponent(draftId)}`, {

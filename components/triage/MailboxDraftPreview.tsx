@@ -3,6 +3,30 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 import { firebaseService } from '../../services/firebaseService';
 import type { DraftPreview } from '../../lib/triage/draftPreview';
 
+export const RecoverMailboxDraft: React.FC<{ itemId: string }> = ({ itemId }) => {
+  const [recovered, setRecovered] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (recovered) return <MailboxDraftPreview itemId={itemId} />;
+  const recover = async () => {
+    setBusy(true); setError('');
+    try {
+      const response = await firebaseService.authorizedFetch('/api/triage?scope=draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: itemId })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Unable to recover draft linkage');
+      setRecovered(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to recover draft linkage'); }
+    finally { setBusy(false); }
+  };
+  return <div className="mt-3 text-sm">
+    <p>The saved draft needs to be linked to this email. Recovery verifies the existing draft without creating or sending an email.</p>
+    <button type="button" disabled={busy} onClick={() => void recover()} className="mt-2 font-bold text-indigo-700 disabled:opacity-50">{busy ? 'Verifying draft…' : 'Recover existing draft'}</button>
+    {error && <p role="alert" className="mt-2 text-amber-700">{error}</p>}
+  </div>;
+};
+
 export const loadMailboxDraftPreview = async (itemId: string): Promise<DraftPreview> => {
   const response = await firebaseService.authorizedFetch(`/api/triage?scope=draft&id=${encodeURIComponent(itemId)}`, { cache: 'no-store' });
   const body = await response.json();

@@ -1,4 +1,8 @@
 
+### Existing email draft linkage recovery
+
+Authenticated app members can `POST /api/triage?scope=draft` with `{ "id": "<triage item id>" }` to recover missing linkage from that enquiry's saved agent draft receipt. Callers cannot supply a mailbox, receipt or provider draft ID. Recovery verifies the tenant, original communication, receiving connection, successful receipt and live editable draft before atomically saving linkage and an audit entry. Conflicting linkage returns 409. It does not change review disposition, reroute the enquiry, replay the agent, create a draft, alter its body or send email. Repeated recovery preserves the same linkage. `GET /api/triage?scope=draft&id=...` remains a read-only live preview. Deploy the Communications Service receipt-read endpoint before using recovery.
+
 ### Communications contacts
 
 `GET /api/communications/contacts` lists contacts in the authenticated organisation. Requires a member session or a HyperFlow API key with `communications:read`.

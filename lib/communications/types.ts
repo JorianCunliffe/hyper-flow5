@@ -294,6 +294,7 @@ export interface CommunicationsClient {
   startMailboxOAuth(tenantId: string, initiatorId: string, returnUrl: string, provider: 'gmail' | 'outlook', setupDraftId?: string): Promise<string>;
   startGmailOAuth(tenantId: string, initiatorId: string, returnUrl: string): Promise<string>;
   syncMailbox(tenantId: string, connectionId: string, initiatorId?: string): Promise<Record<string, unknown>>;
+  getMailboxDraftByReceipt(tenantId: string, receiptId: string): Promise<Record<string, unknown>>;
   createMailboxDraft(tenantId: string, connectionId: string, request: MailboxDraftRequest, idempotencyKey: string): Promise<Record<string, unknown>>;
   getMailboxDraft(tenantId: string, connectionId: string, draftId: string): Promise<Record<string, unknown>>;
 }

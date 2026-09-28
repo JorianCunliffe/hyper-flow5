@@ -3,6 +3,7 @@ import { assertHumanDecision } from '../../lib/http/authority.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import { readTriageDraftPreview } from '../../lib/triage/draftPreview.js';
+import { recoverTriageDraft } from '../../lib/triage/recoverDraft.js';
 import {
   claimTriageAgentProposal,
   findProject,
@@ -40,6 +41,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (scope === 'draft') {
       res.setHeader('Cache-Control', 'no-store');
+      if (req.method === 'POST') {
+        return res.status(200).json({ item: await recoverTriageDraft(member.orgId, req.body?.id, `${member.role}:${member.uid}`) });
+      }
       if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
       return res.status(200).json({ draft: await readTriageDraftPreview(member.orgId, req.query.id) });
     }

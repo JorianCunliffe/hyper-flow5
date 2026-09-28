@@ -1324,6 +1324,29 @@ const agentInboxJobRef = (orgId: string, jobId: string) =>
 const agentInboxIndexRef = (orgId: string, jobId: string) =>
   getDb().ref(`agent_inbox_pending/${safeRtdbKey(`${orgId}:${jobId}`)}`);
 
+export const readAgentInboxJob = async (orgId: string, jobId: string): Promise<AgentInboxJob | null> => {
+  const snap = await agentInboxJobRef(orgId, jobId).get();
+  return snap.exists() ? snap.val() as AgentInboxJob : null;
+};
+
+export const recoverTriageDraftLink = async (
+  orgId: string, itemId: string, communicationId: string, connectionId: string, providerDraftId: string,
+  actor: string, ref = triageItemRef(orgId, itemId)
+): Promise<TriageItem | null> => {
+  const now = Date.now();
+  const result = await ref.transaction(current => {
+    if (!current) return null;
+    if (current.orgId !== orgId || current.communicationId !== communicationId
+      || (current.connectionId && current.connectionId !== connectionId)
+      || (current.providerDraftId && current.providerDraftId !== providerDraftId)) return undefined;
+    if (current.connectionId === connectionId && current.providerDraftId === providerDraftId) return current;
+    const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
+    return { ...current, connectionId, providerDraftId, updatedAt: now,
+      audit: [...audit, { at: now, action: 'draft:link_recovered', actor }].slice(-100) };
+  });
+  return result.committed ? result.snapshot.val() as TriageItem : null;
+};
+
 export const enqueueAgentInboxJob = async (
   input: Omit<AgentInboxJob, 'status' | 'attemptCount' | 'createdAt' | 'updatedAt'>
 ): Promise<AgentInboxJob> => {

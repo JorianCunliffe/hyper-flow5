@@ -12,7 +12,7 @@ import type {
 } from '../../types';
 import { triageRecommendedAction, triageResponsePresentation, triageResponseToneClass } from './triagePresentation';
 import { coachingPresentation, coachingToneClass } from './coachingPresentation';
-import { MailboxDraftPreview } from './MailboxDraftPreview';
+import { MailboxDraftPreview, RecoverMailboxDraft } from './MailboxDraftPreview';
 
 export type TriageSelection =
   | { kind: 'email'; item: TriageItem }
@@ -180,7 +180,7 @@ const EmailDetail: React.FC<{
                 <div className="flex items-center gap-2 font-bold text-indigo-800"><FileText size={18} /> Draft prepared</div>
                 {item.providerDraftId && item.connectionId
                   ? <MailboxDraftPreview key={`${item.id}:${item.providerDraftId}`} itemId={item.id} />
-                  : <p className="mt-2 text-sm text-indigo-600">Open your mailbox’s Drafts folder to review this draft. Its mailbox connection is not recorded on this email.</p>}
+                  : <RecoverMailboxDraft key={item.id} itemId={item.id} />}
               </div>
             ) : (
               <div className={`rounded-xl p-4 ${triageResponseToneClass(responsePresentation.tone)}`}>
