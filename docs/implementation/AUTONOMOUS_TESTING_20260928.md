@@ -72,6 +72,8 @@ Replit's production schema review showed only an additive nullable text column. 
 
 These guards detect changes already present at the provider GET. They are not atomic provider compare-and-swap and do not establish SH-21's concurrent-edit guarantee. Live provider conflict tests and an explicit operator reconciliation workflow for old drafts remain outstanding; the existing Morning Run Outlook draft must not be silently re-baselined to bypass this hold.
 
+Outlook follow-up `3046dc8`: PATCH now contains only explicitly supplied fields. It no longer copies omitted body/recipient fields from a stale GET. A simulated between-read-and-write edit to those unrelated fields survives a subject-only update; an explicitly empty CC array still clears CC. All 423 Communications tests passed. This narrows the overwrite surface; it does not prove concurrent updates to the same field are protected. The official Gmail draft-update reference does not establish an atomic version precondition, and the Graph message-update reference alone does not establish that guarantee for both providers.
+
 ### Contact-policy audit and regression
 
 Read-only production inspection confirmed Brisbane contact hours 09:00–17:00, a tenant daily budget of 20 and a per-contact daily budget of 2. Carol has only the Morning Run project grant; Jorian also has its grant. The separate capability-policy record is absent. Legacy actions include `send`, which enables SMS as well as email authority; Communications settings retain `draft_only` email policy. Absence of a literal `sms` action does not mean SMS is disabled.
