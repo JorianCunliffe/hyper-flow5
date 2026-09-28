@@ -12,6 +12,55 @@ import { action, project } from './helpers.js';
 import { HttpCommunicationsClient } from '../lib/communications/client.js';
 import { serverExecutor } from '../lib/serverExecutor.js';
 import { coachingRetryPolicy } from '../lib/coachingRetry.js';
+import { executeMailboxDraft } from '../lib/mailboxDraftAction.js';
+
+for (const code of ['DRAFT_PROVIDER_CHANGED', 'DRAFT_VERSION_UNAVAILABLE']) {
+  test(`mailbox ${code} survives durable retry and blocks downstream allocations and SMS`, async () => {
+    const { store, rows } = memoryStore();
+    let now = 1;
+    const requests: Array<{ key: string | null; body: string }> = [];
+    const client = new HttpCommunicationsClient({ baseUrl: 'https://communications.example.invalid', apiKey: 'fixture',
+      fetchImpl: async (_url, init) => {
+        requests.push({ key: new Headers(init?.headers).get('Idempotency-Key'), body: String(init?.body) });
+        return new Response(JSON.stringify({ error: 'Draft needs operator review before updating', code }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+      }
+    });
+    const original = project([
+      action('UPDATE', NodeType.MAILBOX_DRAFT_UPDATE, { actionConfig: { autoExecute: true, template: '{}' } }),
+      action('SHEET', NodeType.GOOGLE_SHEET_UPSERT, { dependsOn: ['UPDATE'], actionConfig: { autoExecute: true, template: '{}' } }),
+      action('SMS', NodeType.SMS, { dependsOn: ['SHEET'], actionConfig: { autoExecute: true, template: '{}' } })
+    ], { flow_run_id: 'draft-conflict', flow_occurrence_id: 'morning', triage_connection_id: 'mailbox' });
+    const downstream: string[] = [];
+    const execute = durableActionExecutor(async (type, _template, _data, context) => {
+      if (type !== 'update_mailbox_draft') { downstream.push(type); return { status: 'success', output: {} }; }
+      try {
+        const output = await executeMailboxDraft(type, { provider_draft_id: 'held-draft', to: ['fixture@example.invalid'], subject: 'Confirmed', text: 'Draft only', revision: 1 }, context, {
+          findProject: async () => ({ project: original } as any),
+          listMailboxConnectionRefs: async () => [{ id: 'mailbox', provider: 'outlook', state: 'connected' } as any],
+          client: () => client
+        });
+        return { status: 'success', output };
+      } catch (error: any) {
+        // The task adapter converts API failures to error outcomes.
+        return { status: 'error', error: error.message };
+      }
+    }, store, () => now);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await assert.rejects(advanceProjectFlow(clone(original), execute, { orgId: 'tenant' }),
+        error => error instanceof ActionRecoveryRequired && /operator review/.test(error.message));
+      // Restart after the dispatch lease expires; the same durable identity is retained.
+      now += 120_001;
+    }
+    assert.deepEqual(downstream, []);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[0], requests[1]);
+    assert.equal(rows.size, 1);
+    const receipt = [...rows.values()][0];
+    assert.equal(receipt.state, 'dispatching');
+    assert.equal(receipt.outcome, undefined);
+    assert.equal(receipt.terminal, undefined);
+  });
+}
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const memoryStore = () => {

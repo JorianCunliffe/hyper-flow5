@@ -78,9 +78,9 @@ export const fixtures = {
 
 export const knownGaps = [
   'Provider outcomes and planning/classification are canned, not acceptance evidence.',
-  'Generic test-runs do not resume human answers or external callbacks; finalisation is unexecuted.',
+  'Generic test-runs do not resume human answers or external callbacks; the separate continuation regression covers synthetic finalisation only.',
   'Integrated morning escalation does not express inbound primary-no-answer SMS-before-fallback order.',
   'End-of-run audit does not yet prove logging of each failed contact at the time it occurs.',
   'Resource grants, schedule and contact authority need dedicated APIs and UI verification; graph save alone does not configure them.',
-  'No complete prompt-compiler representation or proof of human-edited draft conflict protection.',
+  'No complete prompt-compiler representation or live proof of same-field concurrent draft-edit protection; provider-version guards have component coverage.',
 ];
