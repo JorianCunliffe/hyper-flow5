@@ -180,7 +180,7 @@ export const taskContracts = {
     "Create a native draft in the project-selected mailbox; never send",
   ),
   update_mailbox_draft: contract(
-    { ...draft, provider_draft_id: s },
+    { ...draft, provider_draft_id: s, revision: { type: 'integer', minimum: 1 } },
     ["provider_draft_id", "to", "subject", "text"],
     ["provider_draft_id", "connection_id", "draft_only"],
     "Update the original native draft in the project-selected mailbox; never send",

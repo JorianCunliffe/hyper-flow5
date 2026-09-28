@@ -49,11 +49,13 @@ export interface FlowOutputSchema {
   enum?: Array<string | number | boolean>;
   description?: string;
   maxItems?: number;
+  minItems?: number;
+  minimum?: number;
   additionalProperties?: false;
 }
 export const validateOutputSchema = (schema: any, depth = 0): FlowOutputSchema => {
   if (!schema || typeof schema !== 'object' || depth > 8 || !['object', 'array', 'string', 'number', 'integer', 'boolean'].includes(schema.type)) throw new Error('Invalid structured output schema');
-  const supported = new Set(['type', 'properties', 'required', 'items', 'enum', 'description', 'maxItems', 'additionalProperties']);
+  const supported = new Set(['type', 'properties', 'required', 'items', 'enum', 'description', 'maxItems', 'minItems', 'minimum', 'additionalProperties']);
   if (Object.keys(schema).some(key => !supported.has(key)) || (schema.additionalProperties !== undefined && schema.additionalProperties !== false)) throw new Error('Unsupported structured output schema option');
   if (schema.type === 'object') {
     if (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties) || Object.keys(schema.properties).length > 50) throw new Error('Object schema needs up to 50 named properties');
@@ -65,12 +67,15 @@ export const validateOutputSchema = (schema: any, depth = 0): FlowOutputSchema =
   }
   if (schema.type === 'array') validateOutputSchema(schema.items, depth + 1);
   if (schema.maxItems !== undefined && (!Number.isInteger(schema.maxItems) || schema.maxItems < 0 || schema.maxItems > 100)) throw new Error('maxItems must be 0–100');
+  if (schema.minItems !== undefined && (schema.type !== 'array' || !Number.isInteger(schema.minItems) || schema.minItems < 0 || schema.minItems > (schema.maxItems ?? 100))) throw new Error('minItems must be within the array maximum');
+  if (schema.minimum !== undefined && (!['number', 'integer'].includes(schema.type) || typeof schema.minimum !== 'number' || !Number.isFinite(schema.minimum))) throw new Error('minimum requires a finite numeric bound');
   if (schema.enum !== undefined && (!Array.isArray(schema.enum) || !schema.enum.length || schema.enum.length > 100)) throw new Error('Invalid schema enum');
   return schema;
 };
 export const validateFlowOutput = (value: any, schema: FlowOutputSchema, path = 'output'): void => {
   const valid = schema.type === 'array' ? Array.isArray(value) : schema.type === 'object' ? value !== null && typeof value === 'object' && !Array.isArray(value) : schema.type === 'integer' ? Number.isInteger(value) : schema.type === 'number' ? typeof value === 'number' && Number.isFinite(value) : typeof value === schema.type;
   if (!valid) throw new Error(`${path} must be ${schema.type}`);
+  if (schema.minimum !== undefined && value < schema.minimum) throw new Error(`${path} is below minimum`);
   if (schema.enum && !schema.enum.includes(value)) throw new Error(`${path} is not an allowed value`);
   if (schema.type === 'object') {
     for (const key of schema.required || []) if (!Object.hasOwn(value, key)) throw new Error(`${path}.${key} is required`);
@@ -80,6 +85,7 @@ export const validateFlowOutput = (value: any, schema: FlowOutputSchema, path = 
     }
   }
   if (schema.type === 'array') {
+    if (value.length < (schema.minItems ?? 0)) throw new Error(`${path} has too few items`);
     if (value.length > (schema.maxItems ?? 100)) throw new Error(`${path} has too many items`);
     value.forEach((item: any, index: number) => validateFlowOutput(item, schema.items!, `${path}.${index}`));
   }

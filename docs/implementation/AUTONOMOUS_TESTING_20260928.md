@@ -44,6 +44,10 @@ Inserted `08b — Update existing mailbox drafts with confirmed answers` between
 
 Remaining configuration includes verified communication logging, the finalisation prompt's exact row contracts and attendance/contact eligibility checks, and confirming the team call identity. The controlled enquiry is still awaiting correct project routing. These configuration improvements are not live execution acceptance.
 
+Follow-up: the communication log now consumes successful draft-update receipts, using their provider draft ID, revision and update timestamp. Its text explicitly records an unsent draft; this does not cover the separate required call/SMS failure audit. The finalisation prompt now specifies exact Sheet columns, attended exclusions, source person identities and pending human email delivery. Human review remains required.
+
+Two additional code gaps surfaced during this setup: the mailbox action adapter discarded supplied revisions, and structured schemas rejected minimum/minItems constraints. The adapter now validates and forwards optional positive integer revisions; the published API contract includes revision. Schema validation now supports finite numeric minimums and array lower bounds, with regressions for invalid revisions, short/long rows and invalid schemas. This guards service revisions; human edits made directly in the provider still require separate conflict evidence. The live finalisation schema must be tightened after this deployment; its currently saved prompt alone is not row-length enforcement.
+
 ## Remaining acceptance work
 
 The live enquiry is not yet routed into Morning Run. Its existing clarification draft must be preserved when progressing. The live graph still needs complete finalisation bindings, draft-update wiring and appropriate provider/contact checks. Real Gmail recovery, full team-answer/callback paths, provider failures and SH-01–SH-24 require further evidence. No synthetic fixture result or green deployment changes the overall acceptance result.

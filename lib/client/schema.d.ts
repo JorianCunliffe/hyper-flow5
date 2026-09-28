@@ -1688,6 +1688,7 @@ export interface components {
             in_reply_to?: string;
             references?: string;
             provider_draft_id: string;
+            revision?: number;
         } & {
             [key: string]: unknown;
         };

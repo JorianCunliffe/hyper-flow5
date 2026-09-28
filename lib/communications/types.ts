@@ -261,6 +261,7 @@ export interface CommunicationsPersonRef {
 }
 
 export interface MailboxDraftRequest {
+  revision?: number;
   to: string[];
   cc?: string[];
   bcc?: string[];

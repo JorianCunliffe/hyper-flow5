@@ -2211,6 +2211,10 @@
                 },
                 "provider_draft_id": {
                   "type": "string"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
                 }
               },
               "required": [
@@ -32157,6 +32161,10 @@
           },
           "provider_draft_id": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "required": [

@@ -99,11 +99,15 @@ test('mailbox update targets the same draft and project mailbox, even with email
     listMailboxConnectionRefs:async()=>[{id:'outlook1',state:'connected',provider:'outlook'}],
     client:()=>({updateMailboxDraft:async(...args:any[])=>{calls.push(args);return {provider_draft_id:args[2]};}})
   };
-  const input = {provider_draft_id:'draft1',to:['person@example.com'],subject:'Inspection',text:'Confirmed'};
+  const input = {provider_draft_id:'draft1',to:['person@example.com'],subject:'Inspection',text:'Confirmed',revision:3};
   const ctx={orgId:'org',projectId:'p',runId:'op1'};
   const result=await executeMailboxDraft('update_mailbox_draft',input,ctx,deps);
   assert.equal(result.provider_draft_id,'draft1'); assert.equal(result.draft_only,true);
   assert.equal(calls[0][1],'outlook1'); assert.equal(calls[0][4],'op1');
+  assert.equal(calls[0][3].revision,3, 'preserve the reviewed revision for service conflict checks');
+  for (const revision of [0, -1, 1.5, '3', null]) {
+    await assert.rejects(executeMailboxDraft('update_mailbox_draft',{...input,revision},ctx,deps),/positive integer/);
+  }
   await assert.rejects(executeMailboxDraft('update_mailbox_draft',{...input,connection_id:'other'},ctx,deps),/project’s mailbox/);
   await assert.rejects(executeMailboxDraft('update_mailbox_draft',{...input,provider_draft_id:''},ctx,deps),/original provider_draft_id/);
   assert.equal(calls.length,1);

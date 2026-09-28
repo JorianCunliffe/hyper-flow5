@@ -21,6 +21,10 @@ export const executeMailboxDraft = async (
   if (!to.length || to.length > 25 || to.some(address => typeof address !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))) throw new Error('Draft recipients must be email addresses');
   if (typeof input.subject !== 'string' || typeof input.text !== 'string' || !input.text.trim()) throw new Error('Draft subject and text are required');
   const request: MailboxDraftRequest = { to, subject: input.subject, text: input.text };
+  if (operation === 'update_mailbox_draft' && input.revision !== undefined) {
+    if (!Number.isInteger(input.revision) || input.revision < 1) throw new Error('Draft revision must be a positive integer');
+    request.revision = input.revision;
+  }
   for (const key of ['communication_id', 'provider_thread_id', 'in_reply_to', 'references'] as const) {
     if (input[key] !== undefined) {
       if (typeof input[key] !== 'string') throw new Error(`Draft ${key} must be text`);
