@@ -20,6 +20,53 @@ import { continuationHold } from '../lib/flowHoldStore';
 import { updateFlowRunFromProject } from '../lib/flowRun';
 import { claimContactDay, contactWindowOpen, type ContactDay } from '../lib/cockpit/contactPolicy';
 
+test('incident escalation waits for verified no-answer, sends primary SMS before fallback, and retains one Ask', async () => {
+  let now = Date.parse('2026-09-28T00:00:00Z');
+  let disposition = 'pending';
+  let allowSms = false;
+  const plan = { mode: 'incident' as const, primaryPersonId: 'primary', fallbackPersonId: 'fallback', retryMinutes: 10,
+    repeatLocalTime: '09:15', timezone: 'Australia/Brisbane', daysOfWeek: [1,2,3,4,5] };
+  const wait: any = { id: 'incident', name: 'Locate team', nodeType: NodeType.WAIT, subtasks: [],
+    holdConfig: { kind: 'human', human: { kind: 'question', prompt: 'Where is the team?', fields: [{ name: 'location', type: 'string', required: true }], escalation: plan } } };
+  const p = project([wait], { flow_run_id: 'incident-run', flow_occurrence_id: 'inbound-E1' });
+  let ask = createHumanHoldAsk(p, wait);
+  const originalId = ask.id;
+  const sent: string[] = [];
+  const rows = new Map<string, any>();
+  const store: DispatchStore = { async transact(org, id, update) { const key = `${org}/${id}`; const row = update(rows.get(key) || null); rows.set(key, row); return row; } };
+  const deps: any = {
+    now: () => now,
+    client: () => ({ getCommunication: async () => ({ id: 'call', status: disposition === 'pending' ? 'pending' : 'completed', outcome: { disposition } }) }),
+    readTenantAgentProfile: async () => ({ automaticActions: ['call', 'sms'] }),
+    readTenantCapabilityPolicy: async () => ({}),
+    resolveGrantedPersonTarget: async ({ personId }: any) => personId,
+    claimContactDispatch: async (_org: string, input: any) => ({ allowed: input.channel !== 'sms' || allowSms, reason: 'SMS contact policy hold' }),
+    readTenantCommunicationsSettings: async () => ({}),
+    durableActionExecutor: (execute: any) => durableActionExecutor(execute, store, () => now),
+    deliverAsk: async ({ personId, channel }: any) => { sent.push(`${personId}:${channel}`); return { id: `comm-${sent.length}` }; }
+  };
+  const tick = async () => { now = Math.max(now, ask.escalationState?.nextAt || now); ask = await deliverEscalatedAsk(p, 'org', JSON.parse(JSON.stringify(ask)), plan, deps); };
+  await tick(); await tick();
+  assert.deepEqual(sent, ['primary:voice']);
+  assert.equal(ask.escalationState?.step, 0);
+  disposition = 'no_answer'; await tick();
+  assert.equal(ask.escalationState?.nextAt, now, 'no ten-minute incident retry');
+  await tick();
+  assert.equal(ask.escalationState?.step, 1);
+  assert.match(ask.escalationState?.error || '', /policy hold/);
+  assert.deepEqual(sent, ['primary:voice'], 'policy denial cannot skip ahead to fallback');
+  allowSms = true; await tick(); await tick();
+  assert.deepEqual(sent, ['primary:voice', 'primary:sms', 'fallback:voice']);
+  await tick();
+  assert.equal(ask.escalationState?.cycle, 1);
+  assert.ok(ask.escalationState!.nextAt > now);
+  assert.equal(ask.id, originalId);
+  assert.equal(ask.status, 'open');
+  const count = sent.length;
+  await deliverEscalatedAsk(p, 'org', { ...ask, status: 'answered' }, plan, deps);
+  assert.equal(sent.length, count);
+});
+
 test('no-answer escalation retains its callback step when the shared contact budget is exhausted', async () => {
   let now = Date.parse('2026-09-28T00:00:00Z');
   const policy = { startHour: 9, endHour: 17, maxPerDay: 20, maxPerContact: 2 };

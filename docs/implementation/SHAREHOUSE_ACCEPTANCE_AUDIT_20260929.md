@@ -27,7 +27,7 @@
 | SH-13 later weekday/new E5 intake | NOT RUN | Occurrence checkpoint and escalation component coverage exist. Combined held Ask, new intake, preserved drafts and refreshed capacity need scenario/provider evidence. |
 | SH-14 voice-to-SMS/callback answers | NOT RUN | Ask and callback regression suites pass. Controlled cross-channel confirmation, corrected/delayed answers and two-Ask isolation remain unverified. |
 | SH-15 identity and permitted history | NOT RUN | Existing context/thread tests support boundaries. Controlled follow-up across email/SMS/voice for this scenario is absent. |
-| SH-16 immediate inbound incident | BLOCKED | Isolated acknowledgement stays on its branch. Candidate graph does not implement the required primary-no-answer SMS-before-fallback order; live incident branch is absent. |
+| SH-16 immediate inbound incident | BLOCKED | Isolated acknowledgement stays on its branch. The candidate graph now uses incident escalation (primary call, verified no-answer, primary SMS, fallback call), with component and editor round-trip checks. The live incident branch and complete provider scenario remain absent. |
 | SH-17 concurrent incidents/replayed events | NOT RUN | General event/dispatch tests exist. Two live Sharehouse incidents alongside the held morning Ask have not been exercised. |
 | SH-18 inbound unavailable/closed-hours hold | NOT RUN | Contact-policy regression preserves holds. Full inbound response/recovery scenario is not configured or demonstrated. |
 | SH-19 restart/lease/callback recovery | NOT RUN | Firebase integration covers cold transactions, isolation and replay. Complete connected provider restart and delayed callback scenario remains unproven. |

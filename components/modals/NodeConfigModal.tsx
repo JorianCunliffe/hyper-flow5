@@ -70,6 +70,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
   const [holdHumanKind, setHoldHumanKind] = useState<AskKind>(initialHold.human?.kind || 'question');
   const [holdHumanPrompt, setHoldHumanPrompt] = useState(initialHold.human?.prompt || '');
   const [escalationEnabled, setEscalationEnabled] = useState(Boolean(initialHold.human?.escalation));
+  const [escalationMode, setEscalationMode] = useState<'morning' | 'incident'>(initialHold.human?.escalation?.mode || 'morning');
   const [primaryPerson, setPrimaryPerson] = useState(initialHold.human?.escalation?.primaryPersonId || '');
   const [fallbackPerson, setFallbackPerson] = useState(initialHold.human?.escalation?.fallbackPersonId || '');
   const [retryMinutes, setRetryMinutes] = useState(initialHold.human?.escalation?.retryMinutes || 10);
@@ -227,7 +228,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
           kind: holdHumanKind,
           prompt: holdHumanPrompt.trim() || undefined,
           fieldsSource: holdHumanFieldsSource.trim() || undefined,
-          escalation: escalationEnabled ? { primaryPersonId: primaryPerson.trim(), fallbackPersonId: fallbackPerson.trim(), retryMinutes, repeatLocalTime, timezone: 'Australia/Brisbane', daysOfWeek: [1,2,3,4,5] } : undefined,
+          escalation: escalationEnabled ? { mode: escalationMode, primaryPersonId: primaryPerson.trim(), fallbackPersonId: fallbackPerson.trim(), retryMinutes, repeatLocalTime, timezone: 'Australia/Brisbane', daysOfWeek: [1,2,3,4,5] } : undefined,
           assignees: csv(holdHumanAssignees).length ? csv(holdHumanAssignees) : undefined,
           channels: escalationEnabled ? ['web', 'voice', 'sms'] : holdHumanChannels.length ? holdHumanChannels : ['web']
         };
@@ -397,11 +398,12 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
                 <fieldset className="border rounded p-3 space-y-2">
                   <label className="flex gap-2 text-xs"><input type="checkbox" checked={escalationEnabled} onChange={e => setEscalationEnabled(e.target.checked)} />Retry and escalate until answered</label>
                   {escalationEnabled && <>
+                    <label className="block text-xs">Contact sequence<select value={escalationMode} onChange={e => setEscalationMode(e.target.value as 'morning' | 'incident')} className="w-full border rounded px-2 py-1"><option value="morning">Morning: retry primary, then fallback, then SMS both</option><option value="incident">Incident: primary call, primary SMS, fallback call</option></select></label>
                     <label className="block text-xs">Primary Communications person ID<input className="w-full border rounded px-2 py-1" value={primaryPerson} onChange={e => setPrimaryPerson(e.target.value)} /></label>
                     <label className="block text-xs">Fallback Communications person ID<input className="w-full border rounded px-2 py-1" value={fallbackPerson} onChange={e => setFallbackPerson(e.target.value)} /></label>
-                    <label className="block text-xs">Retry primary after minutes<input type="number" min={1} max={1440} value={retryMinutes} onChange={e => setRetryMinutes(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></label>
+                    {escalationMode === 'morning' && <label className="block text-xs">Retry primary after minutes<input type="number" min={1} max={1440} value={retryMinutes} onChange={e => setRetryMinutes(Number(e.target.value))} className="w-full border rounded px-2 py-1" /></label>}
                     <label className="block text-xs">Repeat weekdays at (Brisbane)<input type="time" value={repeatLocalTime} onChange={e => setRepeatLocalTime(e.target.value)} className="w-full border rounded px-2 py-1" /></label>
-                    <p className="text-xs">Primary call → timed retry → fallback call → SMS both. The same question set stays open until answered. Project grants, automatic call/SMS permission and contact limits apply.</p>
+                    <p className="text-xs">{escalationMode === 'incident' ? 'Primary call → verified no-answer → SMS primary → fallback call. No timed primary retry in this sequence.' : 'Primary call → timed retry → fallback call → SMS both.'} The same question set stays open until answered. Unresolved work repeats at the configured weekday time. Project grants, automatic call/SMS permission and contact limits apply.</p>
                   </>}
                 </fieldset>
                 <label className="block"><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Question fields source</span><input className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono" value={holdHumanFieldsSource} onChange={(e) => setHoldHumanFieldsSource(e.target.value)} placeholder="daily_plan.open_questions" /><span className="mt-1 block text-[10px] text-slate-500">Dot path to an upstream project-data array. The schema is frozen when this Ask opens.</span></label>

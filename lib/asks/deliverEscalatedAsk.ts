@@ -7,7 +7,7 @@ import { assertCapabilityAllowed } from '../capabilityPolicy.js';
 import { resolveGrantedPersonTarget } from '../actionTarget.js';
 import { durableActionExecutor } from '../actionDispatch.js';
 import { deliverAsk } from './deliverAsk.js';
-import { escalationStep, nextEscalationCycle, reconcileEscalationCall, validateEscalation, type EscalationPlan } from './askEscalation.js';
+import { escalationStep, escalationLastStep, nextEscalationCycle, reconcileEscalationCall, validateEscalation, type EscalationPlan } from './askEscalation.js';
 
 /** One durable escalation transition per wakeup. The original Ask owns all answers. */
 const defaults = { now: Date.now, client: createCommunicationsClient, readTenantAgentProfile, readTenantCapabilityPolicy, resolveGrantedPersonTarget, claimContactDispatch, readTenantCommunicationsSettings, durableActionExecutor, deliverAsk };
@@ -49,7 +49,7 @@ export const deliverEscalatedAsk = async (project: Project, orgId: string, ask: 
     const communicationId = String(outcome.output.communication_id);
     return { ...ask,
       escalationState: channel === 'voice' ? { ...state, awaitingId: communicationId, nextAt: now + 60_000, error: undefined }
-        : state.step === 4 ? nextEscalationCycle(plan, state, now) : { ...state, step: state.step + 1, nextAt: now, error: undefined },
+        : state.step === escalationLastStep(plan) ? nextEscalationCycle(plan, state, now) : { ...state, step: state.step + 1, nextAt: now, error: undefined },
       deliveries: [...(ask.deliveries || []), { channel, personId, deliveryAskId, deliveryToken, communicationId, status: 'accepted', at: now }]
     };
   } catch (error: any) {

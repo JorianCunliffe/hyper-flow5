@@ -23517,6 +23517,12 @@
                                     "escalation": {
                                       "type": "object",
                                       "properties": {
+                                        "mode": {
+                                          "enum": [
+                                            "morning",
+                                            "incident"
+                                          ]
+                                        },
                                         "primaryPersonId": {
                                           "type": "string",
                                           "maxLength": 20000
@@ -24532,6 +24538,12 @@
                                     "escalation": {
                                       "type": "object",
                                       "properties": {
+                                        "mode": {
+                                          "enum": [
+                                            "morning",
+                                            "incident"
+                                          ]
+                                        },
                                         "primaryPersonId": {
                                           "type": "string",
                                           "maxLength": 20000
@@ -25918,6 +25930,12 @@
                               "escalation": {
                                 "type": "object",
                                 "properties": {
+                                  "mode": {
+                                    "enum": [
+                                      "morning",
+                                      "incident"
+                                    ]
+                                  },
                                   "primaryPersonId": {
                                     "type": "string",
                                     "maxLength": 20000
@@ -26842,6 +26860,12 @@
                               "escalation": {
                                 "type": "object",
                                 "properties": {
+                                  "mode": {
+                                    "enum": [
+                                      "morning",
+                                      "incident"
+                                    ]
+                                  },
                                   "primaryPersonId": {
                                     "type": "string",
                                     "maxLength": 20000
@@ -32850,6 +32874,12 @@
                         "escalation": {
                           "type": "object",
                           "properties": {
+                            "mode": {
+                              "enum": [
+                                "morning",
+                                "incident"
+                              ]
+                            },
                             "primaryPersonId": {
                               "type": "string",
                               "maxLength": 20000
@@ -33667,6 +33697,12 @@
                   "escalation": {
                     "type": "object",
                     "properties": {
+                      "mode": {
+                        "enum": [
+                          "morning",
+                          "incident"
+                        ]
+                      },
                       "primaryPersonId": {
                         "type": "string",
                         "maxLength": 20000
@@ -34878,6 +34914,12 @@
                                 "escalation": {
                                   "type": "object",
                                   "properties": {
+                                    "mode": {
+                                      "enum": [
+                                        "morning",
+                                        "incident"
+                                      ]
+                                    },
                                     "primaryPersonId": {
                                       "type": "string",
                                       "maxLength": 20000
@@ -35692,6 +35734,12 @@
                           "escalation": {
                             "type": "object",
                             "properties": {
+                              "mode": {
+                                "enum": [
+                                  "morning",
+                                  "incident"
+                                ]
+                              },
                               "primaryPersonId": {
                                 "type": "string",
                                 "maxLength": 20000

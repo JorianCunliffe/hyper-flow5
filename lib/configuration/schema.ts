@@ -86,6 +86,7 @@ const human = obj({
   responsePolicy: { enum: ["any", "all", "quorum"] },
   quorum: num,
   escalation: obj({
+    mode: { enum: ['morning', 'incident'] },
     primaryPersonId: str,
     fallbackPersonId: str,
     retryMinutes: num,

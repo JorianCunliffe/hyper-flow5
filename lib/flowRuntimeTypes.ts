@@ -40,6 +40,7 @@ export interface FlowHoldConfig {
      */
     fieldsSource?: string;
     escalation?: {
+      mode?: 'morning' | 'incident';
       primaryPersonId: string;
       fallbackPersonId: string;
       retryMinutes: number;

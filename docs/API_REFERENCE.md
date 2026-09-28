@@ -1,4 +1,10 @@
 
+### Human Ask escalation sequences
+
+`holdConfig.human.escalation.mode` accepts `morning` (default when omitted) or `incident`. Morning keeps the existing primary call, timed primary retry, fallback call, then SMS to both contacts. Incident calls primary, waits for verified no-answer, sends primary's callback SMS, then calls fallback without a timed primary retry. Pending/unknown call outcomes cannot advance either sequence. A policy hold retains the same step; it cannot skip the primary SMS to reach fallback.
+
+Both sequences retain the owning Ask and its validated answer requirements. A completed call alone does not answer it. After an unanswered sequence, the next cycle uses the configured weekday/time; contact hours, budgets, grants and capability checks still apply. Incident does not add a fallback SMS. `retryMinutes` remains part of the configuration but applies only to morning mode. The node editor exposes the same selector. No change to a mode grants contact authority.
+
 ### Sheet upsert planning snapshots and retries
 
 The `upsert_google_sheet` task accepts optional `expected_row`: the complete row returned by the planning read, or `null` when the key was absent. It compares that snapshot with the current matching row before writing. Changed/deleted rows, a newly present key, or duplicate matching keys hold the action without a provider write. Trailing empty cells are normalized. Omission retains unconditional upsert behavior; workflows requiring stale-data protection must bind the snapshot explicitly, without asking a model to invent it.

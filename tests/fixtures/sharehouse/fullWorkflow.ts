@@ -30,12 +30,12 @@ const action = (id: string, nodeType: NodeType, dependsOn: string[], template: o
   id, name: id.replaceAll('_', ' '), nodeType, dependsOn, subtasks: [],
   actionConfig: { autoExecute: true, template: JSON.stringify(template), ...(resultVariable ? { resultVariable } : {}), ...(forEach ? { forEach } : {}) },
 });
-const hold = (id: string, dependsOn: string[], prompt: string, fieldsSource?: string): any => ({
+const hold = (id: string, dependsOn: string[], prompt: string, fieldsSource?: string, mode: 'morning' | 'incident' = 'morning'): any => ({
   id, name: id.replaceAll('_', ' '), nodeType: NodeType.WAIT, subtasks: [], dependsOn,
   holdConfig: { kind: 'human', payloadVariable: `${id}_answer`, human: {
     kind: 'question', prompt, ...(fieldsSource ? { fieldsSource } : { fields: [{ name: 'team_answer', label: 'Where is the team?', type: 'string', required: true }] }),
     channels: ['web', 'voice', 'sms'], assignees: ['team-primary'],
-    escalation: { ...setup.team, retryMinutes: 10, repeatLocalTime: '09:15', timezone: 'Australia/Brisbane', daysOfWeek: [1, 2, 3, 4, 5] },
+    escalation: { mode, ...setup.team, retryMinutes: 10, repeatLocalTime: '09:15', timezone: 'Australia/Brisbane', daysOfWeek: [1, 2, 3, 4, 5] },
   } },
 });
 export function fullWorkflow(): any {
@@ -58,7 +58,7 @@ export function fullWorkflow(): any {
       action('audit', NodeType.GOOGLE_SHEET_APPEND, ['notify'], { resource_name: 'communications', values: '{{final_output.auditRows}}', idempotency_key: '{{final_output.auditOperationId}}' }, 'audited'),
       { id: 'inbound', name: 'Inspection enquiry event', nodeType: NodeType.EVENT_TRIGGER, dependsOn: [], subtasks: [], eventTriggerConfig: { eventTypes: ['communication.received'], channels: ['sms'], directions: ['inbound'], personIds: ['enquirer-E1', 'enquirer-E2'], payloadVariable: 'incident' } },
       action('acknowledge', NodeType.SMS, ['inbound'], { target_source: 'event_person', body: 'I am checking with the team.' }, 'acknowledged'),
-      hold('incident_answers', ['acknowledge'], 'Confirm where the team is for this inspection.'),
+      hold('incident_answers', ['acknowledge'], 'Confirm where the team is for this inspection.', undefined, 'incident'),
       action('reply', NodeType.SMS, ['incident_answers'], { target_source: 'event_person', body: '{{incident_answers_answer.values.team_answer}}' }, 'replied'),
       action('incident_audit', NodeType.GOOGLE_SHEET_APPEND, ['reply'], { resource_name: 'communications', values: [['Fixture incident resolved']], idempotency_key: '{{flow_run_id}}' }, 'incident_logged'),
     ],
@@ -79,7 +79,7 @@ export const fixtures = {
 export const knownGaps = [
   'Provider outcomes and planning/classification are canned, not acceptance evidence.',
   'Generic test-runs do not resume human answers or external callbacks; the separate continuation regression covers synthetic finalisation only.',
-  'Integrated morning escalation does not express inbound primary-no-answer SMS-before-fallback order.',
+  'Incident escalation has component coverage but the full inbound provider scenario is not verified.',
   'End-of-run audit does not yet prove logging of each failed contact at the time it occurs.',
   'Resource grants, schedule and contact authority need dedicated APIs and UI verification; graph save alone does not configure them.',
   'No complete prompt-compiler representation or live proof of same-field concurrent draft-edit protection; provider-version guards have component coverage.',

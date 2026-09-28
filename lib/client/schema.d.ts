@@ -1833,6 +1833,8 @@ export interface components {
                         responsePolicy?: "any" | "all" | "quorum";
                         quorum?: number;
                         escalation?: {
+                            /** @enum {unknown} */
+                            mode?: "morning" | "incident";
                             primaryPersonId?: string;
                             fallbackPersonId?: string;
                             retryMinutes?: number;
@@ -2012,6 +2014,8 @@ export interface components {
                     responsePolicy?: "any" | "all" | "quorum";
                     quorum?: number;
                     escalation?: {
+                        /** @enum {unknown} */
+                        mode?: "morning" | "incident";
                         primaryPersonId?: string;
                         fallbackPersonId?: string;
                         retryMinutes?: number;
@@ -2280,6 +2284,8 @@ export interface components {
                             responsePolicy?: "any" | "all" | "quorum";
                             quorum?: number;
                             escalation?: {
+                                /** @enum {unknown} */
+                                mode?: "morning" | "incident";
                                 primaryPersonId?: string;
                                 fallbackPersonId?: string;
                                 retryMinutes?: number;
@@ -2458,6 +2464,8 @@ export interface components {
                         responsePolicy?: "any" | "all" | "quorum";
                         quorum?: number;
                         escalation?: {
+                            /** @enum {unknown} */
+                            mode?: "morning" | "incident";
                             primaryPersonId?: string;
                             fallbackPersonId?: string;
                             retryMinutes?: number;
@@ -15859,6 +15867,8 @@ export interface operations {
                                     responsePolicy?: "any" | "all" | "quorum";
                                     quorum?: number;
                                     escalation?: {
+                                        /** @enum {unknown} */
+                                        mode?: "morning" | "incident";
                                         primaryPersonId?: string;
                                         fallbackPersonId?: string;
                                         retryMinutes?: number;
@@ -16163,6 +16173,8 @@ export interface operations {
                                     responsePolicy?: "any" | "all" | "quorum";
                                     quorum?: number;
                                     escalation?: {
+                                        /** @enum {unknown} */
+                                        mode?: "morning" | "incident";
                                         primaryPersonId?: string;
                                         fallbackPersonId?: string;
                                         retryMinutes?: number;
@@ -16707,6 +16719,8 @@ export interface operations {
                                 responsePolicy?: "any" | "all" | "quorum";
                                 quorum?: number;
                                 escalation?: {
+                                    /** @enum {unknown} */
+                                    mode?: "morning" | "incident";
                                     primaryPersonId?: string;
                                     fallbackPersonId?: string;
                                     retryMinutes?: number;
@@ -16989,6 +17003,8 @@ export interface operations {
                                 responsePolicy?: "any" | "all" | "quorum";
                                 quorum?: number;
                                 escalation?: {
+                                    /** @enum {unknown} */
+                                    mode?: "morning" | "incident";
                                     primaryPersonId?: string;
                                     fallbackPersonId?: string;
                                     retryMinutes?: number;
