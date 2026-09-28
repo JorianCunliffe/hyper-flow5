@@ -1,3 +1,4 @@
+import { recordAgentDraft } from './triage/agentDraft.js';
 import { conversationEvidence, conversationInstructions, continuityRules, type ConversationEvidence } from './conversationContinuity.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import type {
@@ -270,8 +271,7 @@ const deliverAgentReply = async (
         in_reply_to: communication.messageId,
         references: communication.messageId
       }, `hyperflow:agent:${job.orgId}:${job.id}:draft:v1`);
-      const id = String(draft.id || draft.provider_draft_id || '');
-      if (!id) throw new Error('Communications API did not return a mailbox draft id');
+      const id = await recordAgentDraft(job.orgId, job.communicationId, settings.mailboxConnectionId!, draft);
       return { kind: 'drafted', id };
     }
     const identity = settings.defaultEmailIdentity || profile.serviceIdentities?.email;

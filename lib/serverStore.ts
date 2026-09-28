@@ -1044,13 +1044,16 @@ export const readTenantTriageItem = async (orgId: string, itemId: string): Promi
 export const patchTenantTriageItem = async (
   orgId: string,
   itemId: string,
-  patch: Partial<Pick<TriageItem, 'projectId' | 'askId' | 'proposedAction' | 'interpretation' | 'agentProposal'>>,
+  patch: Partial<Pick<TriageItem, 'projectId' | 'askId' | 'proposedAction' | 'interpretation' | 'agentProposal' | 'connectionId' | 'providerDraftId'>>,
   actor: string,
-  action: string
+  action: string,
+  ref = triageItemRef(orgId, itemId)
 ): Promise<TriageItem | null> => {
   const now = Date.now();
-  const result = await triageItemRef(orgId, itemId).transaction(current => {
-    if (!current) return undefined;
+  const result = await ref.transaction(current => {
+    // null proposes a no-op for a missing record, allowing Firebase to retry
+    // with server data when the local cache is cold. undefined would abort.
+    if (!current) return null;
     const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
     return {
       ...current,
@@ -1067,11 +1070,12 @@ export const setTenantTriageDisposition = async (
   itemId: string,
   disposition: TriageDisposition,
   actor: string,
-  detail?: string
+  detail?: string,
+  ref = triageItemRef(orgId, itemId)
 ): Promise<TriageItem | null> => {
   const now = Date.now();
-  const result = await triageItemRef(orgId, itemId).transaction(current => {
-    if (!current) return undefined;
+  const result = await ref.transaction(current => {
+    if (!current) return null;
     const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
     return {
       ...current,

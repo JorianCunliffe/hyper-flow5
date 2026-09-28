@@ -65,3 +65,9 @@ Full acceptance remains NOT ACCEPTED. Do not clear old receipts, change operatio
 - **Additional gap:** the original triage record lacks `connectionId` and `providerDraftId`, and agent draft completion stores only the receipt ID on the job. Consequently, the Response tab cannot open the native draft preview and says its mailbox connection is not recorded. The triage disposition also remained `new`; its transaction currently aborts on an initially null Firebase cache value. These need repair and verification rather than manual success claims.
 
 The 409 recovery is verified, but the full Sharehouse flow remains **NOT ACCEPTED**. No live call, SMS, or Sheet write occurred in this recovery. Next: explicitly associate the enquiry with Morning Run through a supported reviewed action, preserve the existing draft when progressing, and repair agent-draft preview metadata before continuing the full workflow.
+
+### Agent draft linkage repair
+
+Agent draft completion now records the receiving mailbox connection and provider draft ID on the enquiry before reporting success. The job retains the separate internal receipt ID. Missing provider identity or failed enquiry persistence raises an error instead of reporting a usable draft. The existing create idempotency key is unchanged.
+
+Triage patch and disposition transactions now return null for an initially empty local cache so Firebase can retry against the server record. Truly missing records remain absent. Regression coverage exercises cold-cache linkage, audit preservation, provider preview using the saved Outlook identifiers, missing enquiries, and rejection of receipt-only responses. Existing historical records are not automatically backfilled; the recovered live draft still requires controlled linkage and preview verification. Project routing and full Morning Run acceptance remain outstanding.
