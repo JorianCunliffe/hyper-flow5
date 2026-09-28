@@ -114,3 +114,7 @@ Implement and verify Phase 11 tenant operations and API parity, then repeat impl
 Phase 12 now has a pinned cross-service CI job and a combined contact, commitment, weekly report and recovery journey. Provider-target acceptance, backup restore and CEO signoff remain open; see [P12](implementation/P12.md).
 
 9 September follow-up: the selected live CEO meeting-to-fulfillment journey and isolated provider file restore passed. Workbook clipping was fixed and deployed;585 tests and13 integrated scenarios pass. Google document access and report export work for the CEO account. Diary requires calendar-specific consent through its booking-access button. See the final controlled-journey record in [P12](implementation/P12.md).
+
+### 29 September live triage continuation repair
+
+Release `685d2d1` preserves the manual operation ID across recoverable API responses and recovers earlier batches saved under legacy manual run IDs. All 824 unit tests, the Firebase recovery regression, typecheck/build/API checks and three CI jobs passed; production deployed Ready. The actual Morning Run intake then completed with all 17 messages under one retained run ID, followed by planning. Acceptance remains blocked at original Outlook draft reuse/version reconciliation; no live contacts were dispatched. See [live test evidence](implementation/LIVE_TEST_20260929.md).
