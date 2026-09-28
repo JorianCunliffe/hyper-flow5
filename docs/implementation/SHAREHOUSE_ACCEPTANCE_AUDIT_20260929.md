@@ -4,6 +4,8 @@
 
 ## Verified release and test evidence
 
+- Latest functional release `be441e5` (incident sequence): all three CI jobs passed (`36437435393`); Vercel production Ready with alias assigned, deployment `dpl_14B7GuvhfijyqykXyHFaWjgnfm3m`. Local full suite passed 819 tests. The isolated editor save/reload check passed; this does not establish live incident acceptance.
+
 - HyperFlow functional release `4f61f7e`: Vercel production Ready, alias `hyper-flow5.vercel.app`, deployment `dpl_C9a2KurbUSH6oESYCwJEJGayQp62`. CI `36434965719` passed all three jobs, including 818 unit tests and 22 integration tests. Live configuration evidence was committed in `d38b086`.
 - Communications functional source `3046dc8` plus publication checkpoint `1c7a6c5`: live health rechecked as `ok`, v2.8.2, build `2cb054e83fc4`. Test-only commit `5d2c5a2` passed all 427 tests. Four new cases drive the actual Gmail/Outlook adapters through the service state machine with simulated sent/deleted provider states: exact retries perform one total read, zero mutations/replacements, preserve draft ID/revision and retain failed receipts. They do not prove the live provider race cases.
 - [Dated execution record](AUTONOMOUS_TESTING_20260928.md) records repairs, intermediate failures, migrations, configuration and limits. Production health and CI do not establish provider acceptance.
@@ -46,3 +48,5 @@
 5. **Workflow implementation:** finish the inbound incident path, per-attempt contact audit and compiler parity, then execute the complete scenario. Component coverage cannot waive these requirements.
 
 No calls, SMS, automatic emails or Sheet business writes were performed during this audit. No permissions, contact caps or hours were widened.
+
+Final live-prerequisite check at 00:39 Brisbane re-read the tenant profile: contact hours remain 09:00–17:00, per-contact cap two and daily cap twenty. These limits and missing inspection decisions prevent the requested controlled completion. Routing authority and legacy-draft reconciliation remain unresolved. Stop at this live acceptance boundary pending operator input; do not label the implementation complete or activate the schedule. Remaining code/acceptance gaps above must still be addressed when work resumes.
