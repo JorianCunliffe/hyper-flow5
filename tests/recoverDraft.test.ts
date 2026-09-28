@@ -2,19 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { recoverTriageDraft } from '../lib/triage/recoverDraft.js';
 import { recoverTriageDraftLink } from '../lib/serverStore.js';
+import { readTriageDraftPreview } from '../lib/triage/draftPreview.js';
 
-function fixture() {
+function fixture(connection = 'outlook', draftId = 'draft') {
   const item: any = { id: 'item', orgId: 'tenant', communicationId: 'email', channel: 'email' };
   const job: any = { orgId: 'tenant', communicationId: 'email', responseDraftId: 'receipt' };
-  const draft: any = { id: 'receipt', tenant_id: 'tenant', communication_id: 'email', status: 'created', provider_connection_id: 'outlook', provider_draft_id: 'draft', provider: { id: 'draft', is_draft: true } };
+  const draft: any = { id: 'receipt', tenant_id: 'tenant', communication_id: 'email', status: 'created', provider_connection_id: connection, provider_draft_id: draftId, provider: { id: draftId, message_id: 'separate-message', is_draft: true } };
   let saves = 0;
   const deps: any = {
     readItem: async () => item, readJob: async () => job, requireProject: async () => {},
     client: () => ({
       getMailboxDraftByReceipt: async (org: string, id: string) => { assert.deepEqual([org, id], ['tenant', 'receipt']); return draft; },
-      getCommunication: async () => ({ id: 'email', connectionId: 'outlook' })
+      getCommunication: async () => ({ id: 'email', connectionId: connection })
     }),
-    save: async (...args: unknown[]) => { saves++; assert.deepEqual(args, ['tenant', 'item', 'email', 'outlook', 'draft', 'actor']); return { ...item, connectionId: 'outlook', providerDraftId: 'draft' }; }
+    save: async (...args: unknown[]) => { saves++; assert.deepEqual(args, ['tenant', 'item', 'email', connection, draftId, 'actor']); return { ...item, connectionId: connection, providerDraftId: draftId }; }
   };
   return { item, job, draft, deps, saves: () => saves };
 }
@@ -22,6 +23,21 @@ function fixture() {
 test('recovers an existing draft by exact receipt, with no creation or replay capability', async () => {
   const f = fixture();
   assert.equal((await recoverTriageDraft('tenant', 'item', 'actor', f.deps)).providerDraftId, 'draft');
+  assert.equal(f.saves(), 1);
+});
+
+test('Gmail recovery and preview use the draft ID rather than its separate message ID', async () => {
+  const f = fixture('gmail', 'r-123');
+  const item = await recoverTriageDraft('tenant', 'item', 'actor', f.deps);
+  const preview = await readTriageDraftPreview('tenant', 'item', {
+    readItem: async () => item, requireProject: async () => {},
+    client: () => ({ getMailboxDraft: async (...args: string[]) => {
+      assert.deepEqual(args, ['tenant', 'gmail', 'r-123']);
+      return { ...f.draft, preview: { provider: 'gmail', body: 'Edited in Gmail', to: ['person@example.com'] } };
+    } })
+  } as any);
+  assert.equal(preview.provider, 'gmail');
+  assert.equal(preview.body, 'Edited in Gmail');
   assert.equal(f.saves(), 1);
 });
 
