@@ -127,10 +127,11 @@ export const taskContracts = {
       key_column: { type: "number" },
       key_value: {},
       values,
+      expected_row: { anyOf: [{ type: "array", maxItems: 50, items: {} }, { type: "null" }] },
     },
     ["idempotency_key", "key_column", "key_value", "values"],
     ["google_sheet_updated", "google_sheet_write"],
-    "Real allowlisted row upsert",
+    "Real allowlisted row upsert; expected_row checks the planning snapshot (null requires an absent row). This read-before-write check is not an atomic provider precondition.",
   ),
   extract_coaching_result: contract(
     {

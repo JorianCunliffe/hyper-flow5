@@ -1,4 +1,12 @@
 
+### Sheet upsert planning snapshots and retries
+
+The `upsert_google_sheet` task accepts optional `expected_row`: the complete row returned by the planning read, or `null` when the key was absent. It compares that snapshot with the current matching row before writing. Changed/deleted rows, a newly present key, or duplicate matching keys hold the action without a provider write. Trailing empty cells are normalized. Omission retains unconditional upsert behavior; workflows requiring stale-data protection must bind the snapshot explicitly, without asking a model to invent it.
+
+This is a read-before-write guard, not atomic Google Sheets compare-and-swap. It does not protect a change between the final read and provider write or enforce inspection capacity across rows. Those acceptance requirements remain unverified.
+
+Sheet append/upsert receipts are never automatically reclaimed after failure or lease expiry: the provider may already have accepted the write. Same-key retries return a completed receipt or the unresolved error without dispatching again. Changing a snapshot or payload under the same key is rejected. Inspect the provider and saved receipt before any operator recovery; choosing a new key alone is not reconciliation. There is not yet a supported automatic reconciliation path for an ambiguous Sheet write.
+
 ### Existing email draft linkage recovery
 
 Authenticated app members can `POST /api/triage?scope=draft` with `{ "id": "<triage item id>" }` to recover missing linkage from that enquiry's saved agent draft receipt. Callers cannot supply a mailbox, receipt or provider draft ID. Recovery verifies the tenant, original communication, receiving connection, successful receipt and live editable draft before atomically saving linkage and an audit entry. Conflicting linkage returns 409. It does not change review disposition, reroute the enquiry, replay the agent, create a draft, alter its body or send email. Repeated recovery preserves the same linkage. `GET /api/triage?scope=draft&id=...` remains a read-only live preview. Deploy the Communications Service receipt-read endpoint before using recovery.

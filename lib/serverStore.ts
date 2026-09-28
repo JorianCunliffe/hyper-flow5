@@ -1741,12 +1741,9 @@ export const claimExternalActionReceipt = async (
       conflict = true;
       return undefined;
     }
-    if (current?.status === 'completed') {
-      duplicate = true;
-      return undefined;
-    }
-    const active = current?.status === 'running' && now - Number(current.startedAt || 0) <= 10 * 60_000;
-    if (active) {
+    // A failed request or expired lease may already have changed the provider.
+    // Without provider reconciliation, the same key must never dispatch again.
+    if (current) {
       duplicate = true;
       return undefined;
     }
@@ -1766,10 +1763,14 @@ export const finishExternalActionReceipt = async (
   const ref = getDb().ref(
     `external_action_receipts/${safeRtdbKey(receipt.orgId)}/${safeRtdbKey(receipt.idempotencyKey)}`
   );
-  await ref.transaction(current => {
-    if (!current || current.id !== receipt.id || current.requestHash !== receipt.requestHash) return undefined;
+  const finished = await ref.transaction(current => {
+    // A cold Admin SDK cache starts at null. Returning null lets Firebase
+    // compare against server state and retry instead of silently aborting.
+    if (!current) return current;
+    if (current.id !== receipt.id || current.requestHash !== receipt.requestHash) return undefined;
     return { ...current, ...JSON.parse(JSON.stringify(result)), completedAt: Date.now() };
   });
+  if (!finished.committed || !finished.snapshot.exists()) throw new Error('External action receipt could not be finalized');
 };
 
 export const upsertCoachingSession = async (

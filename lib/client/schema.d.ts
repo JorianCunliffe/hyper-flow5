@@ -1645,6 +1645,7 @@ export interface components {
             key_column: number;
             key_value: unknown;
             values: unknown[];
+            expected_row?: unknown[] | null;
         } & {
             [key: string]: unknown;
         };

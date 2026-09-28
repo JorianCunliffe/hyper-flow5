@@ -254,7 +254,9 @@ export const appendGrantedGoogleSheet = async (
   const claimed = await claimExternalActionReceipt(receipt);
   if (claimed.duplicate) {
     if (claimed.receipt.status === 'completed') return claimed.receipt.response || {};
-    throw new Error('Google Sheet action is already running');
+    throw new Error(claimed.receipt.error
+      ? `${claimed.receipt.error}; review the saved Sheet operation before retrying`
+      : 'Google Sheet action is running or unresolved; review its receipt before retrying');
   }
   try {
     const accessToken = await googleAccessToken(orgId, grant.connectionId);
@@ -295,17 +297,21 @@ export const upsertGrantedGoogleSheet = async (
   idempotencyKey: string,
   keyColumn: number,
   keyValue: unknown,
-  values: unknown[]
+  values: unknown[],
+  expectedRow?: unknown[] | null
 ): Promise<Record<string, unknown>> => {
   if (!idempotencyKey.trim()) throw new Error('idempotencyKey is required');
   if (!Number.isInteger(keyColumn) || keyColumn < 0 || keyColumn >= 50) throw new Error('keyColumn must be a zero-based column index from 0 to 49');
   if (keyValue === undefined || keyValue === null || String(keyValue).trim() === '') throw new Error('keyValue is required');
   if (!Array.isArray(values) || values.length === 0 || values.length > 50) throw new Error('Google Sheet upsert values must contain 1-50 columns');
   if (String(values[keyColumn] ?? '') !== String(keyValue)) throw new Error('The upsert row value at keyColumn must equal keyValue');
+  if (expectedRow !== undefined && expectedRow !== null && (!Array.isArray(expectedRow) || expectedRow.length > 50)) {
+    throw new Error('expected_row must be a row of at most 50 cells, or null for a new row');
+  }
   const grant = await requireGrant(orgId, projectId);
   const selected = resolveGoogleSheetGrant(grant, 'upsert');
   const writableRange = parseWritableRange(selected.range);
-  const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, keyColumn, keyValue, values });
+  const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, keyColumn, keyValue, values, expectedRow });
   const receipt: ExternalActionReceipt = {
     id: randomUUID(), orgId, projectId, kind: 'google_sheet_upsert', idempotencyKey,
     requestHash: hash, status: 'running', startedAt: Date.now()
@@ -313,7 +319,9 @@ export const upsertGrantedGoogleSheet = async (
   const claimed = await claimExternalActionReceipt(receipt);
   if (claimed.duplicate) {
     if (claimed.receipt.status === 'completed') return claimed.receipt.response || {};
-    throw new Error('Google Sheet action is already running');
+    throw new Error(claimed.receipt.error
+      ? `${claimed.receipt.error}; review the saved Sheet operation before retrying`
+      : 'Google Sheet action is running or unresolved; review its receipt before retrying');
   }
   try {
     const accessToken = await googleAccessToken(orgId, grant.connectionId);
@@ -324,6 +332,18 @@ export const upsertGrantedGoogleSheet = async (
     const matches = (current.values || []).map((row, index) => ({ row, index }))
       .filter(entry => String(entry.row[keyColumn] ?? '') === String(keyValue));
     if (matches.length > 1) throw new Error('Google Sheet upsert key is ambiguous because multiple rows match');
+    if (expectedRow !== undefined) {
+      // Sheets omits trailing empty cells. Compare the complete observed row,
+      // including columns the proposed replacement would otherwise overwrite.
+      const normalized = (row: unknown[]) => {
+        const cells = row.map(cell => cell === null ? '' : cell);
+        while (cells.length && cells[cells.length - 1] === '') cells.pop();
+        return cells;
+      };
+      const unchanged = expectedRow === null ? matches.length === 0
+        : matches.length === 1 && JSON.stringify(normalized(matches[0].row)) === JSON.stringify(normalized(expectedRow));
+      if (!unchanged) throw new Error('Google Sheet row changed since planning; review current data before writing');
+    }
     let result: Record<string, unknown>;
     let operation: 'updated' | 'appended';
     if (matches.length === 1) {
