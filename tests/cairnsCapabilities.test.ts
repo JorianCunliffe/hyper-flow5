@@ -227,6 +227,59 @@ test('mailbox update targets the same draft and project mailbox, even with email
   assert.equal(calls.length,1);
 });
 
+test('draft creation for an email with a linked draft updates that same draft and never creates another', async () => {
+  const creates:any[]=[]; const updates:any[]=[]; const links:any[]=[];
+  let item:any={id:'comm1',orgId:'org',communicationId:'comm1',connectionId:'outlook1',providerDraftId:'draft-original'};
+  let updateError:any;
+  const deps:any = {
+    findProject:async()=>({project:{projectData:{triage_connection_id:'outlook1'}}}),
+    listMailboxConnectionRefs:async()=>[{id:'outlook1',state:'connected',provider:'outlook'}],
+    client:()=>({
+      createMailboxDraft:async(...args:any[])=>{creates.push(args);return {id:'receipt-new',provider_draft_id:'draft-new',status:'created'};},
+      updateMailboxDraft:async(...args:any[])=>{updates.push(args);if(updateError)throw updateError;return {provider_draft_id:args[2],revision:2};},
+    }),
+    readTriageItem:async(_org:string,id:string)=>item && item.id===id ? item : null,
+    readAgentJob:async()=>null,
+    linkDraft:async(...args:any[])=>{links.push(args);return {...item,providerDraftId:args[4]};},
+  };
+  const ctx={orgId:'org',projectId:'p',runId:'op1'};
+  const input={to:['person@example.com'],subject:'Inspection',text:'Updated plan',communication_id:'comm1',in_reply_to:'<m1@example.com>'};
+  const reused:any=await executeMailboxDraft('create_mailbox_draft',input,ctx,deps);
+  assert.equal(reused.provider_draft_id,'draft-original'); assert.equal(reused.reused_existing_draft,true);
+  assert.equal(creates.length,0); assert.equal(updates[0][2],'draft-original'); assert.equal(updates[0][4],'op1');
+
+  // A legacy draft without its provider version is held with an explanation, never recreated.
+  const { CommunicationsApiError } = await import('../lib/communications/errors');
+  updateError=new CommunicationsApiError('Communications API returned 409',409,{code:'DRAFT_VERSION_UNAVAILABLE'});
+  await assert.rejects(executeMailboxDraft('create_mailbox_draft',input,ctx,deps),/DRAFT_VERSION_UNAVAILABLE.*no saved provider version/);
+  assert.equal(creates.length,0);
+  await assert.rejects(executeMailboxDraft('update_mailbox_draft',{...input,provider_draft_id:'draft-original'},ctx,deps),/DRAFT_VERSION_UNAVAILABLE/);
+  updateError=undefined;
+
+  // A draft linked to another mailbox is not touched.
+  item={...item,connectionId:'gmail-other'};
+  await assert.rejects(executeMailboxDraft('create_mailbox_draft',input,ctx,deps),/different mailbox/);
+
+  // An unlinked earlier receipt must be recovered first.
+  item={id:'comm1',orgId:'org',communicationId:'comm1'};
+  deps.readAgentJob=async()=>({responseDraftId:'receipt-old'});
+  await assert.rejects(executeMailboxDraft('create_mailbox_draft',input,ctx,deps),/earlier draft receipt/);
+  assert.equal(creates.length,0);
+
+  // Without any earlier draft, create once and link it for later reuse.
+  deps.readAgentJob=async()=>null;
+  const created=await executeMailboxDraft('create_mailbox_draft',input,ctx,deps);
+  assert.equal(created.provider_draft_id,'draft-new'); assert.equal(creates.length,1);
+  assert.deepEqual(links[0].slice(0,5),['org','comm1','comm1','outlook1','draft-new']);
+  deps.linkDraft=async()=>null;
+  await assert.rejects(executeMailboxDraft('create_mailbox_draft',input,ctx,deps),/different draft/);
+
+  // A reply that omits its source email cannot prove no draft exists.
+  const {communication_id:_omit,...withoutSource}=input;
+  await assert.rejects(executeMailboxDraft('create_mailbox_draft',withoutSource,ctx,deps),/source communication_id/);
+  assert.equal(creates.length,2);
+});
+
 test('escalation requires verified failure, delays the retry, and repeats weekdays with one open Ask', () => {
   const plan = {primaryPersonId:'primary',fallbackPersonId:'fallback',retryMinutes:10,repeatLocalTime:'09:15',timezone:'Australia/Brisbane',daysOfWeek:[1,2,3,4,5]};
   const now = Date.parse('2026-09-18T00:00:00Z');

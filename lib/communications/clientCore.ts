@@ -386,6 +386,14 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     });
   }
 
+  /** Approve the reviewed live content of a legacy draft as its saved provider version. Never writes the provider. */
+  async adoptMailboxDraftBaseline(tenantId: string, connectionId: string, draftId: string, review: { reviewed_content_hash: string; expected_revision: number; initiator_id?: string }): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts/${encodeURIComponent(draftId)}/baseline`, {
+      method: 'POST', tenantId, body: review
+    });
+  }
+
   private async communicationRequest(
     path: string,
     options: {

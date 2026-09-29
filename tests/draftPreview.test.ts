@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readTriageDraftPreview, safeDraftWebUrl } from '../lib/triage/draftPreview';
+import { readTriageDraftPreview, safeDraftWebUrl, adoptTriageDraftBaseline } from '../lib/triage/draftPreview';
+import { CommunicationsApiError } from '../lib/communications/errors';
 
 const fixture = () => {
   const item = { id: 'email', orgId: 'tenant', projectId: 'project', connectionId: 'mailbox', providerDraftId: 'draft' };
@@ -43,4 +44,31 @@ test('sent, deleted, mismatched and legacy responses are never presented as curr
 test('only HTTPS Outlook provider links are exposed', () => {
   for (const url of ['javascript:alert(1)', 'https://outlook.office.com.evil.test/mail', 'http://outlook.office.com/mail', 'https://secret@outlook.office.com/mail', 'https://evil.test/', 'https://outlook.office.com:8443/mail']) assert.equal(safeDraftWebUrl(url, 'outlook'), undefined);
   assert.equal(safeDraftWebUrl('https://outlook.cloud.microsoft/mail/?id=1', 'outlook'), 'https://outlook.cloud.microsoft/mail/?id=1');
+});
+
+test('legacy draft preview exposes its review hash and approval addresses only the linked draft', async () => {
+  const f = fixture();
+  const hash = 'a'.repeat(64);
+  Object.assign(f.result, { revision: 1, provider_change_key: null });
+  (f.result.preview as any).content_hash = hash;
+  const draft = await readTriageDraftPreview('tenant', 'email', f.deps);
+  assert.equal(draft.baselineRequired, true); assert.equal(draft.contentHash, hash); assert.equal(draft.revision, 1);
+  (f.result as any).provider_change_key = 'saved';
+  assert.equal((await readTriageDraftPreview('tenant', 'email', f.deps)).baselineRequired, false);
+
+  const adoptions: unknown[][] = [];
+  let failure: unknown;
+  f.deps.client = () => ({ adoptMailboxDraftBaseline: async (...args: unknown[]) => {
+    adoptions.push(args); if (failure) throw failure; return { provider_draft_id: 'draft', baseline_adopted: true, revision: 1 };
+  } });
+  await assert.rejects(adoptTriageDraftBaseline('tenant', 'email', { contentHash: 'short', revision: 1 }, 'owner:u', f.deps), /Review the current draft/);
+  await assert.rejects(adoptTriageDraftBaseline('tenant', 'email', { contentHash: hash, revision: '1' }, 'owner:u', f.deps), /Review the current draft/);
+  assert.equal(adoptions.length, 0);
+  assert.deepEqual(await adoptTriageDraftBaseline('tenant', 'email', { contentHash: hash, revision: 1 }, 'owner:u', f.deps), { adopted: true, revision: 1 });
+  assert.deepEqual(adoptions[0], ['tenant', 'mailbox', 'draft', { reviewed_content_hash: hash, expected_revision: 1, initiator_id: 'owner:u' }]);
+  failure = new CommunicationsApiError('Communications API returned 409', 409, { code: 'DRAFT_PROVIDER_CHANGED' });
+  await assert.rejects(adoptTriageDraftBaseline('tenant', 'email', { contentHash: hash, revision: 1 }, 'owner:u', f.deps), (error: any) => error.status === 409 && /changed in the mailbox/.test(error.message));
+  f.item.providerDraftId = '';
+  await assert.rejects(adoptTriageDraftBaseline('tenant', 'email', { contentHash: hash, revision: 1 }, 'owner:u', f.deps), /No mailbox draft/);
+  assert.equal(adoptions.length, 2);
 });
