@@ -34,6 +34,15 @@ export const loadMailboxDraftPreview = async (itemId: string): Promise<DraftPrev
   return body.draft;
 };
 
+export const adoptMailboxDraftBaseline = async (itemId: string, draft: DraftPreview): Promise<void> => {
+  const response = await firebaseService.authorizedFetch('/api/triage?scope=draft', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: itemId, action: 'adopt_baseline', contentHash: draft.contentHash, revision: draft.revision })
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || 'Unable to approve this draft');
+};
+
 // A template is inert: no scripts execute, links navigate or remote images load.
 // Display only text, including for provider drafts that contain HTML signatures.
 export const draftBodyText = (draft: DraftPreview): string => {
@@ -49,7 +58,10 @@ export const draftBodyText = (draft: DraftPreview): string => {
 export const MailboxDraftPreview: React.FC<{
   itemId: string;
   load?: (itemId: string) => Promise<DraftPreview>;
-}> = ({ itemId, load = loadMailboxDraftPreview }) => {
+  adopt?: (itemId: string, draft: DraftPreview) => Promise<void>;
+}> = ({ itemId, load = loadMailboxDraftPreview, adopt = adoptMailboxDraftBaseline }) => {
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState('');
   const [revision, setRevision] = useState(0);
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const [error, setError] = useState('');
@@ -63,6 +75,13 @@ export const MailboxDraftPreview: React.FC<{
     return () => { active = false; };
   }, [itemId, revision, load]);
   const text = useMemo(() => draft ? draftBodyText(draft) : '', [draft]);
+  const approve = async () => {
+    if (!draft) return;
+    setApproving(true); setApproveError('');
+    try { await adopt(itemId, draft); setRevision(value => value + 1); }
+    catch (reason) { setApproveError(reason instanceof Error ? reason.message : 'Unable to approve this draft'); }
+    finally { setApproving(false); }
+  };
   return <section aria-label="Mailbox draft preview" className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-slate-700">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="font-bold">Mailbox draft</h3>
@@ -84,6 +103,13 @@ export const MailboxDraftPreview: React.FC<{
       <p className="mt-4 text-xs text-slate-500">Read from {draft.provider === 'outlook' ? 'Outlook' : 'Gmail'} at {new Date(draft.fetchedAt).toLocaleTimeString()}. Review and edit in your mailbox. Nothing is sent from this preview.</p>
       {draft.truncated && <p className="mt-2 text-xs text-amber-700">This long draft is truncated. Review the complete draft in your mailbox.</p>}
       {!draft.webUrl && <p className="mt-2 text-xs text-slate-500">Open your mailbox’s Drafts folder to edit this draft.</p>}
+      {draft.baselineRequired && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p>HyperFlow has no saved version of this draft, so workflow updates to it are on hold. Check the content above is the draft HyperFlow may replace, then approve it. Approval saves this exact version. It does not edit or send the draft.</p>
+        {draft.contentHash && draft.revision
+          ? <button type="button" disabled={approving} onClick={() => void approve()} className="mt-2 font-bold text-indigo-700 disabled:opacity-50">{approving ? 'Approving…' : 'Approve this draft for updates'}</button>
+          : <p className="mt-2">The mailbox service must be updated before this draft can be approved.</p>}
+        {approveError && <p role="alert" className="mt-2 text-amber-700">{approveError}</p>}
+      </div>}
     </>}
   </section>;
 };
