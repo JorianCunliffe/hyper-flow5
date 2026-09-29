@@ -2,7 +2,8 @@ import { deliverEscalatedAsk } from './deliverEscalatedAsk.js';
 import { getHoldConfig } from '../flowEngine.js';
 import type { HumanAsk, Project } from '../../types.js';
 import { upsertAsk } from '../humanAsk.js';
-import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
+import { readTenantCommunicationsSettings } from '../serverStore.js';
+import { resolveAskRecipient } from './resolveAskRecipient.js';
 import { deliverAsk } from './deliverAsk.js';
 import { createHash } from 'node:crypto';
 import { durableActionExecutor } from '../actionDispatch.js';
@@ -46,7 +47,7 @@ export const deliverRaisedAsks = async (
         const deliveryAskId = `delivery_${createHash('sha256').update(identity).digest('hex')}`;
         const deliveryToken = createHash('sha256').update(JSON.stringify([ask.token, identity])).digest('hex');
         try {
-          const recipient = await resolveTeamMemberIdentity(orgId, personId, channel);
+          const recipient = await resolveAskRecipient(orgId, current.id, personId, channel);
           const input = {
             ask, orgId, projectId: current.id, personId, recipient, channel, deliveryAskId, deliveryToken,
             fromNumber: typeof current.projectData?.communications_from_number === 'string'
