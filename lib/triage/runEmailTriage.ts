@@ -9,6 +9,7 @@ import {
   listTriageOccurrenceItems,
   saveTriageOccurrenceItem,
   readCommunicationCursor,
+  readTenantTriageItem,
   readTenantCommunicationsSettings,
   saveTriageDigest,
   upsertTriageItem,
@@ -241,6 +242,14 @@ export const runEmailTriage = async (
   // committed but before the cursor is moved. Reuse those project-scoped audit
   // records as checkpoints instead of classifying and drafting them again.
   const recentItems = await listTenantTriageItems(input.orgId, 500);
+  if (input.lookbackHours !== undefined) {
+    // Other mailboxes can push window items out of the bounded recent-items list.
+    const knownIds = new Set(recentItems.map(item => item.communicationId));
+    for (const candidate of candidates.filter(item => !knownIds.has(item.id))) {
+      const prior = await readTenantTriageItem(input.orgId, triageItemFromCommunication(input.orgId, candidate).id);
+      if (prior) recentItems.push(prior);
+    }
+  }
   const occurrenceMatches = (item: TriageItem) => item.projectId === input.projectId && item.connectionId === input.connectionId;
   // Backfill existing in-flight occurrences and recover a crash between the
   // triage projection and its occurrence checkpoint, before advancing a cursor.

@@ -46,6 +46,14 @@ test('resumed intake retains earlier enquiries and delivers only the complete di
     assert.match(drafts[0].text, /^7 new messages/);
     assert.equal(new Set(reads).size, 7);
     assert.equal(reads.length, 7, 'completed enquiries are not fetched and processed again');
+    const rolling = await runEmailTriage({ ...input, runId: 'rolling-day', scheduledFor: 86420000, lookbackHours: 24, digestChannel: 'web' }, client);
+    assert.equal(rolling.hasMore, false);
+    assert.equal(rolling.items.length, 0, 'messages outside the last day stay excluded');
+    const replay = await runEmailTriage({ ...input, runId: 'rolling-replay', scheduledFor: 86409000, lookbackHours: 24, digestChannel: 'web' }, client);
+    assert.equal(replay.hasMore, false);
+    assert.equal(replay.items.length, 7, 'rolling window includes records evicted from the recent-items list');
+    assert.equal(reads.length, 7, 'overlapping windows never classify completed mail again');
+    assert.equal(drafts.length, 1, 'rolling web-only intake never sends another digest or creates a draft');
     const checkpoint = 'triage_occurrence_items/batch_fixture/occurrence';
     for (const context of [env.unauthenticatedContext(), env.authenticatedContext('member')]) {
       await assertFails(get(ref(context.database(), checkpoint)));
