@@ -37,6 +37,7 @@ export interface RunEmailTriageInput {
   runId: string;
   actor?: string;
   createdAt?: number;
+  lookbackHours?: number;
   batchSize?: number;
   referenceContext?: unknown;
 }
@@ -91,8 +92,16 @@ export const boundedCommunicationBatch = <T extends { occurredAt?: string }>(
 
 export const reconciliationCursor = (
   committedCursor: string | undefined,
-  createdAt: number
+  createdAt: number,
+  lookbackHours?: number,
+  windowEnd: number = createdAt
 ): string | undefined => {
+  if (lookbackHours !== undefined) {
+    if (!Number.isFinite(lookbackHours) || lookbackHours <= 0 || lookbackHours > 168 || !Number.isFinite(windowEnd) || windowEnd <= 0) {
+      throw new Error('Email intake lookback_hours must be greater than 0 and at most 168');
+    }
+    return new Date(windowEnd - lookbackHours * 3_600_000).toISOString();
+  }
   if (committedCursor) return committedCursor;
   return Number.isFinite(createdAt) && createdAt > 0 ? new Date(createdAt).toISOString() : undefined;
 };
@@ -199,7 +208,8 @@ export const runEmailTriage = async (
   const scheduledFor = input.scheduledFor || Date.now();
   const scheduleId = input.scheduleId || `project:${input.projectId || 'legacy'}`;
   const cursorKey = projectTriageCursorKey(input.projectId, input.connectionId);
-  const cursorBefore = reconciliationCursor(await readCommunicationCursor(input.orgId, cursorKey), input.createdAt || scheduledFor);
+  const committedCursor = await readCommunicationCursor(input.orgId, cursorKey);
+  const cursorBefore = reconciliationCursor(committedCursor, input.createdAt || scheduledFor, input.lookbackHours, scheduledFor);
   const sync = await client.syncMailbox(input.orgId, input.connectionId, input.actor || `run:${input.runId}`);
   if (sync.in_progress === true) throw new Error('Mailbox reconciliation is already running; retry this occurrence later');
   const candidates = await listInboundEmailSince(client, input.orgId, cursorBefore, 20, input.connectionId);
@@ -243,6 +253,13 @@ export const runEmailTriage = async (
       && item.connectionId === input.connectionId
       && item.audit?.some(entry => entry.action === 'project_reconciliation'))
     .map(item => item.communicationId));
+  // A rolling window includes already-classified messages without reclassifying or drafting them.
+  if (input.lookbackHours !== undefined) {
+    const candidateIds = new Set(candidates.map(item => item.id));
+    for (const item of recentItems.filter(item => occurrenceMatches(item) && candidateIds.has(item.communicationId) && completedIds.has(item.communicationId))) {
+      await saveTriageOccurrenceItem(input.runId, item);
+    }
+  }
   const pending = candidates.filter(item => !completedIds.has(item.id));
   const configuredBatchSize = Number(input.batchSize ?? process.env.EMAIL_TRIAGE_BATCH_SIZE ?? 5);
   const batch = boundedCommunicationBatch(pending, configuredBatchSize);
@@ -333,7 +350,8 @@ export const runEmailTriage = async (
   }
   await saveTriageDigest(digest);
   const cursorAfter = cursorAfterCommunications(cursorBefore, candidates.slice(0, contiguousCount));
-  if (cursorAfter) await writeCommunicationCursor(input.orgId, cursorKey, cursorAfter);
+  const committedAfter = cursorAfterCommunications(committedCursor, cursorAfter ? [{ occurredAt: cursorAfter }] : []);
+  if (committedAfter) await writeCommunicationCursor(input.orgId, cursorKey, committedAfter);
   return {
     processedCount: processedItems.length,
     skippedCount,

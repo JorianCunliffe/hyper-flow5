@@ -1,5 +1,6 @@
 import type { HumanAsk, Project } from '../../types.js';
-import { readTenantCommunicationsSettings, resolveTeamMemberIdentity } from '../serverStore.js';
+import { readTenantCommunicationsSettings } from '../serverStore.js';
+import { resolveAskRecipient } from './resolveAskRecipient.js';
 import { newAskId, newAskToken } from './createAsk.js';
 import { deliverAsk } from './deliverAsk.js';
 import { nextAskField } from './askSteps.js';
@@ -26,7 +27,7 @@ export const deliverNextSmsStep = async (input: DeliverNextSmsStepInput): Promis
   if (!personId) throw new Error(`Ask ${input.ask.id} has no SMS assignee`);
 
   const settings = await readTenantCommunicationsSettings(input.orgId);
-  const recipient = await resolveTeamMemberIdentity(input.orgId, personId, 'sms');
+  const recipient = await resolveAskRecipient(input.orgId, input.projectId, personId, 'sms');
   const deliveryAskId = newAskId();
   const deliveryToken = newAskToken();
 
