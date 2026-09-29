@@ -9,6 +9,24 @@ import type { FlowHold, RuntimeMilestone } from '../lib/flowRuntimeTypes';
 import { action, node, project } from './helpers';
 
 describe('FlowRun execution isolation', () => {
+  test('a prior answered human Wait does not suppress the next occurrence approval', async () => {
+    const wait = node('WAIT', { nodeType: NodeType.WAIT }) as RuntimeMilestone;
+    wait.holdConfig = { kind: 'human', resultVariable: 'approval', payloadVariable: 'answers',
+      human: { kind: 'approval', prompt: 'Approve this run', channels: ['web'] } };
+    const first = await advanceProjectFlow(project([wait], { flow_occurrence_id: 'old', flow_run_id: 'old-run' }), async () => ({ status: 'success' }));
+    first.project.milestones[0].asks![0].status = 'answered';
+    first.project.projectData = { ...first.project.projectData, approval: 'signal', approval_resolved: true, answers: { old: true } };
+    const run = createFlowRun({ orgId: 'org', project: first.project, occurrenceId: 'new', trigger: 'manual' });
+    const fresh = materializeFlowRunProject(first.project, run);
+    assert.equal(fresh.projectData?.answers, undefined);
+    assert.equal(fresh.projectData?.approval_resolved, undefined);
+    const next = await advanceProjectFlow(fresh, async () => ({ status: 'success' }));
+    assert.equal(next.askedFor.length, 1);
+    assert.equal(next.askedFor[0].ask.runId, run.id);
+    assert.notEqual(next.askedFor[0].ask.id, first.project.milestones[0].asks![0].id);
+    const retry = await advanceProjectFlow(next.project, async () => ({ status: 'success' }));
+    assert.equal(retry.askedFor.length, 0, 'retry preserves the current Ask');
+  });
   test('two occurrences of one Project have independent mutable state', () => {
     const definition = project([
       action('ACT', NodeType.EMAIL, { actionConfig: { template: '{}', autoExecute: true } })
