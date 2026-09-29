@@ -104,6 +104,7 @@ export const safeWebhookFetch = async (
       clearTimeout(timer);
     }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
+      if (init.redirect === 'error') throw new Error('Webhook redirects are disabled for this connection');
       if (redirects === MAX_REDIRECTS) throw new Error('Webhook exceeded the redirect limit');
       const location = response.headers.get('location');
       if (!location) throw new Error('Webhook redirect did not include a location');

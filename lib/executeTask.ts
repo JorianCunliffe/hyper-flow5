@@ -10,6 +10,7 @@ import { createCommunicationsClient } from './communications/client.js';
 import { CommunicationsApiError } from './communications/errors.js';
 import type { CommunicationCorrelation, CommunicationResult, CommunicationsClient } from './communications/types.js';
 import { safeWebhookFetch } from './safeWebhook.js';
+import { executeNamedWebhook } from './namedWebhook.js';
 import { normalizeTaskType, TASK_TYPES } from './taskTypes.js';
 import { appendGrantedGoogleSheet, readGrantedGoogleDoc, readGrantedGoogleSheet, upsertGrantedGoogleSheet } from './integrations/googleWorkspace.js';
 import { readTenantAgentProfile } from './serverStore.js';
@@ -459,6 +460,10 @@ export async function executeTask(
     }
   } else if (taskType === 'webhook') {
     try {
+      if (templateData.connection_name !== undefined) {
+        const output = await executeNamedWebhook(templateData, ctx?.correlation);
+        return { httpStatus: 200, body: { status: 'success', output, logs: [...logs, 'Named read-only webhook completed'] } };
+      }
       const url = templateData.url;
       if (!url || typeof url !== 'string') {
         throw new Error('Webhook template must include a valid HTTPS "url"');
