@@ -272,10 +272,13 @@ const applyHoldResult = (
   };
 };
 
-const humanWaitNeedsAsk = (m: Milestone): boolean => {
+const humanWaitNeedsAsk = (m: Milestone, projectData?: Record<string, any>): boolean => {
   const cfg = getHoldConfig(m);
   if (getNodeType(m) !== NodeType.WAIT || cfg?.kind !== 'human' || !cfg.holdId || cfg.resolvedAt) return false;
-  return !(m.asks || []).some(ask => ask.status === 'open' || ask.status === 'answered');
+  return !(m.asks || []).some(ask =>
+    (ask.status === 'open' || ask.status === 'answered') &&
+    (!projectData?.flow_run_id || ask.runId === projectData.flow_run_id) &&
+    (!cfg.armedAt || ask.createdAt >= cfg.armedAt));
 };
 
 /**
@@ -416,7 +419,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
   const asksToOpen = current.milestones
     .filter(m =>
       (finalStates.get(m.id) !== 'skipped' && isNodeWorkDone(m, current.projectData) && needsApprovalAsk(m, current.projectData)) ||
-      humanWaitNeedsAsk(m)
+      humanWaitNeedsAsk(m, current.projectData)
     )
     .map(m => m.id);
 
