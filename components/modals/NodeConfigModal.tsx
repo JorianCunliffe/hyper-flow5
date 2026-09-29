@@ -10,7 +10,7 @@ import { validateOutputSchema } from '../../lib/flowData';
 import { buildReviewPolicy } from '../../lib/reviewPolicy';
 
 const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
-  [NodeType.MAILBOX_DRAFT]: '{"to": ["{{item.email}}"], "subject": "{{item.subject}}", "text": "{{item.reply}}", "in_reply_to": "{{item.message_id}}"}',
+  [NodeType.MAILBOX_DRAFT]: '{"to": ["{{item.email}}"], "subject": "{{item.subject}}", "text": "{{item.reply}}", "in_reply_to": "{{item.message_id}}", "communication_id": "{{item.communication_id}}"}',
   [NodeType.MAILBOX_DRAFT_UPDATE]: '{"provider_draft_id": "{{item.provider_draft_id}}", "to": ["{{item.email}}"], "subject": "{{item.subject}}", "text": "{{item.reply}}"}',
   [NodeType.EMAIL]: '{"to": "{{contact_email}}", "subject": "Update on {{project_name}}", "body": "Hi..."}',
   [NodeType.SMS]: '{"to": "{{contact_phone}}", "body": "Your project {{project_name}} has an update."}',

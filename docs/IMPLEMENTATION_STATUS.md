@@ -118,3 +118,7 @@ Phase 12 now has a pinned cross-service CI job and a combined contact, commitmen
 ### 29 September live triage continuation repair
 
 Release `685d2d1` preserves the manual operation ID across recoverable API responses and recovers earlier batches saved under legacy manual run IDs. All 824 unit tests, the Firebase recovery regression, typecheck/build/API checks and three CI jobs passed; production deployed Ready. The actual Morning Run intake then completed with all 17 messages under one retained run ID, followed by planning. Acceptance remains blocked at original Outlook draft reuse/version reconciliation; no live contacts were dispatched. See [live test evidence](implementation/LIVE_TEST_20260929.md).
+
+### 29 September draft reuse guard (source only)
+
+Morning Run draft creation now reuses the email's linked draft instead of creating a duplicate. Reply drafts must include `communication_id`. Provider-version holds explain the required reconciliation. 825 unit tests pass. Not deployed. The legacy Outlook draft still needs a reviewed baseline-adoption operation in Communications Service before it can be updated. See [live test evidence](implementation/LIVE_TEST_20260929.md).

@@ -13,7 +13,7 @@ export const setup = {
   ],
 };
 export const enquiries = ['E1', 'E2', 'E3', 'E4'].map((id, i) => ({
-  id, source_message_id: id, email: `${id.toLowerCase()}@example.invalid`,
+  id, source_message_id: id, communication_id: `comm-${id}`, email: `${id.toLowerCase()}@example.invalid`,
   name: `Fixture ${id}`, property: 'Fixture House', mobile: i < 2,
   attended: id === 'E4', reply: 'Proposed inspection; staff confirmation required.',
 }));
@@ -48,7 +48,7 @@ export function fullWorkflow(): any {
       action('read_inspections', NodeType.GOOGLE_SHEET_READ, [], { resource_name: 'inspections' }, 'slots'),
       action('write_tasks', NodeType.GOOGLE_SHEET_APPEND, ['triage'], { resource_name: 'tasks', values: '{{item.rows}}', idempotency_key: '{{item.id}}' }, 'written', { source: 'intake_output.tasks', key: 'id' }),
       action('plan', NodeType.REPORT, ['write_tasks', 'read_enquiries', 'read_inspections'], { prompt: 'Produce the inspection plan and questions, excluding attended enquirers.', source_data: { intake: '{{intake_output}}', enquiries: '{{existing_output}}', inspections: '{{slots_output}}' } }, 'plan'),
-      action('drafts', NodeType.MAILBOX_DRAFT, ['plan'], { to: ['{{item.email}}'], subject: 'Fixture inspection enquiry', text: '{{item.reply}}', in_reply_to: '{{item.source_message_id}}' }, 'drafts', { source: 'plan_output.enquiries', key: 'id' }),
+      action('drafts', NodeType.MAILBOX_DRAFT, ['plan'], { to: ['{{item.email}}'], subject: 'Fixture inspection enquiry', text: '{{item.reply}}', in_reply_to: '{{item.source_message_id}}', communication_id: '{{item.communication_id}}' }, 'drafts', { source: 'plan_output.enquiries', key: 'id' }),
       hold('morning_answers', ['drafts'], 'Read the plan {{plan_output.summary}} and each draft {{drafts_output}}. Ask every open question and confirm each answer.', 'plan_output.open_questions'),
       action('finalise', NodeType.REPORT, ['morning_answers'], { prompt: 'Use only confirmed answers to finalise existing drafts and inspection allocations.', answers: '{{morning_answers_answer}}', drafts: '{{drafts_output}}' }, 'final'),
       action('update_drafts', NodeType.MAILBOX_DRAFT_UPDATE, ['finalise'], { provider_draft_id: '{{item.provider_draft_id}}', to: ['{{item.email}}'], subject: 'Confirmed fixture inspection', text: '{{item.text}}' }, 'updated', { source: 'final_output.drafts', key: 'provider_draft_id' }),
