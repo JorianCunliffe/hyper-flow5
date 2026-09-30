@@ -54,6 +54,21 @@ test('resumed intake retains earlier enquiries and delivers only the complete di
     assert.equal(replay.items.length, 7, 'rolling window includes records evicted from the recent-items list');
     assert.equal(reads.length, 7, 'overlapping windows never classify completed mail again');
     assert.equal(drafts.length, 1, 'rolling web-only intake never sends another digest or creates a draft');
+    const { triageItemFromCommunication } = await import('../../lib/triage/emailTriage.js');
+    const legacyId = triageItemFromCommunication(input.orgId, messages[0] as any).id;
+    await env.withSecurityRulesDisabled(c => update(ref(c.database(), `triage_items/batch_fixture/${legacyId}`), {
+      sourceMessage: { content: 'old preview' }, providerDraftId: 'existing-native-draft', disposition: 'resolved',
+      audit: [{ action: 'triage.classification_failed', at: 1 }, { action: 'project_reconciliation', detail: 'earlier', at: 2 }]
+    }));
+    const refreshed = await runEmailTriage({ ...input, runId: 'full-body-refresh', scheduledFor: 86409000,
+      lookbackHours: 24, digestChannel: 'web', createDrafts: true }, client);
+    const repairedEmail = refreshed.items.find(item => item.communicationId === 'mail-0')!;
+    assert.equal(reads.length, 8, 'legacy failed message is fetched again; other complete messages are reused');
+    assert.equal(repairedEmail.sourceMessage?.content, 'Question 0');
+    assert.equal(repairedEmail.sourceMessage?.contentVersion, 2);
+    assert.equal(repairedEmail.providerDraftId, 'existing-native-draft');
+    assert.equal(repairedEmail.disposition, 'resolved', 'source refresh preserves the human decision');
+    assert.equal(drafts.length, 1, 'refresh does not duplicate the existing native draft');
     const checkpoint = 'triage_occurrence_items/batch_fixture/occurrence';
     for (const context of [env.unauthenticatedContext(), env.authenticatedContext('member')]) {
       await assertFails(get(ref(context.database(), checkpoint)));

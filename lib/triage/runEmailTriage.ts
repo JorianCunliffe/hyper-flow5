@@ -22,6 +22,15 @@ import { classifyEmailForTriage, emailAddressFromSender } from './classifyEmail.
 export type EmailTriagePolicy = 'all_inbound' | 'human_only' | 'correlated_only';
 export type EmailTriageSendPolicy = 'draft_only' | 'allow_approved_send' | 'automatic';
 
+export const reusableTriageCheckpoint = (item: TriageItem, runId: string): boolean => {
+  const audit = item.audit || [];
+  // A failed attempt is complete for this occurrence, but may retry next time.
+  if (audit.some(entry => entry.action === 'project_reconciliation' && entry.detail === runId)) return true;
+  const classification = audit.filter(entry => ['triage.classified', 'triage.classification_failed'].includes(entry.action)).at(-1);
+  return item.sourceMessage?.contentVersion === 2 && classification?.action !== 'triage.classification_failed' &&
+    audit.some(entry => entry.action === 'project_reconciliation');
+};
+
 export interface RunEmailTriageInput {
   orgId: string;
   projectId?: string;
@@ -260,7 +269,7 @@ export const runEmailTriage = async (
   const completedIds = new Set([...recentItems, ...checkpointItems]
     .filter(item => item.projectId === input.projectId
       && item.connectionId === input.connectionId
-      && item.audit?.some(entry => entry.action === 'project_reconciliation'))
+      && reusableTriageCheckpoint(item, input.runId))
     .map(item => item.communicationId));
   // A rolling window includes already-classified messages without reclassifying or drafting them.
   if (input.lookbackHours !== undefined) {
@@ -275,7 +284,11 @@ export const runEmailTriage = async (
 
   for (const communication of batch) {
     const detailed = await client.getCommunication(input.orgId, communication.id);
-    let item = { ...triageItemFromCommunication(input.orgId, detailed), projectId: input.projectId, connectionId: input.connectionId, sourceMessage: { messageId: detailed.messageId, providerThreadId: detailed.providerThreadId, content: String(detailed.content || '').slice(0, 24000), truncated: String(detailed.content || '').length > 24000 } };
+    const prior = recentItems.find(item => occurrenceMatches(item) && item.communicationId === communication.id);
+    const closed = prior?.disposition === 'resolved' || prior?.disposition === 'ignored';
+    let item = { ...triageItemFromCommunication(input.orgId, detailed),
+      ...(prior ? { providerDraftId: prior.providerDraftId, disposition: prior.disposition } : {}),
+      projectId: input.projectId, connectionId: input.connectionId, sourceMessage: { messageId: detailed.messageId, providerThreadId: detailed.providerThreadId, content: String(detailed.content || '').slice(0, 24000), truncated: detailed.contentTruncated === true || String(detailed.content || '').length > 24000, contentVersion: 2 } };
     if (!matchesProjectTriagePolicy(detailed, item, policy, input.projectId)) {
       skippedCount += 1;
       completedIds.add(communication.id);
@@ -300,7 +313,7 @@ export const runEmailTriage = async (
           audit: [...item.audit, { at: Date.now(), action: 'triage.classified', actor: analysis.modelVersion }]
         };
         const recipient = emailAddressFromSender(detailed.sender);
-        if (input.createDrafts !== false && allowed.includes('create_draft') && analysis.shouldDraft && recipient && analysis.draftBody) {
+        if (!closed && !item.providerDraftId && input.createDrafts !== false && allowed.includes('create_draft') && analysis.shouldDraft && recipient && analysis.draftBody) {
           try {
             const draft = await client.createMailboxDraft(input.orgId, input.connectionId, {
               to: [recipient],
@@ -326,6 +339,8 @@ export const runEmailTriage = async (
     } else if (item.memoryEligible !== false) {
       item = { ...item, disposition: 'needs_review', proposedAction: 'Classification is disabled by the tenant automatic-action policy' };
     }
+    // Refresh source evidence without undoing a human's completed triage decision.
+    if (closed) item = { ...item, disposition: prior!.disposition, proposedAction: prior!.proposedAction };
     const stored = await upsertTriageItem({
       ...item,
       proposedAction: input.sendPolicy === 'draft_only' && item.disposition !== 'draft_prepared' ? `${item.proposedAction || 'Review this message'}; automatic sending is disabled` : item.proposedAction,

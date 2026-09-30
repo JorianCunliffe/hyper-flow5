@@ -84,6 +84,7 @@ export interface CommunicationResult {
   personId?: string;
   connectionId?: string;
   content?: string;
+  contentTruncated?: boolean;
   summary?: string;
   subject?: string;
   sender?: string;

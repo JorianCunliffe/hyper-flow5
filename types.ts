@@ -288,7 +288,7 @@ export interface TriageInterpretation {
 
 export interface TriageItem {
   referenceContext?: { runId: string; capturedAt: number; data: unknown };
-  sourceMessage?: { messageId?: string; providerThreadId?: string; content: string; truncated: boolean };
+  sourceMessage?: { messageId?: string; providerThreadId?: string; content: string; truncated: boolean; contentVersion?: number };
   id: string;
   orgId: string;
   communicationId: string;
