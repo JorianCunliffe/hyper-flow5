@@ -142,7 +142,7 @@ export const executeDurableTask = async (
   }
   const normalized = normalizeTaskType(taskType);
   if (!normalized) return { httpStatus: 400, body: { error: 'Unknown task type' } };
-  const outcome = await serverExecutor(normalized, template, data || {}, context);
+  const outcome = await serverExecutor(normalized, template, data || {}, { ...context, repairInvalidTemplate: true });
   return { httpStatus: outcome.status === 'error' ? 422 : 200, body: {
     ...outcome, status: outcome.status === 'error' ? 'error' : 'success', pending: outcome.status === 'pending'
   } };
