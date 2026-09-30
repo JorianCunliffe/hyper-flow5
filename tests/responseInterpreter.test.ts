@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { interpretAskResponse } from '../lib/triage/responseInterpreter';
 import { replaceProvisionalCommunicationResponse, respondToAsk } from '../lib/asks/respondToAsk';
 import type { HumanAsk } from '../types';
+import { validateResponse } from '../lib/askResponses';
 
 const approvalAsk: HumanAsk = {
   id: 'ask_1', token: 'token_1', kind: 'approval', status: 'open', prompt: 'Approve this?',
@@ -10,6 +11,29 @@ const approvalAsk: HumanAsk = {
 };
 
 describe('conservative response interpretation', () => {
+  test('voice question extracts confirmed fields without accepting a model approval decision', async () => {
+    const previous = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-only';
+    try {
+      const ask: HumanAsk = { ...approvalAsk, kind: 'question', fields: [
+        { name: 'inspection', label: 'Confirmed inspection', type: 'string', required: true }
+      ] };
+      const result = await interpretAskResponse(ask, {
+        via: 'voice', actor: 'staff', text: 'Yes, I confirm the test inspection at 80 Martyn Street at 3pm today.'
+      }, async request => {
+        assert.match(String(request.contents), /do not return a decision/);
+        assert.equal((request.config?.responseSchema as { properties?: Record<string, unknown> })?.properties?.decision, undefined);
+        return { text: JSON.stringify({ decision: 'approved', values: { inspection: '80 Martyn Street, 3pm today' }, confidence: 0.99, evidence: 'I confirm the test inspection' }) } as any;
+      });
+      assert.equal(result.decision, undefined);
+      assert.deepEqual(result.values, { inspection: '80 Martyn Street, 3pm today' });
+      assert.equal(result.needsInterpretation, undefined);
+      assert.equal(validateResponse(ask, result), null);
+    } finally {
+      if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous;
+    }
+  });
+
   test('uses deterministic decision parsing before any model', async () => {
     const response = await interpretAskResponse(approvalAsk, { via: 'email', actor: 'reviewer@example.com', text: 'Approved' });
     assert.equal(response.decision, 'approved');

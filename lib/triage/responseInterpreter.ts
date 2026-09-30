@@ -13,7 +13,9 @@ const evidenceExcerpt = (text: string): string => text.trim().replace(/\s+/g, ' 
  */
 export const interpretAskResponse = async (
   ask: HumanAsk,
-  input: BuildResponseInput
+  input: BuildResponseInput,
+  generate = (request: Parameters<GoogleGenAI['models']['generateContent']>[0]) =>
+    new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }).models.generateContent(request)
 ): Promise<HumanResponse> => {
   const deterministic = buildResponse(ask, input);
   if (!deterministic.needsInterpretation || !input.text?.trim() || !process.env.GEMINI_API_KEY) {
@@ -21,20 +23,21 @@ export const interpretAskResponse = async (
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const fields = (ask.fields || []).map(field => ({
       name: field.name,
       label: field.label,
       type: field.type,
       required: field.required
     }));
-    const response = await ai.models.generateContent({
+    const response = await generate({
       model: MODEL,
       contents: [
         'Extract only the response explicitly supported by the message. Do not infer unstated agreement or values.',
         `Ask kind: ${ask.kind}`,
         `Ask prompt: ${ask.prompt}`,
-        `Allowed decisions: ${(ask.responseContract?.allowedDecisions || ['approved', 'rejected', 'revise']).join(', ')}`,
+        ask.kind === 'approval'
+          ? `Allowed decisions: ${(ask.responseContract?.allowedDecisions || ['approved', 'rejected', 'revise']).join(', ')}`
+          : 'This is not an approval. Extract field values only; do not return a decision.',
         `Expected intents: ${(ask.responseContract?.expectedIntents || []).join(', ') || 'not constrained'}`,
         `Fields: ${JSON.stringify(fields)}`,
         `Message: ${input.text}`
@@ -45,7 +48,7 @@ export const interpretAskResponse = async (
           type: Type.OBJECT,
           properties: {
             intent: { type: Type.STRING },
-            decision: { type: Type.STRING },
+            ...(ask.kind === 'approval' ? { decision: { type: Type.STRING } } : {}),
             values: { type: Type.OBJECT },
             confidence: { type: Type.NUMBER },
             evidence: { type: Type.STRING }
@@ -57,7 +60,7 @@ export const interpretAskResponse = async (
     const extracted = JSON.parse(response.text || '{}');
     const confidence = Math.max(0, Math.min(1, Number(extracted.confidence) || 0));
     const allowed = ask.responseContract?.allowedDecisions || ['approved', 'rejected', 'revise'];
-    const decision = allowed.includes(extracted.decision) ? extracted.decision : undefined;
+    const decision = ask.kind === 'approval' && allowed.includes(extracted.decision) ? extracted.decision : undefined;
     const interpreted = buildResponse(ask, {
       ...input,
       decision,

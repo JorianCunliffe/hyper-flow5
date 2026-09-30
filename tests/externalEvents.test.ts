@@ -1,13 +1,25 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createExternalEventRecord, isStandaloneTerminalCommunication, hydrateCompletedCallPayload, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
+import { createExternalEventRecord, isCompletedHumanAskCall, isStandaloneTerminalCommunication, hydrateCompletedCallPayload, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
 
 const fixture = (name: string): any => JSON.parse(readFileSync(
   new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
 ));
 
 describe('external event inbox envelope', () => {
+  test('routes only an explicitly identified completed Ask call to response recovery', () => {
+    const raw = { event_id: 'evt_call', source: 'communications', type: 'call.completed',
+      communication_id: 'comm_call', purpose: { type: 'human_ask', ask_id: 'ask_call' },
+      correlation: { tenant_id: 'org_1', project_id: 'project_1', run_id: 'flow_1', task_id: 'wait_1' },
+      payload: { transcript_text: 'Confirmed 3pm', disposition: 'human_completed' } };
+    assert.equal(isCompletedHumanAskCall(normalizeExternalEvent(raw)), true);
+    for (const override of [{ type: 'call.failed' }, { purpose: { type: 'workflow_action' } },
+      { purpose: { type: 'human_ask' } }, { communication_id: undefined }]) {
+      assert.equal(isCompletedHumanAskCall(normalizeExternalEvent({ ...raw, ...override })), false);
+    }
+  });
+
   test('normalizes explicit communications correlation', () => {
     const event = normalizeExternalEvent({
       event_id: 'evt_987', source: 'communications', type: 'call.completed', communication_id: 'comm_123',
