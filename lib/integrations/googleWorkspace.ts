@@ -234,16 +234,28 @@ const requestHash = (value: unknown): string =>
 
 export const GOOGLE_SHEET_VALUE_INPUT_OPTION = 'RAW' as const;
 
+/** Accept a single foreach row or a row matrix, then hash and send the same matrix. */
+export const normalizeGoogleSheetAppendValues = (input: unknown): unknown[][] => {
+  const cell = (value: unknown) => value === null || typeof value === 'string' ||
+    typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error('Google Sheet append values must contain 1-100 rows and at most 50 columns');
+  }
+  const values = input.every(cell) ? [input] : input;
+  if (values.length > 100 || values.some(row => !Array.isArray(row) || row.length === 0 || row.length > 50 || !row.every(cell))) {
+    throw new Error('Google Sheet append values must contain 1-100 rows and at most 50 scalar columns');
+  }
+  return values;
+};
+
 export const appendGrantedGoogleSheet = async (
   orgId: string,
   projectId: string,
   idempotencyKey: string,
-  values: unknown[][]
+  inputValues: unknown[]
 ): Promise<Record<string, unknown>> => {
   if (!idempotencyKey.trim()) throw new Error('idempotencyKey is required');
-  if (!Array.isArray(values) || values.length === 0 || values.length > 100 || values.some(row => !Array.isArray(row) || row.length > 50)) {
-    throw new Error('Google Sheet append values must contain 1-100 rows and at most 50 columns');
-  }
+  const values = normalizeGoogleSheetAppendValues(inputValues);
   const grant = await requireGrant(orgId, projectId);
   const selected = resolveGoogleSheetGrant(grant, 'append');
   const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, values });
