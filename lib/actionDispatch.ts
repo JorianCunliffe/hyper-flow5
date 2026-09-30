@@ -30,7 +30,6 @@ export interface ActionDispatch {
   terminal?: ActionOutcome;
   eventIds?: Record<string, true>;
   providerRequests?: Record<string, any>;
-  configurationRepairs?: Array<{ at: number; priorTemplate: string }>;
 }
 
 export interface DispatchStore {
@@ -75,24 +74,6 @@ const replaySafe = (taskType: string): boolean =>
   ['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result', 'run_email_triage'].includes(taskType)
   || ['outgoing_call', 'send_sms', 'send_email', 'create_mailbox_draft', 'update_mailbox_draft'].includes(taskType);
 
-export const repairUndispatchedSmsTemplate = (
-  current: ActionDispatch, template: string, context: ActionExecutionContext, at: number
-): ActionDispatch => {
-  if (!context.repairInvalidTemplate || current.projectId !== context.projectId || current.nodeId !== context.nodeId ||
-      current.request.taskType !== 'send_sms' || current.outcome || current.terminal || current.externalId ||
-      Object.keys(current.providerRequests || {}).length || current.request.data.contact_phone ||
-      current.request.data.phone_number || current.request.template === template) return current;
-  // Any valid original JSON may have selected a destination: never change it on recovery.
-  try { JSON.parse(current.request.template); return current; } catch { /* invalid original JSON */ }
-  let replacement: any;
-  try { replacement = JSON.parse(template); } catch { return current; }
-  if (!replacement || Array.isArray(replacement) || typeof replacement !== 'object' ||
-      !(replacement.person_id || replacement.target_person_id || replacement.to) || !replacement.body) return current;
-  return { ...current, request: { ...current.request, template }, state: 'claimed', owner: undefined,
-    leaseUntil: 0, updatedAt: at,
-    configurationRepairs: [...(current.configurationRepairs || []), { at, priorTemplate: current.request.template }] };
-};
-
 export const durableActionExecutor = (
   execute: ActionExecutor,
   store: DispatchStore = dispatchStore,
@@ -104,8 +85,7 @@ export const durableActionExecutor = (
   const owner = randomUUID();
   try {
     // Separate commits distinguish never dispatched from possibly dispatched.
-    let row = await store.transact(orgId, id, current => current
-      ? (taskType === current.request.taskType ? repairUndispatchedSmsTemplate(current, template, context, now()) : current) : {
+    let row = await store.transact(orgId, id, current => current || {
       id, orgId, projectId: context.projectId, nodeId: context.nodeId,
       flowRunId: context.flowRunId, occurrenceId: context.occurrenceId, attempt: context.attempt || 1,
       idempotencyKey: id, state: 'claimed', createdAt: now(), updatedAt: now(),

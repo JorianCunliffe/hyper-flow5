@@ -15,8 +15,6 @@ import { isTriageCheckpoint } from './actionRecovery.js';
  */
 
 export interface ActionExecutionContext {
-  /** Authenticated manual Run Now may correct a provably undispatched invalid SMS template. */
-  repairInvalidTemplate?: boolean;
   orgId?: string;
   projectId: string;
   nodeId: string;
