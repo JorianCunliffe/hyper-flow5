@@ -20,6 +20,9 @@ import { triageItemFromEvent } from './triage/emailTriage.js';
 
 export const isInboundCommunicationEvent = (type: string): boolean =>
   type === 'communication.received' || type === 'sms.received';
+
+export const isCompletedHumanAskCall = (event: ExternalEventEnvelope): boolean =>
+  event.type === 'call.completed' && event.purpose?.type === 'human_ask' && Boolean(event.ask_id && event.communication_id);
 import type { CommunicationResult } from './communications/types.js';
 
 export type ExternalEventProcessingStatus = 'received' | 'processing' | 'processed' | 'processing_failed';
@@ -345,7 +348,19 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       return { ok: true, reason: 'delivery_state_updated' };
     }
 
-    if (event.type === 'ask.response.received') {
+    // A completed Ask call is response evidence, not an action-node callback.
+    // Recover through the canonical response path if the separate Ask event was
+    // delayed or rejected. Communication identity keeps the two events idempotent.
+    if (isCompletedHumanAskCall(event)) {
+      if (!payloadTranscriptText(event.payload) && event.communication_id) {
+        communication = communication || await createCommunicationsClient().getCommunication(orgId, event.communication_id);
+        event.payload = hydrateCompletedCallPayload(event.payload, communication);
+      }
+      event.channel = 'voice';
+      event.response = { text: payloadTranscriptText(event.payload) };
+    }
+
+    if (event.type === 'ask.response.received' || isCompletedHumanAskCall(event)) {
       const { tenant_id: tenantId, project_id: projectId, person_id: personId } = event.correlation;
       if (!event.ask_id || !tenantId || !projectId) {
         const reason = 'missing ask_id, tenant_id or project_id correlation';
