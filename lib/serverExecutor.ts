@@ -40,18 +40,21 @@ const resourceNameFromTemplate = (templateFile: string): string | undefined => {
  * enforces tenant authority and resolves configured people/resources immediately
  * before the effect.
  */
-const executeServerAction: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
+const serverActionDependencies = { readTenantCommunicationsSettings, readTenantAgentProfile,
+  readTenantCapabilityPolicy, readFlowRun, resolveGrantedPersonTarget, claimContactDispatch, executeTask };
+
+export const createServerActionExecutor = (dependencies = serverActionDependencies): ActionExecutor => async (taskType, templateFile, projectData, ctx) => {
   let tenantCommunications: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
-  try { tenantCommunications = await readTenantCommunicationsSettings(ctx.orgId); } catch { /* use project/env fallback */ }
+  try { tenantCommunications = await dependencies.readTenantCommunicationsSettings(ctx.orgId); } catch { /* use project/env fallback */ }
 
   const autonomous = Boolean(projectData?.flow_trigger_event_id);
   const capability = TASK_CAPABILITY[taskType];
   let profile: Awaited<ReturnType<typeof readTenantAgentProfile>> = null;
   if (capability || autonomous) {
-    try { profile = ctx.orgId ? await readTenantAgentProfile(ctx.orgId) : null; } catch { profile = null; }
+    try { profile = ctx.orgId ? await dependencies.readTenantAgentProfile(ctx.orgId) : null; } catch { profile = null; }
     if (ctx.orgId) {
       try {
-        const capabilityPolicy = await readTenantCapabilityPolicy(ctx.orgId);
+        const capabilityPolicy = await dependencies.readTenantCapabilityPolicy(ctx.orgId);
         profile = profile ? { ...profile, capabilityPolicy } : {
           agentId: 'policy-only',
           displayName: 'Capability Policy',
@@ -67,25 +70,28 @@ const executeServerAction: ActionExecutor = async (taskType, templateFile, proje
 
   let safeTemplate = templateFile;
   const channel = communicationChannel(taskType);
-  if (autonomous && channel) {
+  const parsed = jsonTemplate(templateFile);
+  // Configured people need the same grant lookup for manual and scheduled runs.
+  // Direct destinations retain their existing manual behavior.
+  const hasPersonTarget = Boolean(parsed?.person_id || parsed?.target_person_id || parsed?.target_source);
+  if (channel && (autonomous || hasPersonTarget)) {
     if (!ctx.orgId) throw new Error('Autonomous communication requires tenant correlation');
-    const parsed = jsonTemplate(templateFile);
     if (!parsed) throw new Error('Autonomous communication requires a JSON action template with person_id');
     let personId = String(parsed.person_id || parsed.target_person_id || '').trim();
     if (parsed.target_source === 'event_person') {
       if (!ctx.flowRunId || channel === 'voice') throw new Error('Event sender targeting is available only for replies, not calls');
-      const run = await readFlowRun(ctx.orgId, ctx.projectId, ctx.flowRunId);
+      const run = await dependencies.readFlowRun(ctx.orgId, ctx.projectId, ctx.flowRunId);
       if (!run || run.trigger !== 'event' || run.triggerId !== run.state.projectData.flow_trigger_event_id) throw new Error('A verified inbound FlowRun is required');
       personId = String(run.state.projectData.flow_trigger_person_id || '');
     }
-    const target = await resolveGrantedPersonTarget({
+    const target = await dependencies.resolveGrantedPersonTarget({
       orgId: ctx.orgId,
       projectId: ctx.projectId,
       personId,
       channel,
       profile
     });
-    const claim = await claimContactDispatch(ctx.orgId, {
+    const claim = await dependencies.claimContactDispatch(ctx.orgId, {
       operationId: ctx.runId,
       target,
       channel,
@@ -97,7 +103,7 @@ const executeServerAction: ActionExecutor = async (taskType, templateFile, proje
   }
 
   const resourceName = resourceNameFromTemplate(safeTemplate);
-  const result = await withActionExecutionScope({ resourceName }, () => executeTask(taskType, safeTemplate, projectData, {
+  const result = await withActionExecutionScope({ resourceName }, () => dependencies.executeTask(taskType, safeTemplate, projectData, {
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
     communicationsFromNumber: tenantCommunications?.fromNumber,
     communicationsEmailIdentity: tenantCommunications?.defaultEmailIdentity,
@@ -117,6 +123,7 @@ const executeServerAction: ActionExecutor = async (taskType, templateFile, proje
   };
 };
 
+const executeServerAction = createServerActionExecutor();
 const dispatchServerAction = durableActionExecutor(executeServerAction);
 export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
   if (ctx.flowRunId && projectData.flow_dispatch_version !== 1 &&
