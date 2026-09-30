@@ -1,4 +1,5 @@
 import type { MemoryRequest, MemoryEnvelope } from './memoryTypes.js';
+import { emailContent } from './emailContent.js';
 import type { MeetingInput, MeetingRecord } from './meetingTypes.js';
 import { CommunicationsApiError, CommunicationsConfigurationError } from './errors.js';
 import { assertEmailSendAllowed } from './emailPolicy.js';
@@ -484,7 +485,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
       occurredAt: result?.occurred_at,
       personId: result?.person_id,
       connectionId: result?.email?.provider_connection_id || result?.provider_connection_id || result?.connection_id,
-      content: result?.content,
+      ...emailContent(result),
       summary: result?.summary,
       subject: result?.email?.subject || result?.subject,
       sender: Array.isArray(result?.email?.from_addresses)
