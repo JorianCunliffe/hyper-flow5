@@ -7,10 +7,20 @@ import {
   googleAuthorizationUrl,
   verifyGoogleOAuthState
 } from '../lib/integrations/googleOAuth';
-import { GOOGLE_SHEET_VALUE_INPUT_OPTION, googleWorkspaceConnectionId } from '../lib/integrations/googleWorkspace';
+import { GOOGLE_SHEET_VALUE_INPUT_OPTION, googleWorkspaceConnectionId, normalizeGoogleSheetAppendValues } from '../lib/integrations/googleWorkspace';
 import { consumeOAuthStateNonceAtRef, normalizeWorkspaceResourceGrant } from '../lib/serverStore';
 
 const envBefore = { ...process.env };
+test('Sheet append canonicalizes foreach rows without changing matrix payloads', () => {
+  const row = ['2026-09-30', '15:30-15:45', 'Test property', 2, false, null];
+  assert.deepEqual(normalizeGoogleSheetAppendValues(row), [row]);
+  assert.deepEqual(normalizeGoogleSheetAppendValues([row]), [row]);
+  assert.deepEqual(normalizeGoogleSheetAppendValues([row, ['second']]), [row, ['second']]);
+  for (const invalid of [[], [[]], ['cell', ['nested']], [[{}]], [undefined], [NaN],
+    Array(51).fill('column'), Array.from({ length: 101 }, () => ['row'])]) {
+    assert.throws(() => normalizeGoogleSheetAppendValues(invalid), /Google Sheet append values/);
+  }
+});
 afterEach(() => {
   for (const key of Object.keys(process.env)) if (!(key in envBefore)) delete process.env[key];
   Object.assign(process.env, envBefore);
