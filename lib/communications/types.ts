@@ -300,4 +300,5 @@ export interface CommunicationsClient {
   createMailboxDraft(tenantId: string, connectionId: string, request: MailboxDraftRequest, idempotencyKey: string): Promise<Record<string, unknown>>;
   getMailboxDraft(tenantId: string, connectionId: string, draftId: string): Promise<Record<string, unknown>>;
   adoptMailboxDraftBaseline?(tenantId: string, connectionId: string, draftId: string, review: { reviewed_content_hash: string; expected_revision: number; initiator_id?: string }): Promise<Record<string, unknown>>;
+  recoverMailboxDraftUpdate?(tenantId: string, connectionId: string, draftId: string, review: { failed_update_receipt_id: string; reviewed_content_hash: string; expected_revision: number; initiator_id?: string }, idempotencyKey: string): Promise<Record<string, unknown>>;
 }

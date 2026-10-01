@@ -14,6 +14,7 @@ export function assertHumanDecision(
     publishing: ["approve", "reject"],
     captured_work: ["resolve", "dismiss"],
     triage: [
+      "recover_update",
       "approve_agent_proposal",
       "reject_agent_proposal",
       "accept_interpretation",

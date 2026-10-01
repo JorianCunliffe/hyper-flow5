@@ -72,3 +72,31 @@ test('legacy draft preview exposes its review hash and approval addresses only t
   await assert.rejects(adoptTriageDraftBaseline('tenant', 'email', { contentHash: hash, revision: 1 }, 'owner:u', f.deps), /No mailbox draft/);
   assert.equal(adoptions.length, 2);
 });
+
+test('reviewed recovery is scoped, idempotent and validates the superseding receipt', async () => {
+  const { recoverReviewedTriageDraft } = await import('../lib/triage/draftPreview');
+  const f = fixture();
+  const hash = 'b'.repeat(64);
+  const receipt = '0a763226-0de2-41f5-aa43-94cf69700c67';
+  const calls: any[][] = [];
+  const result = { provider_draft_id: 'draft', status: 'created', recovered_from_receipt_id: receipt,
+    reviewed_content_hash: hash, revision: 4, update_receipt_id: 'recovered-receipt' };
+  f.deps.client = () => ({ recoverMailboxDraftUpdate: async (...args: any[]) => { calls.push(args); return result; } });
+  const review = { contentHash: hash, revision: 3, failedReceiptId: receipt };
+  await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', { ...review, contentHash: 'bad' }, 'owner:u', f.deps), /review/);
+  await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', { ...review, failedReceiptId: '' }, 'owner:u', f.deps), /receipt/);
+  f.item.orgId = 'foreign';
+  await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), /not found/);
+  assert.equal(calls.length, 0);
+  f.item.orgId = 'tenant';
+  assert.deepEqual(await recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), { recovered: true, revision: 4, receiptId: 'recovered-receipt' });
+  await recoverReviewedTriageDraft('tenant', 'email', review, 'owner:other', f.deps);
+  assert.equal(calls[0][4], calls[1][4]);
+  assert.deepEqual(calls[0].slice(0, 4), ['tenant', 'mailbox', 'draft', {
+    failed_update_receipt_id: receipt, reviewed_content_hash: hash, expected_revision: 3, initiator_id: 'owner:u'
+  }]);
+  result.recovered_from_receipt_id = 'unrelated';
+  await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), /did not verify/);
+  result.recovered_from_receipt_id = receipt; result.provider_draft_id = 'duplicate';
+  await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), /did not verify/);
+});
