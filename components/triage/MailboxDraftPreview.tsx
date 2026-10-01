@@ -126,6 +126,10 @@ export const MailboxDraftPreview: React.FC<{
       <p className="mt-4 text-xs text-slate-500">Read from {draft.provider === 'outlook' ? 'Outlook' : 'Gmail'} at {new Date(draft.fetchedAt).toLocaleTimeString()}. Review and edit in your mailbox. Nothing is sent from this preview.</p>
       {draft.truncated && <p className="mt-2 text-xs text-amber-700">This long draft is truncated. Review the complete draft in your mailbox.</p>}
       {!draft.webUrl && <p className="mt-2 text-xs text-slate-500">Open your mailbox’s Drafts folder to edit this draft.</p>}
+      <details className="mt-4 text-xs text-slate-500">
+        <summary className="cursor-pointer">Draft verification details</summary>
+        <pre className="mt-2 whitespace-pre-wrap break-words">{JSON.stringify(draft, null, 2)}</pre>
+      </details>
       {draft.baselineRequired && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         <p>HyperFlow has no saved version of this draft, so workflow updates to it are on hold. Check the content above is the draft HyperFlow may replace, then approve it. Approval saves this exact version. It does not edit or send the draft.</p>
         {draft.contentHash && draft.revision
