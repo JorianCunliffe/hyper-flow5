@@ -114,7 +114,10 @@ export async function recoverReviewedTriageDraft(orgId: string, itemId: unknown,
       throw new ApiAuthError(409, 'The draft changed after review. Refresh and review it again.');
     }
     if (Number(error?.status) === 404) throw new ApiAuthError(404, 'The rejected update was not found for this draft');
-    if (Number(error?.status) === 409) throw new ApiAuthError(409, 'Recovery is held by the mailbox service. Keep this review and check the update receipt before retrying.');
+    if (Number(error?.status) === 409) {
+      const diagnostic = /^[A-Z][A-Z0-9_]{2,79}$/.test(code) ? ` (${code})` : '';
+      throw new ApiAuthError(409, `Recovery is held by the mailbox service${diagnostic}. Keep this review and check the update receipt before retrying.`);
+    }
     throw new ApiAuthError(502, 'Recovery could not be confirmed. Keep this review and retry the same recovery; do not create another draft.');
   }
 }

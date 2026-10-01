@@ -100,3 +100,21 @@ test('reviewed recovery is scoped, idempotent and validates the superseding rece
   result.recovered_from_receipt_id = receipt; result.provider_draft_id = 'duplicate';
   await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), /did not verify/);
 });
+
+test('recovery holds expose safe service codes without leaking response details', async () => {
+  const { recoverReviewedTriageDraft } = await import('../lib/triage/draftPreview');
+  const f = fixture();
+  const review = { contentHash: 'b'.repeat(64), revision: 3, failedReceiptId: '0a763226-0de2-41f5-aa43-94cf69700c67' };
+  for (const code of ['RECOVERY_NOT_ELIGIBLE', 'secret@email.example', '']) {
+    f.deps.client = () => ({ recoverMailboxDraftUpdate: async () => {
+      throw new CommunicationsApiError('private upstream detail', 409, { code, error: 'private upstream detail' });
+    } });
+    await assert.rejects(recoverReviewedTriageDraft('tenant', 'email', review, 'owner:u', f.deps), (error: any) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.message.includes('RECOVERY_NOT_ELIGIBLE'), code === 'RECOVERY_NOT_ELIGIBLE');
+      assert.equal(error.message.includes('private'), false);
+      assert.equal(error.message.includes('secret@'), false);
+      return true;
+    });
+  }
+});
