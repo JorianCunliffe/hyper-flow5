@@ -252,6 +252,7 @@ test("machine principals cannot make human decisions including nested reviews", 
     ["artifacts", { operation: "review" }],
     ["publishing", { operation: "approve" }],
     ["captured_work", { operation: "resolve" }],
+    ["triage", { action: "recover_update" }],
     ["commitments", { action: "promise_ledger", operation: "review" }],
     ["commitments", { action: "operational_review", operation: "action" }],
   ] as any[])

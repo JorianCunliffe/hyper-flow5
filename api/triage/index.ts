@@ -2,7 +2,7 @@ import { TenantControlError } from '../../lib/tenantControl/model.js';
 import { assertHumanDecision } from '../../lib/http/authority.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
-import { readTriageDraftPreview, adoptTriageDraftBaseline } from '../../lib/triage/draftPreview.js';
+import { readTriageDraftPreview, adoptTriageDraftBaseline, recoverReviewedTriageDraft } from '../../lib/triage/draftPreview.js';
 import { recoverTriageDraft } from '../../lib/triage/recoverDraft.js';
 import {
   claimTriageAgentProposal,
@@ -41,6 +41,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (scope === 'draft') {
       res.setHeader('Cache-Control', 'no-store');
+      if (req.method === 'POST' && req.body?.action === 'recover_update') {
+        if (!isAdmin(member.role)) throw new ApiAuthError(403, 'Administrator membership required');
+        return res.status(200).json(await recoverReviewedTriageDraft(member.orgId, req.body?.id,
+          { contentHash: req.body?.contentHash, revision: req.body?.revision, failedReceiptId: req.body?.failedReceiptId }, `${member.role}:${member.uid}`));
+      }
       if (req.method === 'POST' && req.body?.action === 'adopt_baseline') {
         return res.status(200).json(await adoptTriageDraftBaseline(member.orgId, req.body?.id,
           { contentHash: req.body?.contentHash, revision: req.body?.revision }, `${member.role}:${member.uid}`));

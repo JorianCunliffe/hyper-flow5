@@ -395,6 +395,13 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     });
   }
 
+  async recoverMailboxDraftUpdate(tenantId: string, connectionId: string, draftId: string, review: { failed_update_receipt_id: string; reviewed_content_hash: string; expected_revision: number; initiator_id?: string }, idempotencyKey: string): Promise<Record<string, unknown>> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/mailboxes/${encodeURIComponent(connectionId)}/drafts/${encodeURIComponent(draftId)}/recover`, {
+      method: 'POST', tenantId, body: review, idempotencyKey
+    });
+  }
+
   private async communicationRequest(
     path: string,
     options: {

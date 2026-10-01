@@ -43,6 +43,15 @@ export const adoptMailboxDraftBaseline = async (itemId: string, draft: DraftPrev
   if (!response.ok) throw new Error(body.error || 'Unable to approve this draft');
 };
 
+export const recoverReviewedMailboxDraft = async (itemId: string, draft: DraftPreview, failedReceiptId: string): Promise<void> => {
+  const response = await firebaseService.authorizedFetch('/api/triage?scope=draft', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: itemId, action: 'recover_update', contentHash: draft.contentHash, revision: draft.revision, failedReceiptId })
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || 'Unable to recover this draft update');
+};
+
 // A template is inert: no scripts execute, links navigate or remote images load.
 // Display only text, including for provider drafts that contain HTML signatures.
 export const draftBodyText = (draft: DraftPreview): string => {
@@ -66,6 +75,11 @@ export const MailboxDraftPreview: React.FC<{
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [failedReceiptId, setFailedReceiptId] = useState('');
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
+  const [recovered, setRecovered] = useState(false);
+  useEffect(() => { setFailedReceiptId(''); setRecoveryError(''); setRecovered(false); }, [itemId]);
   useEffect(() => {
     let active = true;
     setLoading(true); setDraft(null); setError('');
@@ -81,6 +95,15 @@ export const MailboxDraftPreview: React.FC<{
     try { await adopt(itemId, draft); setRevision(value => value + 1); }
     catch (reason) { setApproveError(reason instanceof Error ? reason.message : 'Unable to approve this draft'); }
     finally { setApproving(false); }
+  };
+  const recover = async () => {
+    if (!draft || draft.truncated) return;
+    setRecovering(true); setRecoveryError('');
+    try {
+      await recoverReviewedMailboxDraft(itemId, draft, failedReceiptId.trim());
+      setRecovered(true); setFailedReceiptId(''); setRevision(value => value + 1);
+    } catch (reason) { setRecoveryError(reason instanceof Error ? reason.message : 'Unable to recover this draft update'); }
+    finally { setRecovering(false); }
   };
   return <section aria-label="Mailbox draft preview" className="mt-4 rounded-xl border border-slate-200 bg-white p-4 text-slate-700">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -110,6 +133,14 @@ export const MailboxDraftPreview: React.FC<{
           : <p className="mt-2">The mailbox service must be updated before this draft can be approved.</p>}
         {approveError && <p role="alert" className="mt-2 text-amber-700">{approveError}</p>}
       </div>}
+      {recovered && <p role="status" className="mt-3 text-sm text-emerald-700">The original draft update was recovered and remains unsent. The paused workflow can continue.</p>}
+      {draft.provider === 'outlook' && draft.contentHash && draft.revision && !draft.truncated && <details className="mt-4 rounded-lg border border-slate-200 p-3 text-sm">
+        <summary className="cursor-pointer font-bold">Recover a rejected draft update</summary>
+        <p className="mt-2">Administrator recovery replaces the current draft above with the saved content of an update rejected because the mailbox version changed. Review both versions before proceeding. The original draft and failure history are preserved; nothing is sent.</p>
+        <label className="mt-3 block">Rejected update receipt ID<input aria-label="Rejected update receipt ID" className="mt-1 block w-full rounded border p-2" value={failedReceiptId} onChange={event => setFailedReceiptId(event.target.value)} disabled={recovering} /></label>
+        <button type="button" onClick={() => void recover()} disabled={recovering || loading || !failedReceiptId.trim()} className="mt-2 font-bold text-indigo-700 disabled:opacity-50">{recovering ? 'Recovering draft update…' : 'Recover reviewed draft update'}</button>
+        {recoveryError && <p role="alert" className="mt-2 text-amber-700">{recoveryError}</p>}
+      </details>}
     </>}
   </section>;
 };

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ApiAuthError, requireProjectInTenant } from '../apiAuth.js';
 import { readTenantTriageItem } from '../serverStore.js';
 import { createCommunicationsClient } from '../communications/client.js';
@@ -76,6 +77,47 @@ const BASELINE_ERRORS: Record<string, string> = {
   DRAFT_UPDATE_IN_PROGRESS: 'An update to this draft is in progress. Try again when it finishes.',
   BASELINE_NOT_REQUIRED: 'This draft already has a saved version; no approval is needed.',
 };
+
+/** Explicitly review one rejected update; provider identities come only from the tenant item. */
+export async function recoverReviewedTriageDraft(orgId: string, itemId: unknown,
+  review: { contentHash?: unknown; revision?: unknown; failedReceiptId?: unknown }, actor: string, deps: DraftDeps = defaultDeps) {
+  if (typeof review.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(review.contentHash)
+    || !Number.isInteger(review.revision) || (review.revision as number) < 1) {
+    throw new ApiAuthError(400, 'Refresh and review the current draft before recovering an update');
+  }
+  if (typeof review.failedReceiptId !== 'string' || !/^[a-f0-9-]{36}$/i.test(review.failedReceiptId)) {
+    throw new ApiAuthError(400, 'The rejected update receipt ID is required');
+  }
+  const item = await readLinkedItem(orgId, itemId, deps);
+  const client = deps.client();
+  if (!client.recoverMailboxDraftUpdate) throw new ApiAuthError(501, 'The mailbox service does not support reviewed recovery');
+  const key = `reviewed-draft-recovery:${createHash('sha256').update(JSON.stringify([
+    orgId, item.connectionId, item.providerDraftId, review.failedReceiptId, review.contentHash, review.revision
+  ])).digest('hex')}`;
+  try {
+    const result = await client.recoverMailboxDraftUpdate(orgId, item.connectionId, item.providerDraftId, {
+      failed_update_receipt_id: review.failedReceiptId, reviewed_content_hash: review.contentHash,
+      expected_revision: review.revision as number, initiator_id: actor
+    }, key);
+    if (result.provider_draft_id !== item.providerDraftId || result.status !== 'created'
+      || result.recovered_from_receipt_id !== review.failedReceiptId
+      || result.reviewed_content_hash !== review.contentHash
+      || result.revision !== (review.revision as number) + 1
+      || typeof result.update_receipt_id !== 'string' || !result.update_receipt_id) {
+      throw new ApiAuthError(502, 'The mailbox service did not verify this draft recovery; preserve the review and retry');
+    }
+    return { recovered: true, revision: result.revision, receiptId: result.update_receipt_id };
+  } catch (error: any) {
+    if (error instanceof ApiAuthError) throw error;
+    const code = String(error?.responseBody?.code || '');
+    if (['DRAFT_PROVIDER_CHANGED', 'STALE_REVISION', 'DRAFT_UPDATE_CONFLICT'].includes(code)) {
+      throw new ApiAuthError(409, 'The draft changed after review. Refresh and review it again.');
+    }
+    if (Number(error?.status) === 404) throw new ApiAuthError(404, 'The rejected update was not found for this draft');
+    if (Number(error?.status) === 409) throw new ApiAuthError(409, 'Recovery is held by the mailbox service. Keep this review and check the update receipt before retrying.');
+    throw new ApiAuthError(502, 'Recovery could not be confirmed. Keep this review and retry the same recovery; do not create another draft.');
+  }
+}
 
 /**
  * Approve the exact previewed content of a legacy draft as its starting version.
