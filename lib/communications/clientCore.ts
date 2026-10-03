@@ -423,8 +423,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     }
     return this.normalizeCommunication({
       ...result,
-      id,
-      status: result.status || 'accepted'
+      id
     });
   }
 
