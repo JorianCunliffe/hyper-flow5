@@ -11,6 +11,8 @@ Status: implementation verified locally; **provider acceptance NOT RUN**. The fe
 | API generation and drift | PASS | `npm run api:generate`, `npm run api:check`. |
 | Production build | PASS | `npm run build`; existing bundle-size warning remains. |
 | Database rules | PASS | 34 emulator checks, including browser denial for reception records. Firebase CLI 14.22.0 with installed Java 17; latest CLI needs Java 21. No rules deployed. |
+| Reception persistence | PASS | Real Firebase emulator: cold transactions, concurrent approvals, replay after lost response, stale revisions, tenant isolation, direct-browser denial and disabled-feature activation. |
+| Cross-service line directory | PASS | HyperFlow HTTP client against the companion Communications SQL fixture: tenant isolation, disabled lines and no private prompt exposure. CI pins the companion commit. |
 | Browser: create/edit/review/save | PASS | Real Receptionists component against isolated fixture transport. Saving leaves the line paused. Named diary/staff controls and 15/5 defaults displayed. |
 | Browser: preview/activation/operator review | PASS | Public preview leaves revision unchanged; activation has its own review/action; enquiry review changes status. Fixture effects only. |
 | Cross-service production deployment and routing | NOT RUN | Matching releases and Firebase rules must be deployed with feature off first. |

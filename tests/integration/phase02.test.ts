@@ -17,6 +17,14 @@ test('Phase 02: HyperFlow proxy and HTTP client use canonical Communications SQL
   try {
     const address = await app.listen({host:'127.0.0.1',port:0});
     const client = new HttpCommunicationsClient({baseUrl:address,apiKey:key});
+    await sql.query("insert into tenants (tenant_id) values ('unrelated_tenant')");
+    await sql.query('insert into phone_configs (tenant_id,twilio_number,call_enabled,inbound_call_prompt) values ($1,$2,true,$3),($1,$4,false,$3),($5,$6,true,$3)',
+      [fixture.tenant,'+61400000001','private prompt never returned','+61400000002','unrelated_tenant','+61400000003']);
+    const receptionLines = await client.listReceptionLines(fixture.tenant);
+    assert.deepEqual(receptionLines.sort((a,b)=>a.identity.localeCompare(b.identity)), [
+      {identity:'+61400000001',enabled:true}, {identity:'+61400000002',enabled:false}
+    ]);
+    await assert.rejects(client.listReceptionLines('unrelated_tenant'));
     const raw = async (path:string,body:any) => {
       const response = await fetch(address+'/v1/'+path,{method:'POST',headers:{'X-API-Key':key,'X-Tenant-Id':fixture.tenant,'Content-Type':'application/json'},body:JSON.stringify(body)});
       const data = await response.json(); assert.equal(response.ok,true,JSON.stringify(data)); return data;
