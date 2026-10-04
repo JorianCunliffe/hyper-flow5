@@ -31,7 +31,9 @@ describe('Firebase production rules configuration', () => {
       assert.equal(rules[root]['.read'], false);
       assert.equal(rules[root]['.write'], false);
     }
-    assert.equal(rules.flow_runs.$orgId.$projectId['.indexOn'], 'updatedAt');
+    const flowIndexes = rules.flow_runs.$orgId.$projectId['.indexOn'];
+    assert.ok(flowIndexes.includes('updatedAt'), 'paged execution history remains indexed');
+    assert.ok(flowIndexes.includes('status'), 'setup readiness can find old running/waiting executions');
     assert.deepEqual(rules.flow_hold_pending['.indexOn'], ['availableAt', 'orgId']);
   });
 

@@ -775,5 +775,26 @@
     "description": "Create phone contact; reuse existing matching name and phone",
     "authorization": "Owner/admin; communications:write",
     "source": "api/communications/status.ts"
+  },
+  {
+    "path": "/api/setup-assistant/sessions",
+    "method": "GET",
+    "description": "Private resumable AI workflow setup sessions, scoped proposals, simulation and separate human approvals",
+    "authorization": "Human session only; feature flag and originating user/tenant",
+    "source": "lib/setupAssistant/service.ts; api/gemini/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/setup-assistant/sessions",
+    "method": "POST",
+    "description": "Private resumable AI workflow setup sessions, scoped proposals, simulation and separate human approvals",
+    "authorization": "Human session only; feature flag and originating user/tenant",
+    "source": "lib/setupAssistant/service.ts; api/gemini/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/setup-assistant/sessions",
+    "method": "DELETE",
+    "description": "Private resumable AI workflow setup sessions, scoped proposals, simulation and separate human approvals",
+    "authorization": "Human session only; feature flag and originating user/tenant",
+    "source": "lib/setupAssistant/service.ts; api/gemini/index.ts; vercel.json"
   }
 ]

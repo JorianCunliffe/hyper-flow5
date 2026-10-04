@@ -6,6 +6,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/setup-assistant/sessions",
+      "destination": "/api/gemini?action=setup_assistant"
+    },
+    {
       "source": "/api/scratch-tasks",
       "destination": "/api/gemini?action=configuration&resource=scratch-tasks"
     },
