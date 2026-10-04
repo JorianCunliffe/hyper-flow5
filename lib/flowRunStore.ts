@@ -146,7 +146,8 @@ export const findFlowRunByAsk = async (
   askToken?: string
 ): Promise<{ run: FlowRun; node: Milestone; ask: HumanAsk } | null> => {
   if (!askId && !askToken) return null;
-  const runs = await listFlowRuns(orgId, projectId, 100);
+  const active = await (await import('./reception/asks.js')).listActiveReceptionRuns(orgId,projectId);
+  const runs = [...active,...await listFlowRuns(orgId, projectId, 100)];
   for (const run of runs) {
     for (const node of run.state.milestones) {
       const ask = (node.asks || []).find(item => askMatches(item, askId, askToken));

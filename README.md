@@ -235,3 +235,7 @@ Contacts can be added in Settings or through `POST /api/communications/contacts`
 Use the [v2 operating guide](docs/CAIRNS_SHAREHOUSE_MORNING_RUN_V2.md) and [controlled test journal](docs/implementation/SHAREHOUSE_V2_RETEST_20260930.md) for the configured Cairns workflow, test-recipient restrictions and evidence. Inspections use 15-minute slots plus five minutes between properties; prefer Martyn Street at 16:00 and other properties beforehand around 15:30, subject to confirmed availability and the diary. Derive the run date in `Australia/Brisbane`. Changed definitions apply to future occurrences; active runs retain frozen definitions.
 
 A ready Vercel deployment is build evidence. Check runtime scheduler results separately. Communications Service's `/health` distinguishes process liveness, feature configuration and cached live LLM readiness; model credit acceptance is scoped to the timestamp and models listed. HyperFlow hosts Gemini separately. The complete Sharehouse acceptance baseline remains unaccepted until every required case passes.
+
+## Project reception
+
+Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](docs/PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.

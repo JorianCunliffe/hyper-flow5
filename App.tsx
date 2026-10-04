@@ -1,3 +1,4 @@
+import ReceptionistsPanel from './components/ReceptionistsPanel';
 import { CapturedWorkPanel } from './components/CapturedWorkPanel';
 import { ViewOptions } from './components/ViewOptions';
 import { ViewBoundary } from './components/ViewBoundary';
@@ -358,6 +359,7 @@ export const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [milestoneToDelete, setMilestoneToDelete] = useState<string | null>(null);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [receptionProject,setReceptionProject]=useState<string|null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
 
   useEffect(() => {
@@ -2321,7 +2323,7 @@ export const App: React.FC = () => {
         ) : isObligationsMode ? (
           <CommitmentsPanel key={`${currentOrgId}:${selectedProjectId || 'all'}`} orgId={currentOrgId || ''} projects={projects} projectId={selectedProjectId} initialId={new URLSearchParams(window.location.search).get('obligation')||undefined} />
         ) : isTriageMode ? (
-          <TriageInbox key={`${currentOrgId}:${selectedProjectId || 'all'}`} />
+          <div className="space-y-4"><button className="rounded border px-4 py-2" onClick={()=>setReceptionProject('')}>Receptionists</button><TriageInbox key={`${currentOrgId}:${selectedProjectId || 'all'}`} /></div>
         ) : isScratchMode ? (
           <Scratchpad key={`${currentOrgId}:${selectedProjectId || 'all'}`}
             scratchTasks={scratchTasks.filter(t => t.createdBy === currentUser?.uid || t.createdBy === currentUser?.email || !t.createdBy)}
@@ -2811,8 +2813,10 @@ export const App: React.FC = () => {
         activeProjects={projects}
         onReinstate={handleReinstateProject}
       />
+      {receptionProject!==null&&<div role="dialog" aria-modal="true" aria-label="Reception settings" className="fixed inset-0 z-[110] bg-slate-900/60 overflow-auto p-4"><ReceptionistsPanel key={`${currentOrgId}:${receptionProject}`} projectId={receptionProject||undefined} onClose={()=>setReceptionProject(null)}/></div>}
       {editingProject && (
         <EditProjectModal 
+          onOpenReception={()=>{setReceptionProject(editingProject.id);setEditingProject(null);}}
           project={editingProject} 
           isOpen={!!editingProject} 
           onClose={() => setEditingProject(null)} 

@@ -1,3 +1,4 @@
+import { receptionConfigSchema, receptionProjectSchema } from "../reception/schema.js";
 import { taskContracts } from "./taskContracts.js";
 import { buildOpenApi, domainOperations } from "./openapi.js";
 import { configurationSchemas, views } from "../configuration/schema.js";
@@ -12,6 +13,7 @@ export function discoveryResponse(format?: unknown) {
     version: "1.0.0",
     openapi: "/api/openapi.json",
     schemas: configurationSchemas,
+    reception: { configuration:'/api/reception', voiceCommands:'/api/agent/reception', flag:'PROJECT_RECEPTION_ENABLED', schema:receptionConfigSchema, projectSchema:receptionProjectSchema, actions:['availability','booking','resume_ask'], authority:'Human administrator review/apply and separate activation; signed server voice commands only', documentation:'docs/PROJECT_RECEPTION.md' },
     nodeTypes: Object.values(NodeType),
     taskTypes: TASK_TYPES,
     taskContracts,

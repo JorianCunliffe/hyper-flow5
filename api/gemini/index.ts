@@ -1,3 +1,4 @@
+import { handleReception } from '../../lib/reception/service.js';
 import { handleConfiguration } from '../../lib/configuration/api.js';
 import { handleTestRuns } from '../../lib/configuration/testRuns.js';
 import { discoveryResponse } from '../../lib/http/discovery.js';
@@ -94,6 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const action = typeof req.query.action === 'string' ? req.query.action : '';
     if (action === 'tenant' && req.query.view === 'lifecycle') return res.status(200).json(await handleLifecycle(req));
     const member = await requireAppMember(req);
+    if (action === 'reception') { res.setHeader('Cache-Control','no-store'); return res.status(200).json(await handleReception(req,member)); }
     if (action === 'setup_assistant') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json(await handleSetup(req, member, authenticatedApi(req.headers)));

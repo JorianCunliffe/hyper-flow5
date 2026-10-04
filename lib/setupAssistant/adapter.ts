@@ -6,7 +6,7 @@ export type SetupApi = (method: string, path: string, body?: any, query?: any) =
 export function authenticatedApi(headers: Record<string, any>): SetupApi {
   return async (method, path, body, query = {}) => {
     let handler: any, fixed: any = {};
-    if (['/api/discovery', '/api/configuration', '/api/test-runs', '/api/calendar'].includes(path)) {
+    if (['/api/reception', '/api/discovery', '/api/configuration', '/api/test-runs', '/api/calendar'].includes(path)) {
       handler = (await import('../../api/gemini/index.js')).default;
       fixed = { action: path.split('/').at(-1) === 'test-runs' ? 'test_runs' : path.split('/').at(-1) };
     } else if (['/api/integrations', '/api/service-projects/status', '/api/integrations/google/resources'].includes(path)) {
@@ -31,6 +31,7 @@ export function readTools(api: SetupApi, scope: SetupScope) {
       const configuration = await api('GET', '/api/configuration');
       return redact({ revision: configuration.revision, settings: configuration.settings, projects: configuration.projects.filter((p: any) => p.id === scope.projectId) });
     }
+    if (name === 'reception') {const r=await api('GET','/api/reception');return redact({revision:r.config.revision,enabled:r.enabled,project:r.config.projects.find((p:any)=>p.projectId===scope.projectId),lines:r.config.lines.filter((l:any)=>l.projectIds.includes(scope.projectId)).map((l:any)=>({id:l.id,identity:l.identity,enabled:l.enabled,name:l.name}))});}
     if (name === 'discovery') return api('GET', '/api/discovery');
     if (name === 'integrations') return redact(await api('GET', '/api/integrations'));
     if (name === 'resources') return scope.kind === 'new' ? { resources: [] } : redact(await api('GET', '/api/workspace/resources', undefined, { projectId: scope.projectId }));

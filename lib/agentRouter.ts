@@ -1,3 +1,4 @@
+import { finishReception } from './reception/service.js';
 import { recordAgentDraft } from './triage/agentDraft.js';
 import { conversationEvidence, conversationInstructions, continuityRules, type ConversationEvidence } from './conversationContinuity.js';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -348,6 +349,13 @@ export const processAgentInboxJob = async (
       readTenantAgentProfile(job.orgId),
       listTenantProjects(job.orgId)
     ]);
+    if (job.channel === 'voice') {
+      const receptionFinished = await finishReception(job.orgId, job.communicationId);
+      if (communication.purpose?.type === 'project_reception' || receptionFinished) {
+        await finishAgentInboxJob(job, { status: 'completed' });
+        return;
+      }
+    }
     if (!profile) throw new Error('Tenant agent profile is not configured');
     const callbackText = job.channel === 'voice' ? callbackRequestText(communication.content) : null;
     if (callbackText && profile.receptionistEnabled) {

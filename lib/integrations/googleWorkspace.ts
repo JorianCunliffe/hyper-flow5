@@ -1,3 +1,4 @@
+import { guardDiaryAppend, rejectDiaryUpsert } from '../reception/booking.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { ExternalActionReceipt, WorkspaceNamedResource, WorkspaceResourceGrant, WorkspaceResourcePermission } from '../../types.js';
 import {
@@ -273,11 +274,11 @@ export const appendGrantedGoogleSheet = async (
   try {
     const accessToken = await googleAccessToken(orgId, grant.connectionId);
     const query = new URLSearchParams({ valueInputOption: GOOGLE_SHEET_VALUE_INPUT_OPTION, insertDataOption: 'INSERT_ROWS' });
-    const result = await googleJson<Record<string, unknown>>(
+    const result = await guardDiaryAppend(orgId,projectId,selected,values,idempotencyKey,()=>googleJson<Record<string, unknown>>(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(selected.spreadsheetId)}/values/${encodeURIComponent(selected.range)}:append?${query}`,
       accessToken,
       { method: 'POST', body: JSON.stringify({ majorDimension: 'ROWS', values }) }
-    );
+    ));
     const response = {
       spreadsheetId: selected.spreadsheetId,
       range: selected.range,
@@ -332,6 +333,7 @@ export const upsertGrantedGoogleSheet = async (
   }
   const grant = await requireGrant(orgId, projectId);
   const selected = resolveGoogleSheetGrant(grant, 'upsert');
+  await rejectDiaryUpsert(orgId,selected);
   const writableRange = parseWritableRange(selected.range);
   const hash = requestHash({ projectId, spreadsheetId: selected.spreadsheetId, range: selected.range, keyColumn, keyValue, values, expectedRow });
   const receipt: ExternalActionReceipt = {

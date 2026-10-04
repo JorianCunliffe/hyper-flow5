@@ -9,10 +9,11 @@ interface EditProjectModalProps {
   onSave: (updatedProject: Project) => void;
   onBulkOperation: (projectId: string, operation: { type: 'replace_name' | 'assign_role', oldName?: string, newName: string, role?: string }) => void;
   settings: AppSettings;
+  onOpenReception?: () => void;
 }
 
 export const EditProjectModal: React.FC<EditProjectModalProps> = ({ 
-  project, isOpen, onClose, onSave, settings, onBulkOperation 
+  project, isOpen, onClose, onSave, settings, onBulkOperation, onOpenReception
 }) => {
   const [editedProject, setEditedProject] = useState<Project>(project);
   const [showBulkOps, setShowBulkOps] = useState(false);
@@ -40,6 +41,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
           <h3 className="text-2xl font-black text-slate-900 flex items-center gap-2">
             <Settings className="text-slate-400" /> Edit Project Settings
           </h3>
+          {onOpenReception&&<button type="button" onClick={onOpenReception}>Inbound reception</button>}
           {project.displayId && (
             <span className="bg-slate-100 text-slate-500 text-xs font-black px-3 py-1 rounded-lg border border-slate-200 tracking-tighter">
               {project.displayId}

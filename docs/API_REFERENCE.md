@@ -39,3 +39,7 @@ HyperFlow normalizes a Communications Service GET result using explicit top-leve
 # AI workflow setup
 
 `GET`, `POST` and `DELETE /api/setup-assistant/sessions` provide private resumable setup conversations, configuration proposals and separate human apply/live-test/activation commands. These endpoints require a Firebase human session and enabled administrator rollout. See [the setup assistant reference](SETUP_ASSISTANT.md) for commands, review hashes, limits, recovery and rollout. `POST /api/test-runs` also supports an unapplied proposal through `changes` and `planHash`; execution remains fixture-only with zero provider calls.
+
+## Project reception
+
+Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.
