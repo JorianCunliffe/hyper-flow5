@@ -36,6 +36,7 @@ export interface RespondToAskInput {
   transcriptId?: string;
   occurredAt?: number;
   actorVerified?: boolean;
+  expectedAsk?: {runId:string;version:string};
   /** Record a valid interpretation but keep it open for authenticated review. */
   forceReview?: boolean;
 }
@@ -163,6 +164,7 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const sourceProject = flowRun ? materializeFlowRunProject(located.project, flowRun) : located.project;
   const found = input.askId ? findAskById(sourceProject, input.askId) : findAskByToken(sourceProject, input.askToken!);
   if (!found) return { ok: false, reason: 'ask_not_found' };
+  if(input.expectedAsk&&(flowRun?.id!==input.expectedAsk.runId||(await import('../reception/asks.js')).askVersion(found.ask,flowRun.id)!==input.expectedAsk.version))return {ok:false,reason:'ask_changed'};
   if (expireAsk(found.ask, input.occurredAt ?? Date.now()).status === 'expired') {
     return { ok: false, reason: 'ask_expired', askStatus: 'expired', askKind: found.ask.kind, askFields: found.ask.fields };
   }

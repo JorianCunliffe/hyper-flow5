@@ -1,3 +1,4 @@
+import { receptionContext } from './reception/service.js';
 import { conversationEvidence, conversationInstructions, continuityRules } from './conversationContinuity.js';
 import type { ProjectRoutingDecision } from '../types.js';
 import { channelOperatingContext } from './cockpit/channelContext.js';
@@ -48,6 +49,8 @@ export const buildVoiceAgentContext = async (
   input: VoiceAgentContextRequest,
   now = Date.now()
 ): Promise<VoiceAgentContextResponse> => {
+  const reception = await receptionContext(input);
+  if (reception) return reception;
   const profile = await readTenantAgentProfile(input.tenant_id);
   if (!profile) throw new Error('Tenant agent profile is not configured');
   const configuredVoiceIdentities = [profile.serviceIdentities?.phone, profile.serviceIdentities?.sms].filter(Boolean);

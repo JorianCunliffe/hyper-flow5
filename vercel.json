@@ -6,6 +6,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/reception",
+      "destination": "/api/gemini?action=reception"
+    },
+    {
+      "source": "/api/agent/reception",
+      "destination": "/api/events?action=reception"
+    },
+    {
       "source": "/api/setup-assistant/sessions",
       "destination": "/api/gemini?action=setup_assistant"
     },

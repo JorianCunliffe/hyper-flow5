@@ -32340,10 +32340,1027 @@
           }
         }
       }
+    },
+    "/api/reception": {
+      "get": {
+        "operationId": "get__api_reception",
+        "summary": "Revision-checked reception configuration, routing previews and operator review",
+        "description": "Revision-checked reception configuration, routing previews and operator review\nAuthority: Human owner/admin",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "lib/reception/service.ts",
+        "x-authority": "Human owner/admin",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "nodeId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "calendarKey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "shape",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post__api_reception",
+        "summary": "Revision-checked reception configuration, routing previews and operator review",
+        "description": "Revision-checked reception configuration, routing previews and operator review\nAuthority: Human owner/admin",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "lib/reception/service.ts",
+        "x-authority": "Human owner/admin",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "preview",
+                      "prepare",
+                      "apply",
+                      "review_activation",
+                      "activate",
+                      "review_enquiry",
+                      "confirm_availability",
+                      "reconcile_booking",
+                      "reconcile_ask"
+                    ]
+                  },
+                  "expectedRevision": {
+                    "type": "integer"
+                  },
+                  "requestId": {
+                    "type": "string"
+                  },
+                  "reviewHash": {
+                    "type": "string"
+                  },
+                  "config": {
+                    "$ref": "#/components/schemas/ReceptionConfiguration"
+                  },
+                  "identity": {
+                    "type": "string"
+                  },
+                  "utterance": {
+                    "type": "string"
+                  },
+                  "personId": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "expectedUpdatedAt": {
+                    "type": "integer"
+                  },
+                  "status": {
+                    "enum": [
+                      "open",
+                      "closed",
+                      "needs_review"
+                    ]
+                  },
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  },
+                  "windows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "preview",
+          "prepare",
+          "apply",
+          "review_activation",
+          "activate",
+          "review_enquiry",
+          "confirm_availability",
+          "reconcile_booking",
+          "reconcile_ask"
+        ]
+      }
+    },
+    "/api/agent/reception": {
+      "post": {
+        "operationId": "post__api_agent_reception",
+        "summary": "Bounded session commands for trusted inbound reception calls",
+        "description": "Bounded session commands for trusted inbound reception calls\nAuthority: Communications HMAC V2 exact body",
+        "security": [
+          {
+            "CommunicationsSignature": []
+          }
+        ],
+        "x-source": "api/events.ts",
+        "x-authority": "Communications HMAC V2 exact body",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tenant_id",
+                  "person_id",
+                  "communication_id",
+                  "thread_id",
+                  "service_identity",
+                  "operation",
+                  "operation_id",
+                  "arguments"
+                ],
+                "properties": {
+                  "tenant_id": {
+                    "type": "string"
+                  },
+                  "person_id": {
+                    "type": "string"
+                  },
+                  "communication_id": {
+                    "type": "string"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "service_identity": {
+                    "type": "string"
+                  },
+                  "operation": {
+                    "enum": [
+                      "record_enquiry",
+                      "select_enquiry",
+                      "verify",
+                      "pending_asks",
+                      "select_ask",
+                      "availability",
+                      "prepare_action",
+                      "confirm_action",
+                      "reconcile_action",
+                      "record_segments"
+                    ]
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "record_enquiry",
+          "select_enquiry",
+          "verify",
+          "pending_asks",
+          "select_ask",
+          "availability",
+          "prepare_action",
+          "confirm_action",
+          "reconcile_action",
+          "record_segments"
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "ReceptionConfiguration": {
+        "type": "object",
+        "required": [
+          "lines",
+          "projects"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "projects": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "projectId",
+                "enabled",
+                "label",
+                "visibility",
+                "intakeOwner",
+                "actions"
+              ],
+              "properties": {
+                "projectId": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "aliases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": [
+                    "public",
+                    "recognized"
+                  ]
+                },
+                "knowledge": {
+                  "type": "string",
+                  "maxLength": 12000
+                },
+                "historySourceProjectIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "intakeOwner": {
+                  "type": "string"
+                },
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "availability",
+                      "booking",
+                      "resume_ask"
+                    ]
+                  }
+                },
+                "availabilityConnection": {
+                  "type": "string"
+                },
+                "booking": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "resourceName",
+                    "staffPersonId",
+                    "durationMinutes",
+                    "travelMinutes",
+                    "properties",
+                    "columns"
+                  ],
+                  "properties": {
+                    "resourceName": {
+                      "type": "string"
+                    },
+                    "staffPersonId": {
+                      "type": "string"
+                    },
+                    "durationMinutes": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 120,
+                      "default": 15
+                    },
+                    "travelMinutes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 120,
+                      "default": 5
+                    },
+                    "properties": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1
+                    },
+                    "columns": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "date",
+                        "time",
+                        "property",
+                        "attendees",
+                        "groupSize",
+                        "status"
+                      ],
+                      "properties": {
+                        "date": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        },
+                        "time": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        },
+                        "property": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        },
+                        "attendees": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        },
+                        "groupSize": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        },
+                        "status": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 49
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "lines": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "identity",
+                "enabled",
+                "name",
+                "greeting",
+                "timezone",
+                "projectIds",
+                "inboxOwner"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "identity": {
+                  "type": "string",
+                  "pattern": "^\\+[1-9][0-9]{7,14}$"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "greeting": {
+                  "type": "string"
+                },
+                "timezone": {
+                  "type": "string",
+                  "default": "Australia/Brisbane"
+                },
+                "projectIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "inboxOwner": {
+                  "type": "string"
+                },
+                "hours": {
+                  "type": "object",
+                  "required": [
+                    "days",
+                    "start",
+                    "end"
+                  ],
+                  "properties": {
+                    "days": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "minItems": 1
+                    },
+                    "start": {
+                      "type": "string"
+                    },
+                    "end": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReceptionProject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "enabled",
+          "label",
+          "visibility",
+          "intakeOwner",
+          "actions"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "recognized"
+            ]
+          },
+          "knowledge": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "historySourceProjectIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "intakeOwner": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "availability",
+                "booking",
+                "resume_ask"
+              ]
+            }
+          },
+          "availabilityConnection": {
+            "type": "string"
+          },
+          "booking": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "resourceName",
+              "staffPersonId",
+              "durationMinutes",
+              "travelMinutes",
+              "properties",
+              "columns"
+            ],
+            "properties": {
+              "resourceName": {
+                "type": "string"
+              },
+              "staffPersonId": {
+                "type": "string"
+              },
+              "durationMinutes": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 120,
+                "default": 15
+              },
+              "travelMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 120,
+                "default": 5
+              },
+              "properties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "columns": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "date",
+                  "time",
+                  "property",
+                  "attendees",
+                  "groupSize",
+                  "status"
+                ],
+                "properties": {
+                  "date": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "time": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "property": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "attendees": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "groupSize": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  },
+                  "status": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 49
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "send_emailTemplate": {
         "type": "object",
         "properties": {

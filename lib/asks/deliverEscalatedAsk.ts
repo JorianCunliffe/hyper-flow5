@@ -1,3 +1,4 @@
+import { withReceptionAskDispatch } from '../reception/asks.js';
 import { createHash } from 'node:crypto';
 import type { HumanAsk, Project } from '../../types.js';
 import { createCommunicationsClient } from '../communications/client.js';
@@ -42,10 +43,10 @@ export const deliverEscalatedAsk = async (project: Project, orgId: string, ask: 
       const result = await dependencies.deliverAsk(frozen as typeof input);
       return { status: 'success', output: { communication_id: result.id } };
     });
-    const outcome = await execute(channel === 'voice' ? 'outgoing_call' : 'send_sms', '', input, {
+    const outcome = await withReceptionAskDispatch(orgId,project.id,ask.id,runId,()=>execute(channel === 'voice' ? 'outgoing_call' : 'send_sms', '', input, {
       orgId, projectId: project.id, nodeId: ask.nodeId, runId,
       flowRunId: project.projectData?.flow_run_id, occurrenceId: project.projectData?.flow_occurrence_id
-    });
+    }));
     const communicationId = String(outcome.output.communication_id);
     return { ...ask,
       escalationState: channel === 'voice' ? { ...state, awaitingId: communicationId, nextAt: now + 60_000, error: undefined }

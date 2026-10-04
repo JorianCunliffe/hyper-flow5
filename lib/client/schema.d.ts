@@ -1594,10 +1594,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reception": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Revision-checked reception configuration, routing previews and operator review
+         * @description Revision-checked reception configuration, routing previews and operator review
+         *     Authority: Human owner/admin
+         */
+        get: operations["get__api_reception"];
+        put?: never;
+        /**
+         * Revision-checked reception configuration, routing previews and operator review
+         * @description Revision-checked reception configuration, routing previews and operator review
+         *     Authority: Human owner/admin
+         */
+        post: operations["post__api_reception"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/reception": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bounded session commands for trusted inbound reception calls
+         * @description Bounded session commands for trusted inbound reception calls
+         *     Authority: Communications HMAC V2 exact body
+         */
+        post: operations["post__api_agent_reception"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ReceptionConfiguration: {
+            revision?: number;
+            projects: {
+                projectId: string;
+                enabled: boolean;
+                label: string;
+                aliases?: string[];
+                /** @enum {string} */
+                visibility: "public" | "recognized";
+                knowledge?: string;
+                historySourceProjectIds?: string[];
+                intakeOwner: string;
+                actions: ("availability" | "booking" | "resume_ask")[];
+                availabilityConnection?: string;
+                booking?: {
+                    resourceName: string;
+                    staffPersonId: string;
+                    /** @default 15 */
+                    durationMinutes: number;
+                    /** @default 5 */
+                    travelMinutes: number;
+                    properties: string[];
+                    columns: {
+                        date: number;
+                        time: number;
+                        property: number;
+                        attendees: number;
+                        groupSize: number;
+                        status: number;
+                    };
+                };
+            }[];
+            lines: {
+                id: string;
+                identity: string;
+                enabled: boolean;
+                name: string;
+                greeting: string;
+                /** @default Australia/Brisbane */
+                timezone: string;
+                projectIds: string[];
+                inboxOwner: string;
+                hours?: {
+                    days: number[];
+                    start: string;
+                    end: string;
+                };
+            }[];
+        };
+        ReceptionProject: {
+            projectId: string;
+            enabled: boolean;
+            label: string;
+            aliases?: string[];
+            /** @enum {string} */
+            visibility: "public" | "recognized";
+            knowledge?: string;
+            historySourceProjectIds?: string[];
+            intakeOwner: string;
+            actions: ("availability" | "booking" | "resume_ask")[];
+            availabilityConnection?: string;
+            booking?: {
+                resourceName: string;
+                staffPersonId: string;
+                /** @default 15 */
+                durationMinutes: number;
+                /** @default 5 */
+                travelMinutes: number;
+                properties: string[];
+                columns: {
+                    date: number;
+                    time: number;
+                    property: number;
+                    attendees: number;
+                    groupSize: number;
+                    status: number;
+                };
+            };
+        };
         send_emailTemplate: {
             to: string | string[];
             subject?: string;
@@ -20247,6 +20373,385 @@ export interface operations {
             content: {
                 "application/json": {
                     id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Operation result. A pending/held result is not proof of completion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authority denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Revision/state conflict; read and reconcile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request/result limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request budget exhausted */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    get__api_reception: {
+        parameters: {
+            query?: {
+                /** @description Used where applicable; see operation description and domain guide. */
+                id?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                projectId?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                nodeId?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                view?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                operation?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                after?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                limit?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                offset?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                connectionId?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                calendarKey?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                start?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                end?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                shape?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                reason?: string;
+                /** @description Used where applicable; see operation description and domain guide. */
+                requestId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operation result. A pending/held result is not proof of completion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authority denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Revision/state conflict; read and reconcile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request/result limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request budget exhausted */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    post__api_reception: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {unknown} */
+                    operation: "preview" | "prepare" | "apply" | "review_activation" | "activate" | "review_enquiry" | "confirm_availability" | "reconcile_booking" | "reconcile_ask";
+                    expectedRevision?: number;
+                    requestId?: string;
+                    reviewHash?: string;
+                    config?: components["schemas"]["ReceptionConfiguration"];
+                    identity?: string;
+                    utterance?: string;
+                    personId?: string;
+                    id?: string;
+                    expectedUpdatedAt?: number;
+                    /** @enum {unknown} */
+                    status?: "open" | "closed" | "needs_review";
+                    projectId?: string;
+                    confirmed?: boolean;
+                    windows?: {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Operation result. A pending/held result is not proof of completion. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authority denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Revision/state conflict; read and reconcile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request/result limit exceeded */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Request budget exhausted */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dependency unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    post__api_agent_reception: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tenant_id: string;
+                    person_id: string;
+                    communication_id: string;
+                    thread_id: string;
+                    service_identity: string;
+                    /** @enum {unknown} */
+                    operation: "record_enquiry" | "select_enquiry" | "verify" | "pending_asks" | "select_ask" | "availability" | "prepare_action" | "confirm_action" | "reconcile_action" | "record_segments";
+                    operation_id: string;
+                    arguments: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

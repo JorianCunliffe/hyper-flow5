@@ -796,5 +796,26 @@
     "description": "Private resumable AI workflow setup sessions, scoped proposals, simulation and separate human approvals",
     "authorization": "Human session only; feature flag and originating user/tenant",
     "source": "lib/setupAssistant/service.ts; api/gemini/index.ts; vercel.json"
+  },
+  {
+    "path": "/api/reception",
+    "method": "GET",
+    "description": "Revision-checked reception configuration, routing previews and operator review",
+    "authorization": "Human owner/admin",
+    "source": "lib/reception/service.ts"
+  },
+  {
+    "path": "/api/reception",
+    "method": "POST",
+    "description": "Revision-checked reception configuration, routing previews and operator review",
+    "authorization": "Human owner/admin",
+    "source": "lib/reception/service.ts"
+  },
+  {
+    "path": "/api/agent/reception",
+    "method": "POST",
+    "description": "Bounded session commands for trusted inbound reception calls",
+    "authorization": "Communications HMAC V2 exact body",
+    "source": "api/events.ts"
   }
 ]

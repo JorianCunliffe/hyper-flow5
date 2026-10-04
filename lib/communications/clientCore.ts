@@ -93,6 +93,9 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     this.timeoutMs = Math.max(250, Math.min(options.timeoutMs || REQUEST_TIMEOUT_MS, REQUEST_TIMEOUT_MS));
   }
 
+  async listReceptionLines(tenantId:string):Promise<Array<{identity:string;enabled:boolean}>> {
+    this.requireTenant(tenantId); const result=await this.rawRequest('/v1/reception/lines',{method:'GET',tenantId}); return result.data;
+  }
   async listMeetings(tenantId:string, offset=0): Promise<{data:MeetingRecord[];next:number|null}> {
     this.requireTenant(tenantId); return this.rawRequest(`/v1/meetings?offset=${offset}`,{method:'GET',tenantId});
   }

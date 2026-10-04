@@ -1,3 +1,4 @@
+import { receptionConfigSchema, receptionProjectSchema } from "../reception/schema.js";
 import { requestScope } from "../tenantControl/clients.js";
 import { taskContracts } from "./taskContracts.js";
 import manifest from "../../contracts/route-manifest.json" with { type: "json" };
@@ -15,6 +16,8 @@ const body = (schema: any) => ({
 });
 const json = (schema: any) => ({ content: { "application/json": { schema } } });
 export const domainOperations: Record<string, string[]> = {
+  '/api/reception':['preview','prepare','apply','review_activation','activate','review_enquiry','confirm_availability','reconcile_booking','reconcile_ask'],
+  '/api/agent/reception':['record_enquiry','select_enquiry','verify','pending_asks','select_ask','availability','prepare_action','confirm_action','reconcile_action','record_segments'],
   "/api/flows": [
     "compile",
     "create",
@@ -135,6 +138,8 @@ const changeSchema = {
 };
 export function buildOpenApi() {
   const schemas: any = {
+    ReceptionConfiguration: receptionConfigSchema,
+    ReceptionProject: receptionProjectSchema,
     ...Object.fromEntries(
       Object.entries(taskContracts).map(([name, contract]) => [
         name + "Template",
@@ -630,6 +635,8 @@ export function buildOpenApi() {
         };
       }
     }
+    if(row.path==='/api/reception'&&method==='post')op.requestBody=body({type:'object',required:['operation'],properties:{operation:{enum:domainOperations[row.path]},expectedRevision:integer,requestId:string,reviewHash:string,config:{$ref:"#/components/schemas/ReceptionConfiguration"},identity:string,utterance:string,personId:string,id:string,expectedUpdatedAt:integer,status:{enum:['open','closed','needs_review']},projectId:string,confirmed:{type:'boolean'},windows:{type:'array',items:object}}});
+    if(row.path==='/api/agent/reception')op.requestBody=body({type:'object',required:['tenant_id','person_id','communication_id','thread_id','service_identity','operation','operation_id','arguments'],properties:{tenant_id:string,person_id:string,communication_id:string,thread_id:string,service_identity:string,operation:{enum:domainOperations[row.path]},operation_id:string,arguments:object}});
     if (row.path === '/api/setup-assistant/sessions') {
       op.security = [{ FirebaseBearer: [] }];
       op['x-authority'] = 'Human session; private to originating user and organization; administrator-controlled rollout';
@@ -662,7 +669,7 @@ export function buildOpenApi() {
       row.path === "/api/organizations/create"
     )
       op.security = [{ FirebaseBearer: [] }];
-    if (["/api/events", "/api/agent/voice-context", "/api/agent/capture-work"].includes(row.path))
+    if (["/api/events", "/api/agent/voice-context", "/api/agent/capture-work", "/api/agent/reception"].includes(row.path))
       op.security = [{ CommunicationsSignature: [] }];
     if (row.path === "/api/schedules/tick")
       op.security = [

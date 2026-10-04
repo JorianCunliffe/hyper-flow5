@@ -28,8 +28,9 @@ export function scopedChanges(scope: SetupScope, changes: Change[]) {
   }
 }
 export function scopedExtras(scope: SetupScope, extras: any = {}) {
-  if (!extras || Object.keys(extras).some(k => !['resources', 'schedules'].includes(k))) fail(422, 'Unsupported setup operation.');
+  if (!extras || Object.keys(extras).some(k => !['resources', 'schedules', 'reception'].includes(k))) fail(422, 'Unsupported setup operation.');
   if (scope.kind === 'element' && ((extras.resources?.length || 0) + (extras.schedules?.length || 0))) fail(403, 'Expand to workflow scope before changing resources or schedules.');
+  if(extras.reception && (scope.kind==='element'||extras.reception.projectId!==scope.projectId))fail(403,'Reception edits require workflow scope and the selected project.');
   if (extras.resources !== undefined && (!Array.isArray(extras.resources) || extras.resources.length > 25)) fail(422, 'At most 25 named resources.');
   if (extras.schedules !== undefined && (!Array.isArray(extras.schedules) || extras.schedules.length > 10)) fail(422, 'At most 10 schedules.');
   for (const s of extras.schedules || []) {

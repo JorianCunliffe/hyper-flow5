@@ -112,3 +112,7 @@ After configuration and simulation, use the existing domain APIs for live work. 
 Deploy the matching application and database rules together. Production acceptance must check both deployment origins with isolated tenant credentials, saved-view rendering, real provider consent/grants and one explicitly authorized integration run. Emulator fixtures do not certify deployed versions, provider delivery or external tenant isolation. Live provider writes require their concrete tenant, destination and authorization; they are not part of the simulation recipe.
 
 Contact directory access uses `GET /api/communications/contacts` (`communications:read`) and `POST /api/communications/contacts` (`communications:write`, owner/admin issuer). See [contact creation and secure credential use](API_REFERENCE.md#communications-contacts). A scoped HyperFlow key lets an agent perform this work without access to the upstream service key.
+
+## Project reception
+
+Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.

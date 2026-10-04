@@ -65,6 +65,7 @@ export async function prepareProposal(session: SetupSession, draft: NonNullable<
     extras.resources = normalizeWorkspaceNamedResources(extras.resources);
     resourcesBefore = session.scope.kind === 'new' ? [] : (await api('GET', '/api/workspace/resources', undefined, { projectId: session.scope.projectId })).resources;
   }
+  if(extras.reception){const r=await api('GET','/api/reception');const config={...r.config,projects:[...r.config.projects.filter((p:any)=>p.projectId!==session.scope.projectId),extras.reception]};const review=await api('POST','/api/reception',{operation:'prepare',expectedRevision:r.config.revision,config});extras.reception={...extras.reception,review:{config:review.config,expectedRevision:r.config.revision,reviewHash:review.reviewHash,checks:review.checks}};}
   // Stable schedule IDs bind all retries to this proposal, never Date.now().
   extras.schedules = (extras.schedules || []).map((s: any, i: number) => ({ ...s, id: s.id || `setup_schedule_${hash({ session: session.id, s, i }).slice(0, 24)}`, enabled: false }));
   const allSchedules = (scheduleList.data || []).filter((s: any) => s.projectId === session.scope.projectId);
@@ -233,6 +234,7 @@ export async function handleSetup(req: { method?: string; query?: any; body?: an
         await step('resources', () => api('PATCH', '/api/workspace/resources', { projectId: session.scope.projectId, resources: p.extras.resources }));
       }
       for (const schedule of p.extras.schedules || []) await step(`schedule_${schedule.id}`, () => api('POST', '/api/schedules', { ...schedule, enabled: false }));
+      if(p.extras.reception){if(!['owner','admin'].includes(member.role))fail(403,'Reception authority requires administrator approval.');const r=p.extras.reception.review;await step('reception',()=>api('POST','/api/reception',{operation:'apply',...r,requestId:`setup_reception_${p.id}`}));}
       session.proposal!.applied = true;
       session.messages.push({ role: 'assistant', text: 'Configuration saved. Schedules remain paused. Simulation, live testing and activation are separate steps.' });
     } else if (operation === 'review_live' || operation === 'review_activation') {
