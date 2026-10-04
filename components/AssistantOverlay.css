@@ -1,0 +1,304 @@
+/* Ask HyperFlow focus mode. The dialog sits in the top layer; ::backdrop blurs and
+ * dims the whole app, and the app root recedes slightly so the assistant reads as foreground. */
+#root {
+  transform-origin: 50% 0;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.35s ease;
+}
+html.hf-focus-mode #root {
+  transform: scale(0.985);
+}
+.hf-assistant {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--hf-text);
+  font-family: var(--hf-font);
+  overflow: hidden;
+}
+.hf-assistant[open] {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10vh 16px 16px;
+  box-sizing: border-box;
+}
+.hf-assistant::backdrop {
+  background: var(--hf-scrim);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  backdrop-filter: blur(22px) saturate(160%);
+}
+.hf-assistant[open]::backdrop {
+  animation: hf-assistant-fade 0.28s ease;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.hf-focus-mode #root {
+    filter: blur(14px);
+  }
+  .hf-assistant::backdrop {
+    background: rgba(0, 0, 0, 0.35);
+  }
+}
+.hf-assistant .hf-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.hf-assistant-panel {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--hf-surface);
+  border: 1px solid var(--hf-bar-border);
+  border-radius: 22px;
+  box-shadow: var(--hf-sheet-shadow);
+  overflow: hidden;
+  animation: hf-assistant-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.hf-assistant-grabber {
+  display: none;
+}
+.hf-assistant-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 10px 10px 18px;
+}
+.hf-assistant-head button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--hf-text-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.hf-assistant-head button:hover {
+  background: var(--hf-fill);
+  color: var(--hf-text);
+}
+.hf-assistant-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 17px;
+  background: var(--hf-ai-tint);
+  color: var(--hf-ai);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.hf-assistant-title {
+  flex: 1;
+  min-width: 0;
+}
+.hf-assistant-title h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.hf-assistant-title p {
+  margin: 1px 0 0;
+  font-size: 13px;
+  color: var(--hf-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hf-assistant-log {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 18px 16px;
+}
+.hf-assistant-empty p {
+  margin: 4px 0 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--hf-text-2);
+}
+.hf-assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hf-assistant-suggestions button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--hf-fill);
+  color: var(--hf-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.hf-assistant-suggestions button:hover {
+  background: var(--hf-accent-tint);
+  color: var(--hf-accent);
+}
+.hf-assistant-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.hf-assistant-q {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--hf-accent-fill);
+  color: var(--hf-on-accent);
+  font-size: 15px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+.hf-assistant-a {
+  align-self: flex-start;
+  max-width: 92%;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--hf-surface-2);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.hf-assistant-a p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.hf-assistant-note {
+  margin-top: 8px !important;
+  font-size: 13px;
+  color: var(--hf-text-2);
+}
+.hf-assistant-error {
+  color: var(--hf-danger);
+}
+.hf-assistant-thinking {
+  display: flex;
+  gap: 5px;
+  padding: 16px 16px;
+}
+.hf-assistant-thinking > span:not(.hf-sr-only) {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--hf-text-3);
+  animation: hf-assistant-dot 1.2s infinite ease-in-out;
+}
+.hf-assistant-thinking > span:nth-child(2) { animation-delay: 0.15s; }
+.hf-assistant-thinking > span:nth-child(3) { animation-delay: 0.3s; }
+.hf-assistant-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-top: 1px solid var(--hf-separator);
+}
+.hf-assistant-composer textarea {
+  flex: 1;
+  min-height: 44px;
+  max-height: 140px;
+  box-sizing: border-box;
+  padding: 11px 16px;
+  border: 1px solid var(--hf-separator);
+  border-radius: 22px;
+  background: var(--hf-surface-2);
+  color: var(--hf-text);
+  font: inherit;
+  font-size: 16px; /* 16px keeps iOS from zooming on focus */
+  line-height: 1.35;
+  resize: none;
+  outline: none;
+}
+.hf-assistant-composer textarea:focus {
+  border-color: var(--hf-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hf-focus) 25%, transparent);
+}
+.hf-assistant-composer button {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 22px;
+  background: var(--hf-accent-fill);
+  color: var(--hf-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.hf-assistant-composer button:hover:not(:disabled) {
+  background: var(--hf-accent-fill-hover);
+}
+.hf-assistant-composer button:disabled {
+  background: var(--hf-fill-strong);
+  color: var(--hf-surface);
+  cursor: default;
+}
+.hf-assistant-hint {
+  margin: 0;
+  padding: 0 16px 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--hf-text-3);
+}
+@media (max-width: 700px) {
+  .hf-assistant[open] {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .hf-assistant-panel {
+    width: 100%;
+    height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 8px);
+    max-height: none;
+    border-radius: 22px 22px 0 0;
+    border-bottom: 0;
+    animation-name: hf-assistant-sheet;
+    animation-duration: 0.36s;
+  }
+  .hf-assistant-grabber {
+    display: block;
+    width: 36px;
+    height: 5px;
+    margin: 6px auto 0;
+    border-radius: 3px;
+    background: var(--hf-fill-strong);
+  }
+  .hf-assistant-head {
+    padding-top: 6px;
+  }
+  .hf-assistant-hint {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+@keyframes hf-assistant-fade { from { opacity: 0; } }
+@keyframes hf-assistant-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
+@keyframes hf-assistant-sheet { from { transform: translateY(100%); } }
+@keyframes hf-assistant-dot { 0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  html.hf-focus-mode #root { transform: none; }
+}
+@media print {
+  .hf-assistant { display: none !important; }
+}

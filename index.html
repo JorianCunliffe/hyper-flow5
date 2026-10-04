@@ -3,15 +3,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#F5F5F7">
+    <script>
+      /* Resolve Light / Midnight before first paint to avoid a theme flash (mirrors lib/theme.ts). */
+      (function () {
+        var pref = 'system';
+        try { pref = localStorage.getItem('hyperflow.theme.v1') || 'system'; } catch (e) {}
+        var dark = pref === 'dark' || (pref !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#000000' : '#F5F5F7');
+      })();
+    </script>
     <title>HyperFlow</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/tailwind-theme.js"></script>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-      body {
-        font-family: 'Inter', sans-serif;
-        background-color: #f8fafc;
+            body {
         overflow: hidden; /* Prevent body scroll, use app container */
       }
       .mindmap-container {
@@ -21,21 +31,7 @@
       .mindmap-container:active {
         cursor: grabbing;
       }
-      /* Custom scrollbar for better aesthetics */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f5f9;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-      }
+      /* Scrollbars and theme surfaces: styles/theme.css */
 
       /* PRINT STYLES */
       @media print {

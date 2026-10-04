@@ -5,6 +5,7 @@ import { ProjectScopeContext } from './components/ProjectScope';
 import { type CloudConflictDetail, type CloudConflictChoice } from './lib/cloudMerge';
 import { CloudSyncSession } from './lib/cloudSyncSession';
 import { GlassNavigation } from './components/GlassNavigation';
+import { AssistantOverlay } from './components/AssistantOverlay';
 import { TenantLifecyclePanel } from './components/TenantLifecyclePanel';
 import { ManagedFilesPanel } from './components/ManagedFilesPanel';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -2241,7 +2242,7 @@ export const App: React.FC = () => {
 
   return (
     <ProjectScopeContext.Provider value={{ projectId: selectedProjectId, projects: activeProjects, onProject: changeProjectContext }}>
-    <div className="h-screen w-screen flex flex-col text-slate-900 bg-slate-50 overflow-hidden">
+    <div className="h-[100dvh] w-screen flex flex-col text-slate-900 bg-slate-50 overflow-hidden">
       {/* ERROR BANNER */}
       {syncError && cloudStatus === 'error' && (
         <div className="bg-red-600 text-white px-4 py-2 text-center text-sm font-bold flex items-center justify-center gap-2 animate-pulse z-[60]">
@@ -2255,6 +2256,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      <AssistantOverlay projectId={selectedProjectId} projectName={activeProjects.find(project => project.id === selectedProjectId)?.name} />
       <GlassNavigation key={`${currentOrgId}:${currentUser?.uid || 'local'}`} activeView={activeView} onNavigate={openView}
         approvals={allOpenAsks.filter(entry => !selectedProjectId || entry.project.id === selectedProjectId).length} projects={activeProjects} selectedProjectId={selectedProjectId}
         onProject={changeProjectContext}

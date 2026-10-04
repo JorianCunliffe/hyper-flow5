@@ -1,11 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Layers, Search, Settings, UserRound, X, Plus } from "lucide-react";
+import {
+  BarChart3,
+  CalendarDays,
+  Ellipsis,
+  FileText,
+  Inbox,
+  Layers,
+  Plus,
+  Search,
+  Settings,
+  Sparkles,
+  Sun,
+  UserRound,
+  Workflow,
+  X,
+} from "lucide-react";
 import {
   WORKSPACE_VIEWS,
   workspaceViewFor,
   type AppView,
   type WorkspaceView,
 } from "../lib/appView";
+import { openAssistant } from "./AssistantOverlay";
+import { ThemeControl } from "./ThemeControl";
 import "./GlassNavigation.css";
 type Props = {
   key?: string;
@@ -22,14 +39,32 @@ type Props = {
   signedIn: boolean;
   storageKey: string;
 };
+type Panel = "search" | "profile" | "settings" | "more";
 const pages = WORKSPACE_VIEWS.flatMap((section) =>
   section.modes.map((mode) => ({ ...mode, section: section.label })),
 );
+/** Phone tab bar: the four daily destinations plus More (documents, automations, reports, settings). */
+const TABS: { id: WorkspaceView | "more"; label: string; Icon: typeof Sun }[] = [
+  { id: "overview", label: "Today", Icon: Sun },
+  { id: "work", label: "Work", Icon: Layers },
+  { id: "communications", label: "Inbox", Icon: Inbox },
+  { id: "calendar", label: "Calendar", Icon: CalendarDays },
+  { id: "more", label: "More", Icon: Ellipsis },
+];
+const MORE_SECTIONS: { id: WorkspaceView; Icon: typeof Sun; hint: string }[] = [
+  { id: "documents", Icon: FileText, hint: "Create, review and publish" },
+  { id: "automations", Icon: Workflow, hint: "Flows and runs" },
+  { id: "reports", Icon: BarChart3, hint: "Progress and time" },
+];
+const PANEL_TITLES: Record<Panel, string> = {
+  search: "Find a project or view",
+  settings: "Settings",
+  profile: "Your account",
+  more: "More",
+};
 export function GlassNavigation(p: Props) {
   const section = workspaceViewFor(p.activeView);
-  const [panel, setPanel] = useState<"search" | "profile" | "settings" | null>(
-    null,
-  );
+  const [panel, setPanel] = useState<Panel | null>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   useEffect(() => setOptionsOpen(false), [p.activeView, p.selectedProjectId]);
   const [query, setQuery] = useState("");
@@ -40,8 +75,9 @@ export function GlassNavigation(p: Props) {
     if (section) remembered.current[section.id] = p.activeView;
   }, [section, p.activeView]);
   useEffect(() => {
-    if (panel) dialog.current?.showModal();
-    else if (dialog.current?.open) {
+    if (panel) {
+      if (!dialog.current?.open) dialog.current?.showModal();
+    } else if (dialog.current?.open) {
       dialog.current.close();
       trigger.current?.focus();
     }
@@ -58,7 +94,7 @@ export function GlassNavigation(p: Props) {
     document.addEventListener("keydown", shortcut);
     return () => document.removeEventListener("keydown", shortcut);
   }, []);
-  const open = (next: typeof panel, element: HTMLElement) => {
+  const open = (next: Panel, element: HTMLElement) => {
     trigger.current = element;
     setQuery("");
     setPanel(next);
@@ -81,6 +117,28 @@ export function GlassNavigation(p: Props) {
   );
   const matchingProjects = p.projects.filter((project) =>
     project.name.toLowerCase().includes(needle),
+  );
+  const moreActive =
+    !section || MORE_SECTIONS.some((entry) => entry.id === section.id);
+  const settingsActions = (
+    <>
+      <button onClick={() => action(p.onSettings)}>
+        <span>Workspace preferences</span>
+        <small>Channels, AI workers and permissions</small>
+      </button>
+      <button onClick={() => go("tenant")}>
+        <span>Account operations</span>
+        <small>Members, lifecycle and recovery</small>
+      </button>
+    </>
+  );
+  const accountActions = p.signedIn ? (
+    <>
+      <button onClick={() => action(p.onInvite)}>Invite a colleague</button>
+      <button onClick={() => action(p.onLogout)}>Sign out</button>
+    </>
+  ) : (
+    <p>Local workspace</p>
   );
   return (
     <>
@@ -116,6 +174,15 @@ export function GlassNavigation(p: Props) {
           </label>
           <div className="hf-utilities">
             <button
+              className="hf-ask"
+              aria-label="Ask HyperFlow"
+              title="Ask HyperFlow (Ctrl / Cmd J)"
+              onClick={() => openAssistant()}
+            >
+              <Sparkles size={18} />
+              <span>Ask</span>
+            </button>
+            <button
               aria-label="Search projects and views"
               title="Search (Ctrl / Cmd K)"
               onClick={(event) => open("search", event.currentTarget)}
@@ -125,12 +192,14 @@ export function GlassNavigation(p: Props) {
               <kbd>Ctrl K</kbd>
             </button>
             <button
+              className="hf-desktop-only"
               aria-label="Settings"
               onClick={(event) => open("settings", event.currentTarget)}
             >
               <Settings size={19} />
             </button>
             <button
+              className="hf-desktop-only"
               aria-label="Your account"
               onClick={(event) => open("profile", event.currentTarget)}
             >
@@ -155,7 +224,7 @@ export function GlassNavigation(p: Props) {
             onChange={() => setOptionsOpen(false)}
           >
             {section && section.modes.length > 1 ? (
-              <label>
+              <label className="hf-mode-select">
                 <span className="hf-sr-only">{section.label} options</span>
                 <select
                   aria-label={`${section.label} options`}
@@ -185,6 +254,22 @@ export function GlassNavigation(p: Props) {
               </button>
             )}
           </div>
+          {section && section.modes.length > 1 && (
+            <nav className="hf-mode-pills" aria-label={`${section.label} views`}>
+              {section.modes.map((mode) => (
+                <button
+                  key={mode.id}
+                  aria-current={p.activeView === mode.id ? "page" : undefined}
+                  onClick={() => go(mode.id)}
+                >
+                  {mode.label}
+                  {mode.id === "approvals" && p.approvals > 0 && (
+                    <span className="hf-count">{p.approvals}</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          )}
           <nav className="hf-views" aria-label="Views">
             {WORKSPACE_VIEWS.map((view) => (
               <button
@@ -226,11 +311,42 @@ export function GlassNavigation(p: Props) {
           </label>
         </div>
       </header>
+      <nav className="hf-tabbar" aria-label="Main">
+        {TABS.map(({ id, label, Icon }) => {
+          const active = id === "more" ? moreActive : section?.id === id;
+          return (
+            <button
+              key={id}
+              aria-current={active ? "page" : undefined}
+              onClick={(event) =>
+                id === "more"
+                  ? open("more", event.currentTarget)
+                  : goSection(id)
+              }
+            >
+              <span className="hf-tab-icon">
+                <Icon size={24} strokeWidth={active ? 2.2 : 1.7} />
+                {id === "overview" && p.approvals > 0 && (
+                  <span
+                    className="hf-tab-badge"
+                    aria-label={`${p.approvals} decisions waiting`}
+                  >
+                    {p.approvals}
+                  </span>
+                )}
+              </span>
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </nav>
       <dialog
         ref={dialog}
         className="hf-nav-dialog"
+        data-panel={panel || undefined}
         aria-labelledby="hf-panel-title"
         onCancel={() => setPanel(null)}
+        onClose={() => setPanel(null)}
         onClick={(event) => {
           if (event.target === event.currentTarget) {
             const r = event.currentTarget.getBoundingClientRect();
@@ -245,13 +361,7 @@ export function GlassNavigation(p: Props) {
         }}
       >
         <div className="hf-dialog-heading">
-          <h2 id="hf-panel-title">
-            {panel === "search"
-              ? "Find a project or view"
-              : panel === "settings"
-                ? "Settings"
-                : "Your account"}
-          </h2>
+          <h2 id="hf-panel-title">{panel ? PANEL_TITLES[panel] : ""}</h2>
           <button aria-label="Close menu" onClick={() => setPanel(null)}>
             <X size={20} />
           </button>
@@ -291,25 +401,39 @@ export function GlassNavigation(p: Props) {
             </div>
           </>
         ) : panel === "settings" ? (
-          <div className="hf-results">
-            <button onClick={() => action(p.onSettings)}>
-              Workspace preferences
-            </button>
-            <button onClick={() => go("tenant")}>Account operations</button>
-          </div>
+          <>
+            <ThemeControl />
+            <div className="hf-results">{settingsActions}</div>
+          </>
+        ) : panel === "more" ? (
+          <>
+            <h3 className="hf-group-label">Workspace</h3>
+            <div className="hf-results hf-grouped">
+              {MORE_SECTIONS.map(({ id, Icon, hint }) => {
+                const entry = WORKSPACE_VIEWS.find((v) => v.id === id)!;
+                return (
+                  <button
+                    key={id}
+                    aria-current={section?.id === id ? "page" : undefined}
+                    onClick={() => goSection(id)}
+                  >
+                    <span className="hf-row-icon" aria-hidden="true">
+                      <Icon size={18} />
+                    </span>
+                    <span>{entry.label}</span>
+                    <small>{hint}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <ThemeControl />
+            <h3 className="hf-group-label">Settings</h3>
+            <div className="hf-results hf-grouped">{settingsActions}</div>
+            <h3 className="hf-group-label">Account</h3>
+            <div className="hf-results hf-grouped">{accountActions}</div>
+          </>
         ) : (
-          <div className="hf-results">
-            {p.signedIn ? (
-              <>
-                <button onClick={() => action(p.onInvite)}>
-                  Invite a colleague
-                </button>
-                <button onClick={() => action(p.onLogout)}>Sign out</button>
-              </>
-            ) : (
-              <p>Local workspace</p>
-            )}
-          </div>
+          <div className="hf-results">{accountActions}</div>
         )}
       </dialog>
     </>

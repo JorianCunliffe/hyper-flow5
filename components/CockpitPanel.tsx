@@ -3,6 +3,8 @@ import React, { useEffect, useState } from "react";
 import type { OperatingSnapshot, CockpitView } from "../lib/cockpit/model";
 import type { ContactWindow } from "../lib/cockpit/contactPolicy";
 import { firebaseService } from "../services/firebaseService";
+import { openAssistant } from "./AssistantOverlay";
+import { Sparkles } from "lucide-react";
 const field =
   "w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900";
 const button =
@@ -40,8 +42,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
   >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [notice, setNotice] = useState("");
   const [createdFlow, setCreatedFlow] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [chaseChannel, setChaseChannel] = useState("email");
@@ -50,7 +51,6 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
     setBusy(true);
     setError("");
     setData(null);
-    setAnswer("");
     api(`?${new URLSearchParams({ view, party, projectId: project })}`)
       .then((result) => {
         if (active) setData(result);
@@ -95,7 +95,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
           {error}
         </p>
       )}
-      <ViewOptions><select aria-label="Overview filter" value={view} disabled={busy} onChange={event => { setView(event.target.value as CockpitView); setAnswer(''); }}>
+      <ViewOptions><select aria-label="Overview filter" value={view} disabled={busy} onChange={event => setView(event.target.value as CockpitView)}>
         <option value="today">Today</option><option value="decisions">Decisions</option><option value="produce">To produce</option><option value="waiting">Waiting on</option><option value="contacts">Contacts</option><option value="flows">Active flows</option><option value="all">All work</option>
       </select></ViewOptions>
 
@@ -105,10 +105,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
           <select
             className={field}
             value={party}
-            onChange={(e) => {
-              setParty(e.target.value);
-              setAnswer("");
-            }}
+            onChange={(e) => setParty(e.target.value)}
           >
             <option value="">All permitted parties</option>
             <option value={`user:${data?.viewerUid}`}>Me</option>
@@ -120,41 +117,22 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
           </select>
         </label>
       </div>
-      <form
-        className="flex flex-wrap gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const result = await act({
-            operation: "question",
-            question,
-            party,
-            projectId: project,
-          });
-          if (result)
-            setAnswer(
-              `${result.answer}${result.incomplete ? "\nThis answer is incomplete; more records may exist." : ""}`,
-            );
-        }}
+      {/* Questions open Ask HyperFlow in focus mode, scoped to this person and project. */}
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 rounded-xl bg-white px-4 py-3 text-left text-slate-500 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-300"
+        onClick={() => openAssistant({ party })}
       >
-        <label className="flex-1">
-          Ask about your work
-          <input
-            className={field}
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="What do I owe today? Who am I waiting on?"
-          />
-        </label>
-        <button className={button} disabled={busy || !question.trim()}>
-          Ask
-        </button>
-      </form>
-      {answer && (
-        <p
-          role="status"
-          className="whitespace-pre-wrap rounded-lg bg-slate-50 p-4"
-        >
-          {answer}
+        <Sparkles size={20} className="shrink-0 text-violet-600" aria-hidden="true" />
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-slate-900">Ask about your work</span>
+          <span className="block text-sm">What do I owe today? Who am I waiting on?</span>
+        </span>
+        <kbd className="hidden rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500 md:inline">Ctrl J</kbd>
+      </button>
+      {notice && (
+        <p role="status" className="whitespace-pre-wrap rounded-xl bg-slate-100 p-4">
+          {notice}
         </p>
       )}
       <button
@@ -313,7 +291,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
                 },
               });
               if (result) {
-                setAnswer(result.notice);
+                setNotice(result.notice);
                 setRefresh((n) => n + 1);
               }
             }}
