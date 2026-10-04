@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { ApiAuthError, requireFirebaseIdentity } from '../../lib/apiAuth.js';
 import { createOrganizationForUser } from '../../lib/serverStore.js';
 

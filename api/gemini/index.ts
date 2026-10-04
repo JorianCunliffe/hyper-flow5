@@ -7,7 +7,7 @@ import { handleLifecycle } from '../../lib/tenantLifecycle/api.js';
 import { handleFiles } from '../../lib/files/api.js';
 import { FileError } from '../../lib/files/model.js';
 import { LifecycleError } from '../../lib/tenantLifecycle/model.js';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { handleVisibleFlows, publicFlowResponse } from '../../lib/visibleFlows/api.js';
