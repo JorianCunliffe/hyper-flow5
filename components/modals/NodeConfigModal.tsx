@@ -297,7 +297,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Node Configuration</h2>
-            {onSetupAssistant && <button type="button" onClick={onSetupAssistant} className="text-indigo-700 text-sm underline">Configure this element</button>}
+            {onSetupAssistant && <button type="button" onClick={onSetupAssistant} className="text-sm font-semibold text-violet-700 hover:underline">Configure this element</button>}
             <p className="text-xs text-slate-400 font-medium">{milestone.name}</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} /></button>

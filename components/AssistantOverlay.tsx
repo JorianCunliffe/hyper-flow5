@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUp, RotateCcw, Sparkles, X } from "lucide-react";
 import { firebaseService } from "../services/firebaseService";
+import { enterFocusMode } from "./focusMode";
 import "./AssistantOverlay.css";
 
 /**
@@ -107,28 +108,25 @@ export function AssistantOverlay({
   // Take focus: modal dialog + blurred, inert background. Give it back on close.
   useEffect(() => {
     const element = dialog.current;
-    if (!element) return;
-    const root = document.documentElement;
-    if (open) {
-      if (!element.open) element.showModal();
-      root.classList.add("hf-focus-mode");
-      requestAnimationFrame(() => input.current?.focus());
-      if (queued.current) {
-        const question = queued.current;
-        queued.current = null;
-        void ask(question);
-      }
-      return;
-    }
-    root.classList.remove("hf-focus-mode");
-    if (element.open) {
-      element.close();
+    if (!element || !open) return;
+    if (!element.open) element.showModal();
+    const release = enterFocusMode();
+    requestAnimationFrame(() => input.current?.focus());
+    return () => {
+      release();
+      if (element.open) element.close();
       opener.current?.focus?.();
       opener.current = null;
-    }
-  }, [open, ask]);
+    };
+  }, [open]);
 
-  useEffect(() => () => document.documentElement.classList.remove("hf-focus-mode"), []);
+  // A seeded question (e.g. from a launcher) is asked once the dialog is open.
+  useEffect(() => {
+    if (!open || !queued.current) return;
+    const question = queued.current;
+    queued.current = null;
+    void ask(question);
+  }, [open, ask]);
 
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" });

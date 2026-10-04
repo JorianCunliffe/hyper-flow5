@@ -52,7 +52,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
           </div>
         )}
         <h3 className="text-2xl font-black text-slate-900 mb-6">Start New Project</h3>
-        {onSetupAssistant && <button type="button" className="mb-5 rounded-xl bg-indigo-50 text-indigo-700 px-4 py-3 font-semibold" onClick={onSetupAssistant}>Set up with AI</button>}
+        {onSetupAssistant && <button type="button" className="mb-5 w-full rounded-xl bg-violet-50 px-4 py-3 font-semibold text-violet-700 hover:bg-violet-100" onClick={onSetupAssistant}>Set up with AI</button>}
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div className="col-span-2">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Project Identity</label>

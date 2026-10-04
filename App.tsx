@@ -2463,7 +2463,7 @@ export const App: React.FC = () => {
                         <div>
                           <div className="flex items-center gap-2">
                             <h2 className="text-lg font-bold text-slate-900">{activeProject?.name}</h2>
-                            {setupAssistantEnabled && <button className="text-sm text-indigo-700 border border-indigo-200 rounded px-2 py-1" onClick={() => setSetupAssistantScope({ kind: 'workflow', projectId: activeProject!.id })}>Configure with AI</button>}
+                            {setupAssistantEnabled && <button className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-100" onClick={() => setSetupAssistantScope({ kind: 'workflow', projectId: activeProject!.id })}>Configure with AI</button>}
                             <button 
                               onClick={() => setEditingProject(activeProject!)} 
                               className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ml-2" 
@@ -2859,7 +2859,7 @@ export const App: React.FC = () => {
         );
       })()}
 
-      {setupAssistantScope && <React.Suspense fallback={<div role="status" className="fixed right-0 top-0 z-[150] bg-white p-6 shadow">Loading setup assistant…</div>}>
+      {setupAssistantScope && <React.Suspense fallback={<div role="status" className="hf-assistant-loading">Loading setup assistant…</div>}>
         <SetupAssistantPanel scope={setupAssistantScope} onClose={() => setSetupAssistantScope(null)} onOpenIntegrations={() => { setSetupAssistantScope(null); setIsSettingsOpen(true); }} onApplied={(projectId, nodeIds) => {
           setSelectedProjectId(projectId); setSetupChangedNodes(nodeIds);
           // The existing revision-aware cloud subscription refreshes the editor.
