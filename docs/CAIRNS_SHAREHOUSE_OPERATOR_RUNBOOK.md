@@ -70,4 +70,3 @@ Future stages: task extraction and deduplication, current business facts/availab
 - Repair: cap the dialog at calc(100dvh - 2rem) and enable contained vertical scrolling.
 - Local browser check at 1280x720: content height 1071px, dialog height 686px; scrolling reached 385px and the Cancel button bottom was 671px, inside the viewport. Type-check passed.
 - Live-site verification: NOT RUN; local repair is not deployed yet. Temporary isolated fixture used the real CreateProjectModal with no project writes.
-
