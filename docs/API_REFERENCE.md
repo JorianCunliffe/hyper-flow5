@@ -32,3 +32,7 @@ For agent API access, issue a scoped, expiring HyperFlow API credential and supp
 ### Manual action recovery
 
 `POST /api/tasks/execute` returns HTTP 503 with `recoverable: true` when the durable action must continue or reconcile. Clients must retain the original `correlation.runId` and treat this as a pending hold, rather than a terminal business failure or a new action. Frozen dispatch inputs remain authoritative. A triage batch checkpoint is immediately resumable; uncertain provider operations retain their existing lease/reconciliation requirements. Downstream actions remain blocked until the complete result succeeds.
+
+### Canonical voice outcomes and retry holds
+
+HyperFlow normalizes a Communications Service GET result using explicit top-level `status`, then `outcome.business_status`, then `accepted`. Canonical `failed` with `outcome.reason: no_answer` can advance the owning Human Ask's configured retry sequence. `pending` or unknown outcomes remain held; a provider call being completed does not establish a meaningful human answer. Retry policy, contact windows, budgets and the original frozen Ask remain authoritative.

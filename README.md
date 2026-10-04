@@ -227,3 +227,9 @@ Ambient capture tests additionally cover duplicate retries, tenant/user scoping,
 See [docs/API.md](./docs/API.md) for endpoint authentication, request and response contracts, event handling, and the outbound Communications Service integration. Use [docs/OMNICHANNEL_OPERATIONS.md](./docs/OMNICHANNEL_OPERATIONS.md) for deployment order, tenant onboarding, callback smoke testing, scheduler setup, controlled live acceptance, and recovery drills.
 
 Contacts can be added in Settings or through `POST /api/communications/contacts` by an owner/admin. Scoped HyperFlow API credentials use `communications:write`; the upstream Communications key stays server-side. See [contact API and credential guidance](docs/API_REFERENCE.md#communications-contacts).
+
+## Operations and current verification
+
+Use the [v2 operating guide](docs/CAIRNS_SHAREHOUSE_MORNING_RUN_V2.md) and [controlled test journal](docs/implementation/SHAREHOUSE_V2_RETEST_20260930.md) for the configured Cairns workflow, test-recipient restrictions and evidence. Inspections use 15-minute slots plus five minutes between properties; prefer Martyn Street at 16:00 and other properties beforehand around 15:30, subject to confirmed availability and the diary. Derive the run date in `Australia/Brisbane`. Changed definitions apply to future occurrences; active runs retain frozen definitions.
+
+A ready Vercel deployment is build evidence. Check runtime scheduler results separately. Communications Service's `/health` distinguishes process liveness, feature configuration and cached live LLM readiness; model credit acceptance is scoped to the timestamp and models listed. HyperFlow hosts Gemini separately. The complete Sharehouse acceptance baseline remains unaccepted until every required case passes.
