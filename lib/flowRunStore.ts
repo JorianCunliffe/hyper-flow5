@@ -105,6 +105,14 @@ export const listFlowRuns = async (orgId: string, projectId: string, limit = 50)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 };
 
+/** Readiness checks must not miss an old waiting run outside the history page. */
+export const hasActiveFlowRuns = async (orgId: string, projectId: string): Promise<boolean> => {
+  const db = await runtimeDatabase();
+  const reference = db.ref(`flow_runs/${safeKey(orgId)}/${safeKey(projectId)}`);
+  const snapshots = await Promise.all(['running', 'waiting'].map(status => reference.orderByChild('status').equalTo(status).limitToFirst(1).get()));
+  return snapshots.some(snapshot => snapshot.exists());
+};
+
 export const findLatestActiveFlowRun = async (orgId: string, projectId: string): Promise<FlowRun | null> => {
   const runs = await listFlowRuns(orgId, projectId, 50);
   return runs.find(run => run.status === 'running' || run.status === 'waiting') || null;

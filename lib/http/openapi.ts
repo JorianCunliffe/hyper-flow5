@@ -196,6 +196,8 @@ export function buildOpenApi() {
         projectId: string,
         expectedRevision: integer,
         inputs: object,
+        changes: { type: 'array', minItems: 1, maxItems: 100, items: { $ref: '#/components/schemas/Change' } },
+        planHash: string,
         fixtures: {
           type: "object",
           additionalProperties: { $ref: "#/components/schemas/Fixture" },
@@ -627,6 +629,25 @@ export function buildOpenApi() {
           }),
         };
       }
+    }
+    if (row.path === '/api/setup-assistant/sessions') {
+      op.security = [{ FirebaseBearer: [] }];
+      op['x-authority'] = 'Human session; private to originating user and organization; administrator-controlled rollout';
+      op.parameters = ['id', 'view'].map(name => ({ name, in: 'query', schema: { type: 'string' } }));
+      if (method === 'post') op.requestBody = body({
+        type: 'object', additionalProperties: false,
+        properties: {
+          id: string, requestId: string, expectedSessionRevision: integer,
+          operation: { enum: ['turn', 'prepare', 'expand_scope', 'apply', 'simulate', 'review_live', 'approve_live', 'review_activation', 'approve_activation', 'inspect'] },
+          scope: { type: 'object', required: ['kind'], properties: { kind: { enum: ['new', 'workflow', 'element'] }, projectId: string, nodeId: string } },
+          message: { type: 'string', maxLength: 8000 }, reviewHash: string, projectId: string,
+        },
+      });
+      if (method === 'delete') op.requestBody = body({ type: 'object', required: ['id'], properties: { id: string } });
+    }
+    if (row.path === '/api/flow/advance' && method === 'get') {
+      op.parameters ||= [];
+      op.parameters.push({ name: 'includeActive', in: 'query', description: 'Include hasActiveRuns using a status-indexed lookup, independently of the history page.', schema: { type: 'string', enum: ['true', 'false'] } });
     }
     if (row.path === "/api/schedules" && method === "delete")
       op.responses = {

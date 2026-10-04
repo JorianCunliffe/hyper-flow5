@@ -41,6 +41,7 @@ export function discoveryResponse(format?: unknown) {
       testResultBytes: 256000,
     },
     handoffs: [
+      'Setup assistant proposals require separate human apply, live-test and activation approvals',
       "OAuth requires human consent",
       "Review decisions and credential/lifecycle administration require a human session",
     ],

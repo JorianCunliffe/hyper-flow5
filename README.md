@@ -49,6 +49,8 @@ The Express development server reads process environment variables; it does not 
 
 ## Backend configuration
 
+The [AI workflow setup assistant](docs/SETUP_ASSISTANT.md) provides resumable, scoped setup conversations with reviewed API configuration, fixture simulation and separate live-test/activation approvals. It supports existing primitives and is disabled by default behind administrator-controlled `SETUP_ASSISTANT_ENABLED` and optional organization allowlist settings.
+
 | Integration | Required backend variables |
 |---|---|
 | Firebase server access | `FIREBASE_SERVICE_ACCOUNT`; `FIREBASE_DATABASE_URL` when overriding the default database. |

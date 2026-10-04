@@ -3,7 +3,7 @@ import { advanceServerFlow } from '../../lib/serverFlow.js';
 import { findProject, isServerStoreConfigured, listTenantSchedules } from '../../lib/serverStore.js';
 import { runTenantSchedule } from '../../lib/scheduler.js';
 import { ApiAuthError, hasSharedSecret, requireAppMember } from '../../lib/apiAuth.js';
-import { listFlowRuns } from '../../lib/flowRunStore.js';
+import { listFlowRuns, hasActiveFlowRuns } from '../../lib/flowRunStore.js';
 import { presentFlowRuns } from '../../lib/flowRunPresentation.js';
 
 const queryValue = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
@@ -40,7 +40,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({
         ok: true,
         projectId: normalizedProjectId,
-        runs: presentFlowRuns(runs)
+        runs: presentFlowRuns(runs),
+        ...(req.query.includeActive === 'true' ? { hasActiveRuns: await hasActiveFlowRuns(normalizedOrgId, normalizedProjectId) } : {})
       });
     }
 

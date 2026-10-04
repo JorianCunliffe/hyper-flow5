@@ -57,6 +57,8 @@ Limits: 1 MB configuration request, 3.8 MB workspace, 500 projects, 100 saved vi
 
 ## Fixture tests
 
+An unapplied configuration proposal can be simulated by additionally supplying its `changes` and exact `planHash` at `expectedRevision`. The pure simulator uses the proposed snapshot without saving configuration or calling providers. The in-app [setup assistant](SETUP_ASSISTANT.md) uses this interface; its private sessions and approvals require a human Firebase session.
+
 `POST /api/test-runs` snapshots a project at `expectedRevision` and uses the production pure workflow orchestrator with a fixture-only executor. It does not import the provider executor, mutate the live project or create live action receipts.
 
 ```json

@@ -8,6 +8,8 @@ import { GlassNavigation } from './components/GlassNavigation';
 import { TenantLifecyclePanel } from './components/TenantLifecyclePanel';
 import { ManagedFilesPanel } from './components/ManagedFilesPanel';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import type { SetupScope } from './lib/setupAssistant/types';
+const SetupAssistantPanel = React.lazy(() => import('./components/SetupAssistantPanel'));
 import html2canvas from 'html2canvas';
 import {
   Project,
@@ -254,6 +256,18 @@ export const App: React.FC = () => {
   }, [currentUser]);
 
   const [projects, setProjects] = useState<Project[]>([]);
+  const [setupAssistantScope, setSetupAssistantScope] = useState<SetupScope | null>(null);
+  const [setupAssistantEnabled, setSetupAssistantEnabled] = useState(false);
+  const [setupChangedNodes, setSetupChangedNodes] = useState<string[]>([]);
+  useEffect(() => {
+    setSetupAssistantScope(null); setSetupAssistantEnabled(false); setSetupChangedNodes([]);
+    if (!currentUser || !currentOrgId) return;
+    const controller = new AbortController();
+    void firebaseService.authorizedFetch('/api/setup-assistant/sessions?view=availability', { signal: controller.signal })
+      .then(r => r.ok ? r.json() : { enabled: false })
+      .then(body => { if (!controller.signal.aborted) setSetupAssistantEnabled(body.enabled === true); }).catch(() => {});
+    return () => controller.abort();
+  }, [currentUser?.uid, currentOrgId]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('project'));
   const [showSubtasks, setShowSubtasks] = useState(true);
@@ -2447,6 +2461,7 @@ export const App: React.FC = () => {
                         <div>
                           <div className="flex items-center gap-2">
                             <h2 className="text-lg font-bold text-slate-900">{activeProject?.name}</h2>
+                            {setupAssistantEnabled && <button className="text-sm text-indigo-700 border border-indigo-200 rounded px-2 py-1" onClick={() => setSetupAssistantScope({ kind: 'workflow', projectId: activeProject!.id })}>Configure with AI</button>}
                             <button 
                               onClick={() => setEditingProject(activeProject!)} 
                               className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 rounded text-[10px] font-bold uppercase tracking-wider transition-colors ml-2" 
@@ -2699,7 +2714,7 @@ export const App: React.FC = () => {
                               .map(om => ({ id: om.id, name: om.name }));
                             
                             return (
-                              <div key={m.id} className="pointer-events-auto">
+                              <div key={m.id} className={`pointer-events-auto ${setupChangedNodes.includes(m.id) ? 'ring-4 ring-indigo-300 rounded-xl' : ''}`}>
                                 <MilestoneNode 
                                   milestone={m}
                                   showSubtasks={showSubtasks}
@@ -2784,6 +2799,7 @@ export const App: React.FC = () => {
         conflicts={syncConflicts} recoveryWarning={recoveryWarning} onResolveConflicts={resolveCloudConflicts}
         onRetry={() => { preservePending(cloudSession.current, recoveryKey); setSyncSubscriptionRetry(value => value + 1); }} />
       <CreateProjectModal 
+        onSetupAssistant={setupAssistantEnabled ? () => { setIsCreatingProject(false); setSetupAssistantScope({ kind: 'new', projectId: '' }); } : undefined}
         isOpen={isCreatingProject} 
         onClose={() => setIsCreatingProject(false)} 
         settings={settings} 
@@ -2828,6 +2844,7 @@ export const App: React.FC = () => {
         if (!node) return null;
         return (
           <NodeConfigModal
+            onSetupAssistant={setupAssistantEnabled ? () => { setConfigNodeId(null); setSetupAssistantScope({ kind: 'element', projectId: activeProject.id, nodeId: node.id }); } : undefined}
             milestone={node}
             projectData={activeProject.projectData}
             milestones={activeProject.milestones}
@@ -2839,6 +2856,13 @@ export const App: React.FC = () => {
           />
         );
       })()}
+
+      {setupAssistantScope && <React.Suspense fallback={<div role="status" className="fixed right-0 top-0 z-[150] bg-white p-6 shadow">Loading setup assistant…</div>}>
+        <SetupAssistantPanel scope={setupAssistantScope} onClose={() => setSetupAssistantScope(null)} onOpenIntegrations={() => { setSetupAssistantScope(null); setIsSettingsOpen(true); }} onApplied={(projectId, nodeIds) => {
+          setSelectedProjectId(projectId); setSetupChangedNodes(nodeIds);
+          // The existing revision-aware cloud subscription refreshes the editor.
+        }} />
+      </React.Suspense>}
 
       {/* Human review of an agent's work product */}
       {(() => {

@@ -14,7 +14,7 @@ import {
 import { workspaceView } from "../tenantControl/workspace.js";
 import { TenantControlError } from "../tenantControl/model.js";
 import { projectConfiguration } from "./schema.js";
-import { hash, validateProject } from "./model.js";
+import { hash, validateProject, planConfiguration } from "./model.js";
 import { redactTenantExport } from "../tenantLifecycle/model.js";
 export const testDependencies = {
   workspace: readTenantWorkspace,
@@ -224,7 +224,16 @@ export async function handleTestRuns(
       409,
       "Workspace changed; reload before testing",
     );
-  const project = workspace.projects.find((p: any) => p.id === b.projectId);
+  // A proposal can be simulated before saving. The same revision/hash checks
+  // apply, and the fixture-only executor still cannot dispatch provider calls.
+  let proposedWorkspace = workspace;
+  if (b.changes !== undefined) {
+    const plan = planConfiguration(workspace, b);
+    if (!plan.valid || b.planHash !== plan.planHash)
+      throw new TenantControlError(422, 'Supply a valid proposal and its exact planHash');
+    proposedWorkspace = plan.next;
+  }
+  const project = proposedWorkspace.projects.find((p: any) => p.id === b.projectId);
   if (!project) throw new TenantControlError(404, "Project not found");
   const result = redactTenantExport(await simulateProject(project, b, id));
   if (Buffer.byteLength(JSON.stringify(result)) > 256000)
@@ -240,6 +249,7 @@ export async function handleTestRuns(
     clientId: member.apiClientId || null,
     at: Date.now(),
     fingerprint,
+    ...(b.changes ? { proposalHash: b.planHash } : {}),
     result,
   };
   const saved = await deps.transact(member.orgId, (current) => {

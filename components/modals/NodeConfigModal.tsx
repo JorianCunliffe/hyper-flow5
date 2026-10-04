@@ -26,6 +26,7 @@ const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
 };
 
 interface NodeConfigModalProps {
+  onSetupAssistant?: () => void;
   milestone: Milestone;
   milestones: Milestone[];
   people?: string[];
@@ -40,7 +41,7 @@ const csv = (value: string): string[] => value.split(',').map(item => item.trim(
 const csvText = (value?: string[]): string => (value || []).join(', ');
 const validVariable = (value: string) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(value);
 
-export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, projectData = {}, people = [], onSave, onRun, isRunning, onClose }) => {
+export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, milestones, projectData = {}, people = [], onSave, onRun, isRunning, onClose, onSetupAssistant }) => {
   const runtimeMilestone = milestone as RuntimeMilestone;
   const initialHold: FlowHoldConfig = runtimeMilestone.holdConfig || {
     kind: 'timer',
@@ -296,6 +297,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Node Configuration</h2>
+            {onSetupAssistant && <button type="button" onClick={onSetupAssistant} className="text-indigo-700 text-sm underline">Configure this element</button>}
             <p className="text-xs text-slate-400 font-medium">{milestone.name}</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"><X size={18} /></button>

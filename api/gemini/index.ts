@@ -21,6 +21,9 @@ import { ArtifactError } from '../../lib/artifacts/model.js';
 import { CalendarError } from '../../lib/calendar/model.js';
 import { handleTenantControl, handleWorkspace } from '../../lib/tenantControl/api.js';
 import { TenantControlError } from '../../lib/tenantControl/model.js';
+import { handleSetup } from '../../lib/setupAssistant/service.js';
+import { authenticatedApi } from '../../lib/setupAssistant/adapter.js';
+import { safeError } from '../../lib/setupAssistant/safety.js';
 
 const brainstormSubtasks = async (req: VercelRequest, res: VercelResponse) => {
   const { milestoneName, projectContext } = req.body || {};
@@ -91,6 +94,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const action = typeof req.query.action === 'string' ? req.query.action : '';
     if (action === 'tenant' && req.query.view === 'lifecycle') return res.status(200).json(await handleLifecycle(req));
     const member = await requireAppMember(req);
+    if (action === 'setup_assistant') {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json(await handleSetup(req, member, authenticatedApi(req.headers)));
+    }
     if (action === 'captured-work-items') { res.setHeader('Cache-Control', 'no-store'); return res.status(200).json(await handleCapturedWork(req, member)); }
     if (action === 'discovery') {if(req.method!=='GET')return res.status(405).json({error:'Method not allowed'});return res.status(200).json(discoveryResponse(req.query.format));}
     if (action === 'configuration') { res.setHeader('Cache-Control', 'no-store'); return res.status(200).json(await handleConfiguration(req,member)); }
@@ -108,6 +115,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'generateProjectStructure') return await generateProjectStructure(req, res);
     return res.status(404).json({ error: 'Unknown Gemini operation' });
   } catch (error: any) {
+    if (req.query.action === 'setup_assistant') return res.status(error.status || 503).json({ error: safeError(error) });
     console.error(error);
     return res.status(error instanceof CaptureError || error instanceof FileError || error instanceof LifecycleError || error instanceof ApiAuthError || error instanceof TenantControlError || error instanceof FlowError || error instanceof CalendarError || error instanceof ArtifactError || error instanceof PublishingError ? error.status : 500).json({ error: error?.message || String(error) });
   }

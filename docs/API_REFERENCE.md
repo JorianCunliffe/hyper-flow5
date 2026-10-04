@@ -36,3 +36,6 @@ For agent API access, issue a scoped, expiring HyperFlow API credential and supp
 ### Canonical voice outcomes and retry holds
 
 HyperFlow normalizes a Communications Service GET result using explicit top-level `status`, then `outcome.business_status`, then `accepted`. Canonical `failed` with `outcome.reason: no_answer` can advance the owning Human Ask's configured retry sequence. `pending` or unknown outcomes remain held; a provider call being completed does not establish a meaningful human answer. Retry policy, contact windows, budgets and the original frozen Ask remain authoritative.
+# AI workflow setup
+
+`GET`, `POST` and `DELETE /api/setup-assistant/sessions` provide private resumable setup conversations, configuration proposals and separate human apply/live-test/activation commands. These endpoints require a Firebase human session and enabled administrator rollout. See [the setup assistant reference](SETUP_ASSISTANT.md) for commands, review hashes, limits, recovery and rollout. `POST /api/test-runs` also supports an unapplied proposal through `changes` and `planHash`; execution remains fixture-only with zero provider calls.
