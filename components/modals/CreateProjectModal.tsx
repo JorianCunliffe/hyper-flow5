@@ -39,7 +39,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl p-8 overflow-hidden relative border border-slate-200">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[calc(100dvh-2rem)] p-8 overflow-y-auto overscroll-contain relative border border-slate-200">
         {isGenerating && (
           <div className="absolute inset-0 bg-white/90 z-10 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in duration-300">
             <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center mb-6 border border-indigo-100 relative">
