@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { executeDurableTask } from '../../lib/serverExecutor.js';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 

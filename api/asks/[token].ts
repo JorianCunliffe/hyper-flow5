@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { readAskByToken, respondToAsk } from '../../lib/serverFlow.js';
 import { deleteStoredAskAttachments, isServerStoreConfigured, resolveReviewerActor, storeAskUploads } from '../../lib/serverStore.js';
 import { renderAskForm } from '../../lib/askForm.js';

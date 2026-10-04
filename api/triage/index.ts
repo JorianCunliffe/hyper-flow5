@@ -1,6 +1,6 @@
 import { TenantControlError } from '../../lib/tenantControl/model.js';
 import { assertHumanDecision } from '../../lib/http/authority.js';
-import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import { readTriageDraftPreview, adoptTriageDraftBaseline, recoverReviewedTriageDraft } from '../../lib/triage/draftPreview.js';
 import { recoverTriageDraft } from '../../lib/triage/recoverDraft.js';

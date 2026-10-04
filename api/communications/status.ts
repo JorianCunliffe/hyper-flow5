@@ -7,7 +7,7 @@ import { handleMemoryContextRequest } from '../../lib/communications/memoryConte
 import { handleMeetingRequest, MeetingRequestError } from '../../lib/communications/meetings.js';
 import { handleCommitments } from '../../lib/commitments/api.js';
 import { CommitmentError } from '../../lib/commitments/model.js';
-import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import type { CommunicationsPersonRef } from '../../lib/communications/types.js';
 import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../lib/apiAuth.js';
 import { createCommunicationsClient } from '../../lib/communications/client.js';

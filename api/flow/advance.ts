@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { advanceServerFlow } from '../../lib/serverFlow.js';
 import { findProject, isServerStoreConfigured, listTenantSchedules } from '../../lib/serverStore.js';
 import { runTenantSchedule } from '../../lib/scheduler.js';
