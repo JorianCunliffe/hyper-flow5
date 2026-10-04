@@ -1,5 +1,5 @@
 import {retryReviewActions} from '../../lib/reviewActions.js';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
 import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';

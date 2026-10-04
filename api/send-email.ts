@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../lib/http/vercelTypes';
 import { createCommunicationsClient } from '../lib/communications/client.js';
 import { findProject, readTenantCommunicationsSettings } from '../lib/serverStore.js';
 import { CommunicationsApiError } from '../lib/communications/errors.js';

@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { createOrganizationInvite } from '../../lib/serverStore.js';
 
