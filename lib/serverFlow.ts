@@ -25,6 +25,7 @@ import {
 import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } from './flowRuntimeTypes.js';
 import { settleVisibleCallback } from './visibleFlows/runtime.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
+import { recordedVoiceCancellation } from './asks/cancelVoiceAsk.js';
 export { respondToAsk } from './asks/respondToAsk.js';
 
 export interface AdvanceOutcome {
@@ -250,7 +251,18 @@ const advanceRunAndPersist = async (
   for (let attempt = 0; attempt < 5; attempt++) {
     if (run.outboundRecoveryHold) return { ok: true, reason: 'outbound_manual_review_required', flowRunId: run.id, status: 'failed' };
     if (run.status === 'cancelled') return { ok: true, reason: 'cancelled_run_event_recorded', flowRunId: run.id, status: run.status };
-    try { return await advanceRunOnce(orgId, located, run, initialLog); }
+    try {
+      const cancelled = recordedVoiceCancellation(run);
+      if (cancelled) {
+        const {ask, response} = cancelled;
+        const outcome = await (await import('./asks/respondToAsk.js')).respondToAsk({orgId, projectId: run.projectId,
+          askId: ask.id, channel: 'voice', communicationId: response.communicationId,
+          trustedVoiceTranscript: response.raw.payload.transcript,
+          response: {actor: response.actor, text: response.text}});
+        return {...outcome, status: outcome.ok ? 'cancelled' : run.status};
+      }
+      return await advanceRunOnce(orgId, located, run, initialLog);
+    }
     catch (error) {
       if (!/FlowRun changed concurrently/.test(error instanceof Error ? error.message : String(error))) throw error;
       const latest = await readFlowRun(orgId, run.projectId, run.id);

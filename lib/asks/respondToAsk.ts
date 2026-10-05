@@ -18,6 +18,7 @@ import { deliverNextSmsStep } from './deliverNextSmsStep.js';
 import { closeRecoveryReview } from './closeRecoveryReview.js';
 import { applySubmissionAction, type AskSubmissionAction } from './submissionAction.js';
 import { buildResponse } from '../askResponses.js';
+import { cancelledVoiceAskRun, voiceCancellationText } from './cancelVoiceAsk.js';
 
 export interface AskResponsePayload {
   text?: string;
@@ -44,6 +45,8 @@ export interface RespondToAskInput {
   expectedAsk?: {runId:string;version:string};
   /** Record a valid interpretation but keep it open for authenticated review. */
   forceReview?: boolean;
+  /** Server-only speaker-labelled evidence from the authenticated provider event. */
+  trustedVoiceTranscript?: unknown;
 }
 
 export interface RespondToAskOutcome {
@@ -169,6 +172,19 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const sourceProject = flowRun ? materializeFlowRunProject(located.project, flowRun) : located.project;
   const found = input.askId ? findAskById(sourceProject, input.askId) : findAskByToken(sourceProject, input.askToken!);
   if (!found) return { ok: false, reason: 'ask_not_found' };
+  const cancellation = input.channel === 'voice' && input.communicationId
+    && found.ask.deliveries?.some(d => d.communicationId === input.communicationId && d.personId === input.response.actor)
+    ? voiceCancellationText(input.trustedVoiceTranscript) : undefined;
+  if (cancellation && flowRun && (found.ask.status === 'open' || flowRun.status === 'cancelled')) {
+    const next = cancelledVoiceAskRun(flowRun, found.ask, cancellation, input.communicationId!, input.occurredAt ?? Date.now());
+    const saved = next === flowRun ? flowRun : await saveFlowRun(next);
+    const cancelledProject = materializeFlowRunProject(located.project, saved);
+    // Replays also finish cleanup after a lost response or partial persistence.
+    await syncFlowHoldsFromRun(saved, cancelledProject);
+    await writeProject(input.orgId, located.index, cancelledProject);
+    return { ok: true, askStatus: 'cancelled', flowRunId: saved.id, pending: [],
+      log: ['Caller cancelled the remaining questions. This occurrence is cancelled; no downstream work or retries are queued.'] };
+  }
   if (input.responseAction === 'close_recovery') {
     if (!input.actorVerified || input.channel !== 'web' || !['owner','admin'].includes(input.actorRole || '')) return {ok:false, reason:'administrator_review_required'};
     if (!flowRun || flowRun.outboundRecoveryHold?.askId !== found.ask.id) return {ok:false, reason:'recovery_review_not_found'};

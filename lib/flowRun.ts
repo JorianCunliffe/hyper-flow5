@@ -174,6 +174,7 @@ export const createFlowRun = (input: NewFlowRunInput): FlowRun => {
 };
 
 export const updateFlowRunFromProject = (run: FlowRun, project: Project, now = Date.now()): FlowRun => {
+  if (run.status === 'cancelled') return run;
   const status = run.outboundRecoveryHold ? 'failed' : deriveFlowRunStatus(project);
   return {
     ...run,

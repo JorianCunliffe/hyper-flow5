@@ -143,7 +143,7 @@ export const syncFlowHoldsFromRun = async (run: FlowRun, project: Project): Prom
   const desired = new Map<string, FlowHold>();
   const continuation = continuationHold(run, project, now);
   if (continuation) desired.set(continuation.id, continuation);
-  for (const node of project.milestones) {
+  for (const node of run.status === 'cancelled' ? [] : project.milestones) {
     const wait = waitHold(run, project, node, now);
     if (wait) desired.set(wait.id, wait);
     const action = actionHold(run, node, now);

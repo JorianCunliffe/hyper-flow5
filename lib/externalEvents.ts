@@ -392,6 +392,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
         communicationId: event.communication_id,
         transcriptId: event.transcript_id,
         occurredAt: occurredAt !== undefined && !Number.isNaN(occurredAt) ? occurredAt : undefined,
+        trustedVoiceTranscript: event.channel === 'voice' ? event.payload.transcript : undefined,
         forceReview: event.channel === 'email'
           && !(tenantSettings.allowedAutomaticActions || []).includes('progress_ask'),
         response: {
