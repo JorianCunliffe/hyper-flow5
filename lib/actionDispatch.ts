@@ -8,7 +8,7 @@ import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 /** Infrastructure uncertainty must never enter a graph's business retry branch. */
 export class ActionRecoveryRequired extends Error {
   readonly recoverable = true;
-  constructor(message: string, public readonly providerCode?: string) { super(message); }
+  constructor(message: string, public readonly providerCode?: string, public readonly operationId?: string) { super(message); }
 }
 
 export interface ActionDispatch {
@@ -31,6 +31,8 @@ export interface ActionDispatch {
   terminal?: ActionOutcome;
   eventIds?: Record<string, true>;
   providerRequests?: Record<string, any>;
+  providerCode?: string;
+  manualReviewRequired?: boolean;
 }
 
 export interface DispatchStore {
@@ -78,7 +80,8 @@ const replaySafe = (taskType: string): boolean =>
 export const durableActionExecutor = (
   execute: ActionExecutor,
   store: DispatchStore = dispatchStore,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  reconcile: (row: ActionDispatch) => Promise<ActionOutcome | null> = async row => (await import('./outboundCallReconciliation.js')).reconcileOutboundCall(row)
 ): ActionExecutor => async (taskType, template, data, context) => {
   if (!context.orgId || !context.runId) throw new ActionRecoveryRequired('Durable dispatch requires tenant and operation identity');
   const orgId = context.orgId;
@@ -93,6 +96,7 @@ export const durableActionExecutor = (
       request: { taskType, template, data: clean(data), context: clean(context) }
     });
     if (row.projectId !== context.projectId || row.nodeId !== context.nodeId) throw new ActionRecoveryRequired('Operation identity belongs to another action');
+    if (row.manualReviewRequired) throw new ActionRecoveryRequired('Outbound operation failed; operator review is required', row.providerCode, id);
     if (row.terminal || row.outcome) return row.terminal || row.outcome!;
     row = await store.transact(orgId, id, current => {
       if (!current) throw new ActionRecoveryRequired('Action claim disappeared');
@@ -104,6 +108,17 @@ export const durableActionExecutor = (
     if (row.owner !== owner) throw new ActionRecoveryRequired('Action already started; awaiting provider reconciliation');
     // Always replay the frozen request, including its original correlation/key.
     const request = row.request;
+    if (request.taskType === 'outgoing_call' && ['IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_RECONCILIATION_REQUIRED'].includes(row.providerCode || '')) {
+      const reconciled = await reconcile(row);
+      if (!reconciled) throw new ActionRecoveryRequired('Original call receipt is still unresolved; no new call was dispatched', 'IDEMPOTENCY_RECONCILIATION_REQUIRED', id);
+      if (reconciled.status === 'error') throw new ActionRecoveryRequired(reconciled.error!, reconciled.providerCode, id);
+      const saved = await store.transact(orgId, id, current => {
+        if (!current || current.owner !== owner) throw new ActionRecoveryRequired('Dispatch ownership changed');
+        return { ...current, outcome: reconciled, externalId: reconciled.externalExecutionId,
+          state: 'dispatched', updatedAt: now() };
+      });
+      return saved.terminal || saved.outcome!;
+    }
     const outcome = await withActionExecutionScope({
       freezeCommunicationRequest: async (path, requestKey, body) => {
         const index = createHash('sha256').update(JSON.stringify([path, requestKey])).digest('hex');
@@ -117,7 +132,8 @@ export const durableActionExecutor = (
     }, () => execute(request.taskType, request.template, request.data, request.context));
     if (outcome.status === 'error') {
       // Network/HTTP errors cannot prove that the provider did not perform the effect.
-      throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain', outcome.providerCode);
+      throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain', outcome.providerCode
+        || (taskType === 'outgoing_call' ? 'IDEMPOTENCY_RECONCILIATION_REQUIRED' : undefined));
     }
     row = await store.transact(orgId, id, current => {
       if (!current) throw new ActionRecoveryRequired('Action claim disappeared');
@@ -137,7 +153,22 @@ export const durableActionExecutor = (
           ? { ...current, leaseUntil: 0, updatedAt: now() } : current;
       });
     }
+    if (error instanceof ActionRecoveryRequired && error.providerCode) {
+      await store.transact(orgId, id, current => {
+        if (!current || current.owner !== owner) throw error;
+        return { ...current, providerCode: error.providerCode, leaseUntil: 0, updatedAt: now() };
+      });
+      throw new ActionRecoveryRequired(error.message, error.providerCode, id);
+    }
     if (error instanceof ActionRecoveryRequired) throw error;
+    if (taskType === 'outgoing_call') {
+      const code = (error as {responseBody?: {code?: string}})?.responseBody?.code || 'IDEMPOTENCY_RECONCILIATION_REQUIRED';
+      await store.transact(orgId, id, current => {
+        if (!current || current.owner !== owner) throw error;
+        return {...current, providerCode: code, leaseUntil: 0, updatedAt: now()};
+      });
+      throw new ActionRecoveryRequired(error instanceof Error ? error.message : String(error), code, id);
+    }
     throw new ActionRecoveryRequired(error instanceof Error ? error.message : String(error));
   }
 };

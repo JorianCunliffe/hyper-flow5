@@ -26,6 +26,7 @@ const nodeStatus = (project: Project, node: Milestone): NodeRunStatus => {
   if (resolution === 'skipped') return 'skipped';
   if (resolution === 'complete') return 'completed';
   const action = node.actionConfig?.lastRun;
+  if (action?.status === 'error' && action.output?.manual_review_required === true) return 'failed';
   if ((node.asks || []).some(ask => ask.status === 'open')) return 'waiting';
   if (action?.status === 'pending') return 'waiting';
   if (action?.status === 'error' && node.actionConfig?.failureMode !== 'continue') return 'failed';
@@ -173,7 +174,7 @@ export const createFlowRun = (input: NewFlowRunInput): FlowRun => {
 };
 
 export const updateFlowRunFromProject = (run: FlowRun, project: Project, now = Date.now()): FlowRun => {
-  const status = deriveFlowRunStatus(project);
+  const status = run.outboundRecoveryHold ? 'failed' : deriveFlowRunStatus(project);
   return {
     ...run,
     status,

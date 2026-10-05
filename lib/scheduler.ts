@@ -1,4 +1,5 @@
 import { outboundScheduleRecovery } from './outboundScheduleRecovery.js';
+import { escalateOutboundRecovery } from './outboundRecoveryEscalation.js';
 import { randomUUID } from 'node:crypto';
 import type { TenantSchedule } from '../types.js';
 import { advanceScheduledServerFlow } from './serverFlow.js';
@@ -34,6 +35,12 @@ export interface ScheduleExecutionResult {
 export const failedScheduleResults = (results: ScheduleExecutionResult[]): ScheduleExecutionResult[] =>
   results.filter(result => result.status === 'failed');
 
+const saveRecoveryEscalation = async (schedule: TenantSchedule, run: Parameters<typeof finishScheduleRun>[0]): Promise<void> => {
+  const recoveryAskId = await escalateOutboundRecovery(schedule, run);
+  await finishScheduleRun(run, recoveryAskId ? {status: 'failed', manualReviewRequired: true, recoveryAskId}
+    : {status: 'recoverable', manualReviewRequired: false, providerCode: '', recoveryDeadlineAt: 0, retryAfter: 0});
+};
+
 const completeScheduleOccurrence = async (
   schedule: TenantSchedule,
   run: Awaited<ReturnType<typeof claimScheduleRun>> & {},
@@ -55,17 +62,37 @@ export const runTenantSchedule = async (
 ): Promise<ScheduleExecutionResult> => {
   if (options.advanceSchedule === false && scheduledFor !== schedule.nextRunAt) {
     const held = await readScheduleRun(schedule, schedule.nextRunAt);
-    if (held?.status === 'blocked') return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };
+    if (held?.status === 'blocked' || held?.manualReviewRequired) return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };
+  }
+  const previous = await readScheduleRun(schedule, scheduledFor);
+  // Adopt legacy holds into the bounded policy without dispatching a new call.
+  if (previous?.status === 'blocked' && previous.providerCode && !previous.recoveryDeadlineAt) {
+    const adopted = outboundScheduleRecovery({providerCode: previous.providerCode}, Date.now(), {recoveryStartedAt: previous.startedAt});
+    if (adopted) await finishScheduleRun(previous, {...adopted, error: previous.error});
   }
   const run = await claimScheduleRun(schedule, scheduledFor, randomUUID());
   if (!run) {
     const existing = await readScheduleRun(schedule, scheduledFor);
+    if (existing?.manualReviewRequired) {
+      if (!existing.recoveryAskId) {
+        await saveRecoveryEscalation(schedule, existing);
+      }
+      return {scheduleId: schedule.id, status: 'blocked', error: 'Outbound action failed — manual review required'};
+    }
     if (existing?.status === 'completed' && options.advanceSchedule !== false) await advanceTenantSchedule(schedule, scheduledFor);
     if (existing?.status === 'blocked') return { scheduleId: schedule.id, status: 'blocked', error: existing.error };
     if (existing?.retryAfter && existing.retryAfter > Date.now()) return { scheduleId: schedule.id, status: 'deferred', error: existing.error };
     return { scheduleId: schedule.id, status: 'duplicate' };
   }
   let cursorBefore: string | undefined;
+
+  if (run.providerCode && run.recoveryDeadlineAt && Date.now() >= run.recoveryDeadlineAt) {
+    const recovery = outboundScheduleRecovery({providerCode: run.providerCode}, Date.now(), run);
+    if (recovery?.manualReviewRequired) {
+      await saveRecoveryEscalation(schedule, {...run, ...recovery});
+      return {scheduleId: schedule.id, status: 'blocked', error: 'Outbound action failed — manual review required'};
+    }
+  }
 
   if (schedule.activity === 'flow_start') {
     let actionError: unknown;
@@ -87,11 +114,16 @@ export const runTenantSchedule = async (
     }
     if (actionError) {
       const message = actionError instanceof Error ? actionError.message : String(actionError);
-      const recovery = outboundScheduleRecovery(actionError);
+      const recovery = outboundScheduleRecovery(actionError, Date.now(), run);
       if (recovery) {
-        await finishScheduleRun(run, { ...recovery, error: message });
+        const recoveryOperationId = (actionError as {operationId?: string}).operationId || run.recoveryOperationId;
+        // Persist classification before escalation so an interrupted save resumes safely.
+        await finishScheduleRun(run, { ...recovery, recoveryOperationId, error: message });
+        if (recovery.manualReviewRequired) {
+          await saveRecoveryEscalation(schedule, {...run, ...recovery, recoveryOperationId});
+        }
         console.warn('[scheduler] outbound occurrence held', { scheduleId: schedule.id, scheduledFor, ...recovery });
-        return { scheduleId: schedule.id, status: recovery.status === 'blocked' ? 'blocked' : 'deferred', error: message };
+        return { scheduleId: schedule.id, status: recovery.status === 'blocked' || recovery.manualReviewRequired ? 'blocked' : 'deferred', error: message };
       }
       await finishScheduleRun(run, { status: 'recoverable', error: message });
       console.error('[scheduler] flow occurrence failed', { scheduleId: schedule.id, scheduledFor, message });

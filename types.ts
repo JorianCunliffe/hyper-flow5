@@ -426,6 +426,12 @@ export interface ScheduleRun {
   status: 'running' | 'partial' | 'waiting' | 'recoverable' | 'blocked' | 'completed' | 'failed';
   providerCode?: string;
   retryAfter?: number;
+  recoveryStartedAt?: number;
+  recoveryDeadlineAt?: number;
+  providerOutcome?: 'unknown' | 'rejected' | 'not_dispatched';
+  manualReviewRequired?: boolean;
+  recoveryAskId?: string;
+  recoveryOperationId?: string;
   flowRunId?: string;
   claimId: string;
   startedAt: number;

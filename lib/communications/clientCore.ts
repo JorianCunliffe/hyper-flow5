@@ -188,6 +188,11 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     return this.communicationRequest(`/v1/emails/${encodeURIComponent(id)}`, { method: 'GET', tenantId });
   }
 
+  async readCallOperation(tenantId: string, key: string): Promise<{status: string; provider_id?: string; communication_id?: string}> {
+    this.requireTenant(tenantId);
+    return this.rawRequest(`/v1/calls/operations/${encodeURIComponent(key)}`, {method: 'GET', tenantId});
+  }
+
   async getThread(tenantId: string, threadId: string): Promise<CommunicationThreadResult> {
     this.requireTenant(tenantId);
     if (!threadId) throw new CommunicationsApiError('Thread id is required');

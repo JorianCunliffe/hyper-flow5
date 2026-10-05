@@ -4,6 +4,8 @@ Phase 01 adds an organization-wide email option: Draft only (default) or Allow a
 
 HyperFlow is a visual workflow engine for projects that combine human milestones, automated actions, decisions, loops, and review gates. Server-side execution and durable schedules let flows continue without an open browser, while signed event handling reconnects email, SMS, and voice results to the exact tenant, action run, and Human Ask that started them.
 
+Scheduled outbound failures use bounded recovery: provider outages back off for up to an hour, uncertain call receipts are reconciled read-only for up to 30 minutes, and confirmed rejection or expiry creates one in-app operator Ask and a failed/manual-review state. Provider uncertainty stays distinct from workflow failure; no replacement call is dispatched. See [recovery contracts](docs/API_REFERENCE.md).
+
 ## Acceptance baseline
 
 The **complete Cairns Sharehouse workflow** is the acceptance baseline: morning intake, task extraction, planning, native Outlook drafts, confirmed human answers, finalisation, notifications, ongoing inbound handling and failure recovery must all work. Follow the [Sharehouse acceptance test](docs/SHAREHOUSE_ACCEPTANCE_TEST.md) for the required setup, cases and evidence. Partial flows, reduced-scope substitutes and passing component tests do not pass acceptance. The full baseline is **not yet accepted**; see [implementation status](docs/IMPLEMENTATION_STATUS.md) for source capabilities versus verified results.

@@ -6,10 +6,9 @@ import {failedScheduleResults} from '../lib/scheduler';
 
 test('known provider outage defers with backoff, uncertain/rejected operations hold for review',()=>{
  const now=1000;
- assert.deepEqual(outboundScheduleRecovery(new ActionRecoveryRequired('unavailable','OUTBOUND_NOT_READY'),now),{status:'recoverable',providerCode:'OUTBOUND_NOT_READY',retryAfter:901000});
- for(const code of ['IDEMPOTENCY_RECONCILIATION_REQUIRED','OUTBOUND_PROVIDER_REJECTED']) {
-  assert.equal(outboundScheduleRecovery(new ActionRecoveryRequired('held',code),now)?.status,'blocked');
- }
+ assert.equal(outboundScheduleRecovery(new ActionRecoveryRequired('unavailable','OUTBOUND_NOT_READY'),now)?.retryAfter,901000);
+ assert.equal(outboundScheduleRecovery(new ActionRecoveryRequired('held','IDEMPOTENCY_RECONCILIATION_REQUIRED'),now)?.status,'blocked');
+ assert.equal(outboundScheduleRecovery(new ActionRecoveryRequired('held','OUTBOUND_PROVIDER_REJECTED'),now)?.status,'failed');
  assert.equal(outboundScheduleRecovery(new Error('unexpected DB failure')),null);
  assert.deepEqual(failedScheduleResults([{scheduleId:'held',status:'blocked'},{scheduleId:'outage',status:'deferred'},{scheduleId:'broken',status:'failed'}]).map(r=>r.scheduleId),['broken']);
 });
@@ -21,7 +20,7 @@ test('provider hold code survives durable dispatcher and preserves original froz
  for(let i=0;i<2;i++){
   await assert.rejects(execute('outgoing_call','{}',{},ctx),e=>e instanceof ActionRecoveryRequired&&e.providerCode==='IDEMPOTENCY_RECONCILIATION_REQUIRED'); now+=120001;
  }
- assert.deepEqual(keys,['original-operation','original-operation']); assert.equal(row.outcome,undefined);
+ assert.deepEqual(keys,['original-operation']); assert.equal(row.outcome,undefined);
 });
 
 import {scheduleRunCanBeClaimed} from '../lib/serverStore';

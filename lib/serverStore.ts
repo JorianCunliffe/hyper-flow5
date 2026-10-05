@@ -2041,9 +2041,10 @@ export const releaseBlockedScheduleRun = async (schedule: TenantSchedule, schedu
   return result.committed;
 };
 
-export const scheduleRunCanBeClaimed = (current: Pick<ScheduleRun, 'status' | 'startedAt' | 'retryAfter'> | null, now: number): boolean => {
+export const scheduleRunCanBeClaimed = (current: Pick<ScheduleRun, 'status' | 'startedAt' | 'retryAfter' | 'manualReviewRequired'> | null, now: number): boolean => {
   if (!current) return true;
-  if (current.status === 'blocked' || Number(current.retryAfter || 0) > now) return false;
+  if (current.manualReviewRequired || Number(current.retryAfter || 0) > now) return false;
+  if (current.status === 'blocked') return !!current.retryAfter && current.retryAfter <= now;
   return ['failed', 'partial', 'waiting', 'recoverable'].includes(current.status) || scheduleRunIsStale(current, now);
 };
 
