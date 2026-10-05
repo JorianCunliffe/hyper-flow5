@@ -114,7 +114,8 @@ export const runTenantSchedule = async (
     }
     if (actionError) {
       const message = actionError instanceof Error ? actionError.message : String(actionError);
-      const recovery = outboundScheduleRecovery(actionError, Date.now(), run);
+      const incomingOperationId = (actionError as {operationId?: string}).operationId;
+      const recovery = outboundScheduleRecovery(actionError, Date.now(), incomingOperationId && run.recoveryOperationId && incomingOperationId !== run.recoveryOperationId ? undefined : run);
       if (recovery) {
         const recoveryOperationId = (actionError as {operationId?: string}).operationId || run.recoveryOperationId;
         // Persist classification before escalation so an interrupted save resumes safely.
@@ -130,7 +131,7 @@ export const runTenantSchedule = async (
       return { scheduleId: schedule.id, status: 'failed', error: message };
     }
     if (flowOutcome?.status === 'waiting' || flowOutcome?.status === 'running') {
-      await finishScheduleRun(run, { status: flowOutcome.status === 'waiting' ? 'waiting' : 'partial', flowRunId: flowOutcome.flowRunId });
+      await finishScheduleRun(run, { status: flowOutcome.status === 'waiting' ? 'waiting' : 'partial', flowRunId: flowOutcome.flowRunId, providerCode: '', retryAfter: 0 });
       return { scheduleId: schedule.id, status: 'deferred', projectId: schedule.projectId, runId: run.id };
     }
     await completeScheduleOccurrence(

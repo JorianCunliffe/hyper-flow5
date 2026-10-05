@@ -2078,7 +2078,11 @@ export const finishScheduleRun = async (
     transactionInvocation += 1;
     const persisted = seededScheduleTransactionValue(current, initial, transactionInvocation);
     if (!persisted || persisted.claimId !== run.claimId) return undefined;
-    return { ...persisted, ...JSON.parse(JSON.stringify(patch)), completedAt: ['completed', 'failed'].includes(patch.status) ? Date.now() : null };
+    const next = { ...persisted, ...JSON.parse(JSON.stringify(patch)), completedAt: ['completed', 'failed'].includes(patch.status) ? Date.now() : null };
+    if (patch.providerCode === '') {
+      for (const field of ['providerCode', 'recoveryStartedAt', 'recoveryDeadlineAt', 'recoveryOperationId', 'providerOutcome']) delete next[field];
+    }
+    return next;
   });
   if (!result.committed) {
     const current = (await ref.get()).val() as ScheduleRun | null;
