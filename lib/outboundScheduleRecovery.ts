@@ -2,8 +2,9 @@ import type { ScheduleRun } from '../types.js';
 
 /** Provider holds are not failed scheduler infrastructure and never change keys. */
 export function outboundScheduleRecovery(error: unknown, now = Date.now(), previous?: Partial<ScheduleRun>): Partial<ScheduleRun> & Pick<ScheduleRun, 'status'> | null {
-  const value = error as { providerCode?: string; responseBody?: { code?: string } };
+  const value = error as { providerCode?: string; operationId?: string; responseBody?: { code?: string } };
   const code = value?.providerCode || value?.responseBody?.code;
+  if (value?.operationId && previous?.recoveryOperationId && value.operationId !== previous.recoveryOperationId) previous = undefined;
   if (!['OUTBOUND_NOT_READY', 'IDEMPOTENCY_IN_PROGRESS', 'IDEMPOTENCY_RECONCILIATION_REQUIRED', 'OUTBOUND_PROVIDER_REJECTED'].includes(code || '')) return null;
   const firstFailureAt = previous?.recoveryStartedAt ?? now;
   const uncertain = code === 'IDEMPOTENCY_IN_PROGRESS' || code === 'IDEMPOTENCY_RECONCILIATION_REQUIRED';

@@ -114,8 +114,7 @@ export const runTenantSchedule = async (
     }
     if (actionError) {
       const message = actionError instanceof Error ? actionError.message : String(actionError);
-      const incomingOperationId = (actionError as {operationId?: string}).operationId;
-      const recovery = outboundScheduleRecovery(actionError, Date.now(), incomingOperationId && run.recoveryOperationId && incomingOperationId !== run.recoveryOperationId ? undefined : run);
+      const recovery = outboundScheduleRecovery(actionError, Date.now(), run);
       if (recovery) {
         const recoveryOperationId = (actionError as {operationId?: string}).operationId || run.recoveryOperationId;
         // Persist classification before escalation so an interrupted save resumes safely.

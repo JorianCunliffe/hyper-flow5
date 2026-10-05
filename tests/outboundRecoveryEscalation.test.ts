@@ -23,6 +23,9 @@ test('outage and uncertainty have fixed deadlines that retries cannot extend',()
  const uncertain=outboundScheduleRecovery({providerCode:'IDEMPOTENCY_IN_PROGRESS'},first+60000,outage)!;
  assert.equal(uncertain.recoveryDeadlineAt,first+1800000);
  assert.equal(scheduleRunCanBeClaimed({status:'blocked',startedAt:1,retryAfter:100},100),true);
+ const next=outboundScheduleRecovery({providerCode:'OUTBOUND_NOT_READY',operationId:'second'},first+7200000,{...outage,recoveryOperationId:'first'})!;
+ assert.equal(next.status,'recoverable');assert.equal(next.recoveryStartedAt,first+7200000);
+ assert.equal(next.recoveryDeadlineAt,first+10800000);
 });
 
 test('reconciliation only reads the original tenant/key and requires provider evidence',async()=>{
