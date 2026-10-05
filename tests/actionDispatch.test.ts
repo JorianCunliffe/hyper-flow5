@@ -113,7 +113,7 @@ test('death after claim but before dispatch transition is safely resumed', async
   assert.equal(calls, 1);
 });
 
-test('death after provider dispatch replays the same frozen request/key and creates one communication', async () => {
+test('death after provider dispatch reads the same operation receipt and creates one communication', async () => {
   const { store } = memoryStore(); let clock = 1; let writes = 0;
   const providerIds = new Map<string, string>(); const requests: any[] = [];
   const provider: ActionExecutor = async (_type, template, data, ctx) => {
@@ -126,9 +126,12 @@ test('death after provider dispatch replays the same frozen request/key and crea
   } };
   await assert.rejects(durableActionExecutor(provider, failCompletion, () => clock)('outgoing_call', 'original', { x: 1 }, context));
   clock += 121_000;
-  const result = await durableActionExecutor(provider, store, () => clock)('outgoing_call', 'changed', { x: 99 }, context);
-  assert.equal(result.externalId, 'comm-one'); assert.equal(providerIds.size, 1);
-  assert.deepEqual(requests[0], requests[1]);
+  const result = await durableActionExecutor(provider, store, () => clock, async row => {
+    assert.equal(row.request.template, 'original'); assert.deepEqual(row.request.data, {x: 1});
+    return {status: 'pending', externalExecutionId: providerIds.get(row.id)};
+  })('outgoing_call', 'changed', { x: 99 }, context);
+  assert.equal(result.externalExecutionId, 'comm-one'); assert.equal(providerIds.size, 1);
+  assert.equal(requests.length, 1);
 });
 
 test('unknown webhook outcome never automatically repeats a non-idempotent external write', async () => {
@@ -157,10 +160,13 @@ test('provider request freezing preserves dynamic voice context across acknowled
       overrides: { systemMessage: `context ${++promptVersion}`, greetingText: 'Hello', aiSpeaksFirst: true, liveTranscript: true },
       correlation: { tenant_id: 'tenant', external_project_id: ctx.projectId, task_id: ctx.nodeId, run_id: ctx.runId } });
     return { status: 'pending', externalId: result.id };
-  }, faultStore, () => clock);
+  }, faultStore, () => clock, async row => {
+    assert.equal(Object.values(row.providerRequests || {})[0].overrides.systemMessage, 'context 1');
+    return {status: 'pending', externalExecutionId: 'one'};
+  });
   await assert.rejects(execute('outgoing_call', '', {}, context)); clock += 121_000;
   await execute('outgoing_call', '', {}, context);
-  assert.equal(requests.length, 2); assert.equal(requests[0], requests[1]); assert.deepEqual(keys, [context.runId, context.runId]);
+  assert.equal(requests.length, 1); assert.equal(promptVersion, 1); assert.deepEqual(keys, [context.runId]);
 });
 
 test('failure and completion converge to success in either order; repeated event is a no-op', async () => {

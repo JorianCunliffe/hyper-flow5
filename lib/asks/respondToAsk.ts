@@ -139,8 +139,8 @@ export const checkpointReviewedRun = async (
   deps = { saveFlowRun, syncFlowHoldsFromRun, writeProject }
 ): Promise<{ project: Project; run: FlowRun; log: string[]; pending: string[] }> => {
   const savedRun = await deps.saveFlowRun(updateFlowRunFromProject(run, project));
-  await deps.syncFlowHoldsFromRun(savedRun, project);
-  const log = ['Response saved. Ready downstream work is queued for continuation.'];
+  if (!savedRun.outboundRecoveryHold) await deps.syncFlowHoldsFromRun(savedRun, project);
+  const log = [savedRun.outboundRecoveryHold ? 'Review note saved. The failed outbound operation remains held; no call was dispatched.' : 'Response saved. Ready downstream work is queued for continuation.'];
   try { await deps.writeProject(input.orgId, located.index, project); }
   catch (error: any) {
     log.push(`Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`);

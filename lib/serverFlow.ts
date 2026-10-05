@@ -248,6 +248,7 @@ const advanceRunAndPersist = async (
   orgId: string, located: Awaited<ReturnType<typeof findProject>> & {}, run: FlowRun, initialLog: string[] = []
 ): Promise<AdvanceOutcome> => {
   for (let attempt = 0; attempt < 5; attempt++) {
+    if (run.outboundRecoveryHold) return { ok: true, reason: 'outbound_manual_review_required', flowRunId: run.id, status: 'failed' };
     if (run.status === 'cancelled') return { ok: true, reason: 'cancelled_run_event_recorded', flowRunId: run.id, status: run.status };
     try { return await advanceRunOnce(orgId, located, run, initialLog); }
     catch (error) {
