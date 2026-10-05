@@ -586,6 +586,10 @@ The JSON response excludes Project Data and raw provider payloads. Missing routi
 
 When a valid Firebase token is supplied, HyperFlow derives a verified reviewer identity from the authenticated member. Without it, a delivery-specific capability token identifies the assigned recipient. The rendered form escapes artifact content, permits only safe HTTPS artifact links, and uploads through Firebase Admin to an Ask-scoped private object path.
 
+Authenticated web clients may provide `responseAction`: `answer` submits an explicit human answer (plain text completes questions without a field schema), while `comment` saves a note and leaves the question open without queueing continuation. Required fields remain mandatory. Clients must inspect `askStatus`; saving a response is not necessarily answering the question.
+
+`close_recovery` requires an owner/admin and a nonempty review note. It closes the exact recovery Ask bound to the failed FlowRun, records reviewer/time, and clears the schedule occurrence's `manualReviewRequired` flag with `recoveryReviewedAt`. The call outcome remains failed/unknown, the occurrence stays held, and no retry is dispatched. Repeating the same closure completes partial persistence without adding another review response. The Decisions dialog labels this action **Close recovery review** and preserves existing review notes.
+
 Success: `200`
 
 ```json

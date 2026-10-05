@@ -67,7 +67,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
-      const { decision, text, values, uploads } = req.body || {};
+      const { decision, text, values, uploads, responseAction } = req.body || {};
+      if (responseAction !== undefined && !['answer','comment','close_recovery'].includes(responseAction)) return res.status(400).json({error:'Invalid response action'});
       if (typeof text === 'string' && text.length > MAX_TEXT) {
         return res.status(413).json({ error: 'Comment is too long' });
       }
@@ -94,11 +95,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           structured: values,
           attachments
         },
-        actorVerified: Boolean(authenticated)
+        actorVerified: Boolean(authenticated),
+        actorRole: authenticated?.role,
+        responseAction
       });
       if (!outcome.ok) {
         await deleteStoredAskAttachments(orgId,attachments);
-        const status = outcome.reason === 'already_answered' ? 409
+        const status = outcome.reason === 'administrator_review_required' ? 403
+          : outcome.reason === 'already_answered' ? 409
           : outcome.reason === 'ask_not_found' || outcome.reason === 'project_not_found' ? 404
           : 400;
         return res.status(status).json({ error: outcome.reason });

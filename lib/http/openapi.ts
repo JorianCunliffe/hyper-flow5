@@ -507,6 +507,12 @@ export function buildOpenApi() {
           "action",
         ],
       };
+    if (row.path === "/api/asks/{token}" && method === "post")
+      op.requestBody = body({type: "object", properties: {
+        responseAction: {type: "string", enum: ["answer", "comment", "close_recovery"], description: "Explicit actions require an authenticated member. close_recovery requires owner/admin and closes only the matching recovery review; it never retries the call."},
+        decision: {type: "string", enum: ["approved", "rejected", "revise"]},
+        text: {type: "string", maxLength: 20000}, values: object, uploads: array(object)
+      }});
     if (row.path === "/api/tasks/execute")
       op["x-task-contracts"] = taskContracts;
     if (row.path === "/api/tasks/execute")

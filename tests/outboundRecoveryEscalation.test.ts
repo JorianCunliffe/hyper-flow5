@@ -7,6 +7,7 @@ import {scheduleRunCanBeClaimed} from '../lib/serverStore';
 import {createFlowRun} from '../lib/flowRun';
 import {NodeType} from '../types';
 import {checkpointReviewedRun} from '../lib/asks/respondToAsk';
+import {closeRecoveryReview, reviewedRecoveryRun} from '../lib/asks/closeRecoveryReview';
 
 test('outage and uncertainty have fixed deadlines that retries cannot extend',()=>{
  const first=1000;
@@ -52,6 +53,36 @@ function fixture(){
  const occurrence:any={id:'s:1',flowRunId:run.id,recoveryOperationId:operation.id,providerCode:'IDEMPOTENCY_RECONCILIATION_REQUIRED',providerOutcome:'unknown'};
  return {dependencies,schedule,occurrence,failNextProjection:()=>failProjection=true,get run(){return run},get operation(){return operation},get workspace(){return workspace}};
 }
+
+test('closing recovery review survives partial saves without clearing provider uncertainty or retrying',async()=>{
+ const f=fixture();await escalateOutboundRecovery(f.schedule,f.occurrence,1000,f.dependencies);
+ f.run.triggerId='s';
+ const ask=f.run.state.milestones[0].asks![0];
+ ask.responses=[{id:'comment',at:1,via:'web',actor:'owner',text:'Existing note',needsInterpretation:true}];
+ let occurrence:any={...f.occurrence,status:'failed',manualReviewRequired:true,recoveryAskId:ask.id};
+ const deps:any={...f.dependencies,listTenantSchedules:async()=>[f.schedule],readScheduleRun:async()=>occurrence,
+  finishScheduleRun:async(_row:any,patch:any)=>occurrence={...occurrence,...patch}};
+ f.failNextProjection();
+ await assert.rejects(closeRecoveryReview(f.run,ask,'owner','Reviewed; do not retry',deps),/lost response/);
+ const answered=f.run.state.milestones[0].asks![0];
+ await closeRecoveryReview(f.run,answered,'owner','Reviewed; do not retry',deps);
+ assert.equal(f.run.status,'failed');assert.equal(occurrence.status,'failed');
+ assert.equal(occurrence.providerOutcome,'unknown');assert.equal(occurrence.manualReviewRequired,false);
+ assert.equal(scheduleRunCanBeClaimed({...occurrence,startedAt:1},Date.now()+9999999),false);
+ assert.equal(f.run.state.milestones[0].asks![0].responses.length,2);
+ assert.equal(f.workspace.projects[0].milestones[0].asks[0].status,'answered');
+ assert.equal(f.operation.terminal,undefined);assert.equal(f.operation.outcome,undefined);
+ assert.throws(()=>reviewedRecoveryRun(f.run,{...answered,id:'other'},'owner','note',2000),/not the recovery review/);
+ assert.throws(()=>reviewedRecoveryRun(f.run,answered,'owner',' ',2000),/Enter a review note/);
+});
+
+test('saving a comment does not queue a running workflow',async()=>{
+ const f=fixture();let queued=0;
+ const project:any={id:'p',milestones:f.run.state.milestones,projectData:{}};
+ const result=await checkpointReviewedRun({orgId:'t',projectId:'p',response:{text:'Note'},responseAction:'comment'},
+  {project,index:0},f.run,project,{saveFlowRun:async r=>r,syncFlowHoldsFromRun:async()=>{queued++;},writeProject:async()=>{}} as any);
+ assert.equal(queued,0);assert.deepEqual(result.pending,[]);
+});
 
 test('lost escalation save resumes with one web Ask, failed action and untouched provider outcome',async()=>{
  const f=fixture();f.failNextProjection();

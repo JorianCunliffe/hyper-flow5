@@ -432,6 +432,7 @@ export interface ScheduleRun {
   manualReviewRequired?: boolean;
   recoveryAskId?: string;
   recoveryOperationId?: string;
+  recoveryReviewedAt?: number;
   flowRunId?: string;
   claimId: string;
   startedAt: number;

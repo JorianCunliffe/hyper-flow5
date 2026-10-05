@@ -20189,7 +20189,40 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "additionalProperties": true
+                "properties": {
+                  "responseAction": {
+                    "type": "string",
+                    "enum": [
+                      "answer",
+                      "comment",
+                      "close_recovery"
+                    ],
+                    "description": "Explicit actions require an authenticated member. close_recovery requires owner/admin and closes only the matching recovery review; it never retries the call."
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected",
+                      "revise"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "uploads": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
+                }
               }
             }
           }

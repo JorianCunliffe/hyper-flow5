@@ -15,6 +15,9 @@ import { syncFlowHoldsFromRun } from '../flowHoldStore.js';
 import type { FlowHoldConfig, FlowRun, RuntimeMilestone } from '../flowRuntimeTypes.js';
 import { smsStepValues } from './askSteps.js';
 import { deliverNextSmsStep } from './deliverNextSmsStep.js';
+import { closeRecoveryReview } from './closeRecoveryReview.js';
+import { applySubmissionAction, type AskSubmissionAction } from './submissionAction.js';
+import { buildResponse } from '../askResponses.js';
 
 export interface AskResponsePayload {
   text?: string;
@@ -36,6 +39,8 @@ export interface RespondToAskInput {
   transcriptId?: string;
   occurredAt?: number;
   actorVerified?: boolean;
+  actorRole?: string;
+  responseAction?: AskSubmissionAction;
   expectedAsk?: {runId:string;version:string};
   /** Record a valid interpretation but keep it open for authenticated review. */
   forceReview?: boolean;
@@ -139,13 +144,13 @@ export const checkpointReviewedRun = async (
   deps = { saveFlowRun, syncFlowHoldsFromRun, writeProject }
 ): Promise<{ project: Project; run: FlowRun; log: string[]; pending: string[] }> => {
   const savedRun = await deps.saveFlowRun(updateFlowRunFromProject(run, project));
-  if (!savedRun.outboundRecoveryHold) await deps.syncFlowHoldsFromRun(savedRun, project);
+  if (!savedRun.outboundRecoveryHold && input.responseAction !== 'comment') await deps.syncFlowHoldsFromRun(savedRun, project);
   const log = [savedRun.outboundRecoveryHold ? 'Review note saved. The failed outbound operation remains held; no call was dispatched.' : 'Response saved. Ready downstream work is queued for continuation.'];
   try { await deps.writeProject(input.orgId, located.index, project); }
   catch (error: any) {
     log.push(`Project runtime projection skipped after concurrent update: ${error?.message || String(error)}`);
   }
-  return { project, run: savedRun, log, pending: savedRun.status === 'running' ? ['__continue__'] : [] };
+  return { project, run: savedRun, log, pending: savedRun.status === 'running' && input.responseAction !== 'comment' ? ['__continue__'] : [] };
 };
 
 /** The one canonical entry point for a human response, regardless of channel. */
@@ -164,6 +169,14 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   const sourceProject = flowRun ? materializeFlowRunProject(located.project, flowRun) : located.project;
   const found = input.askId ? findAskById(sourceProject, input.askId) : findAskByToken(sourceProject, input.askToken!);
   if (!found) return { ok: false, reason: 'ask_not_found' };
+  if (input.responseAction === 'close_recovery') {
+    if (!input.actorVerified || input.channel !== 'web' || !['owner','admin'].includes(input.actorRole || '')) return {ok:false, reason:'administrator_review_required'};
+    if (!flowRun || flowRun.outboundRecoveryHold?.askId !== found.ask.id) return {ok:false, reason:'recovery_review_not_found'};
+    if (found.ask.status === 'cancelled' || expireAsk(found.ask, Date.now()).status === 'expired') return {ok:false, reason:'This recovery question is no longer open'};
+    if (!input.response.text?.trim()) return {ok:false, reason:'Enter a review note before closing the review'};
+    return closeRecoveryReview(flowRun, found.ask, input.response.actor || 'unknown', input.response.text || '');
+  }
+  if (flowRun?.outboundRecoveryHold?.askId === found.ask.id && input.responseAction === 'answer') return {ok:false, reason:'Use Close recovery review to resolve this question'};
   if(input.expectedAsk&&(flowRun?.id!==input.expectedAsk.runId||(await import('../reception/asks.js')).askVersion(found.ask,flowRun.id)!==input.expectedAsk.version))return {ok:false,reason:'ask_changed'};
   if (expireAsk(found.ask, input.occurredAt ?? Date.now()).status === 'expired') {
     return { ok: false, reason: 'ask_expired', askStatus: 'expired', askKind: found.ask.kind, askFields: found.ask.fields };
@@ -196,9 +209,10 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
       !input.response.structured && !input.response.decision
     ? smsStepValues(found.ask, input.response.text)
     : undefined;
-  const response: HumanResponse = isHumanResponse(input.response)
+  const interpret = input.responseAction && input.actorVerified && input.channel === 'web' ? buildResponse : interpretAskResponse;
+  let response: HumanResponse = isHumanResponse(input.response)
     ? { ...input.response }
-    : await interpretAskResponse(found.ask, {
+    : await interpret(found.ask, {
         via: input.channel || 'web',
         actor: matchedDelivery?.personId || input.response.actor || `via ${input.channel || 'web'}`,
         decision: structuredDecision(input.response.decision) || structuredDecision(input.response.structured?.decision),
@@ -210,6 +224,8 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
         raw: input.response.raw,
         at: input.occurredAt
       });
+  try { response = applySubmissionAction(found.ask, response, input.responseAction, input.actorVerified); }
+  catch (error) { return {ok:false, reason: error instanceof Error ? error.message : String(error)}; }
   response.communicationId = input.communicationId || response.communicationId;
   response.transcriptId = input.transcriptId || response.transcriptId;
   if (input.forceReview) response.needsInterpretation = true;
@@ -241,6 +257,9 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
 
   if (flowRun) {
     const persisted = await checkpointReviewedRun(input, located, flowRun, project);
+    if (updatedAsk.status === 'open') persisted.log = [input.responseAction === 'comment'
+      ? 'Comment saved. The question remains open.'
+      : 'Response saved, but the question remains open. Complete the required fields or resolve the pending review.'];
     return {
       ok: true,
       askStatus: updatedAsk.status,
@@ -254,6 +273,10 @@ export const respondToAsk = async (input: RespondToAskInput): Promise<RespondToA
   }
 
   // Backwards-compatible path for an Ask created before FlowRun migration.
+  if (input.responseAction === 'comment') {
+    await writeProject(input.orgId, located.index, project);
+    return {ok: true, askStatus: updatedAsk.status, response: reviewed.response, log: ['Comment saved. The question remains open.'], pending: []};
+  }
   const advanced = await advanceProjectFlow(project, serverExecutor, {
     orgId: input.orgId,
     reviewCaptures: reviewCapturedWork,

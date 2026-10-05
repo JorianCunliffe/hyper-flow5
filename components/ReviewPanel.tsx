@@ -17,8 +17,10 @@ import { AskDecision, Attachment, HumanAsk } from '../types';
 import { collectAttachments, isOverdue } from '../lib/humanAsk';
 import { firebaseService } from '../services/firebaseService';
 import { Markdown } from './Markdown';
+import type { AskSubmissionAction } from '../lib/asks/submissionAction';
 
 export interface ReviewSubmission {
+  responseAction?: AskSubmissionAction;
   decision?: AskDecision;
   text?: string;
   values?: Record<string, any>;
@@ -58,11 +60,12 @@ const relative = (ts: number) => {
  * see the draft they previously rejected.
  */
 export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, projectName, onSubmit, onClose }) => {
-  const [comment, setComment] = useState('');
+  const recoveryReview = ask.id.startsWith('recovery_');
+  const [comment, setComment] = useState(() => recoveryReview ? [...(ask.responses || [])].reverse().find(response => response.text)?.text || '' : '');
   const [values, setValues] = useState<Record<string, any>>({});
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState<AskDecision | 'answer' | null>(null);
+  const [submitting, setSubmitting] = useState<AskDecision | AskSubmissionAction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPrevious, setShowPrevious] = useState(false);
 
@@ -102,7 +105,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
     }
   };
 
-  const submit = async (decision: AskDecision | undefined, kind: AskDecision | 'answer') => {
+  const submit = async (decision: AskDecision | undefined, kind: AskDecision | AskSubmissionAction) => {
     if (decision === 'revise' && !comment.trim()) {
       setError('Say what needs to change — your comment becomes the instruction for the redo.');
       return;
@@ -111,6 +114,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
     setSubmitting(kind);
     try {
       await onSubmit({
+        responseAction: kind === 'answer' || kind === 'comment' || kind === 'close_recovery' ? kind : undefined,
         decision,
         text: comment.trim() || undefined,
         values: Object.keys(values).length ? values : undefined,
@@ -125,7 +129,7 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
   const busy = submitting !== null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+    <div role="dialog" aria-modal="true" aria-label={recoveryReview ? 'Recovery review' : 'Answer or review question'} className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl border border-slate-200 flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-100 shrink-0">
@@ -156,7 +160,10 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-6 space-y-5">
+        <div className="overflow-y-auto min-h-0 flex-1 p-6 space-y-5">
+          {recoveryReview && <p className="text-sm rounded-xl bg-amber-50 border border-amber-200 p-3">
+            Close this review when you have recorded your findings. This resolves the question and marks the recovery review closed. The call stays failed and the workflow stays held; no call is retried.
+          </p>}
           <p className="text-sm text-slate-700 font-medium bg-slate-50 border border-slate-200 rounded-xl p-3">{ask.prompt}</p>
 
           {/* The work product itself */}
@@ -274,15 +281,16 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
 
           {/* Comment */}
           <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-              <MessageSquare size={12} /> Comment
+            <label htmlFor={`ask-response-${ask.id}`} className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+              <MessageSquare size={12} /> {recoveryReview ? 'Review notes' : ask.kind === 'question' && !(ask.fields || []).length ? 'Your answer' : 'Comment'}
               <span className="text-slate-300 normal-case tracking-normal font-medium">
-                — required when sending work back; it becomes the instruction for the redo
+                {ask.kind === 'approval' ? '— required when sending work back' : '— saving a comment leaves the question open'}
               </span>
             </label>
             <textarea
+              id={`ask-response-${ask.id}`}
               className="w-full h-24 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              placeholder="What's right, what needs to change..."
+              placeholder={recoveryReview ? 'Record what you checked and why you are closing this review…' : ask.kind === 'question' ? 'Enter your answer…' : "What's right, what needs to change..."}
               value={comment}
               onChange={e => setComment(e.target.value)}
             />
@@ -360,13 +368,16 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
           )}
 
           {error && (
-            <div className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-3">{error}</div>
+            <div role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-3">{error}</div>
           )}
         </div>
 
         {/* Actions */}
-        <div className="p-5 border-t border-slate-100 shrink-0">
-          {ask.kind === 'approval' ? (
+        <div className="p-5 border-t border-slate-100 shrink-0 bg-white rounded-b-3xl space-y-2">
+          {recoveryReview ? <button disabled={busy || uploading || !comment.trim()} onClick={() => submit(undefined, 'close_recovery')}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold px-4 py-2.5 rounded-xl text-sm">
+            {submitting === 'close_recovery' ? 'Closing review…' : 'Close recovery review'}
+          </button> : ask.kind === 'approval' ? (
             <div className="grid grid-cols-3 gap-2">
               <button
                 disabled={busy}
@@ -393,12 +404,16 @@ export const ReviewPanel: React.FC<ReviewPanelProps> = ({ ask, nodeName, project
           ) : (
             <button
               disabled={busy}
-              onClick={() => submit(undefined, 'answer')}
+              onClick={() => !uploading && submit(undefined, 'answer')}
               className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold px-4 py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition"
             >
               {submitting === 'answer' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Submit answer
             </button>
           )}
+          {ask.kind !== 'approval' && <button disabled={busy || uploading || !comment.trim()} onClick={() => submit(undefined, 'comment')}
+            className="w-full border border-slate-300 text-slate-700 disabled:opacity-50 font-bold px-4 py-2.5 rounded-xl text-sm">
+            {submitting === 'comment' ? 'Saving comment…' : 'Save comment — keep open'}
+          </button>}
         </div>
       </div>
     </div>
