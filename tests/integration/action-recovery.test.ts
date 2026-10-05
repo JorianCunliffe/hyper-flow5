@@ -46,6 +46,12 @@ test('real runtime rules: concurrent schedule, stale projection, callback races 
     await env.withSecurityRulesDisabled(async context => {
       await set(ref(context.database(), `projects/${org}/projects`), [definition]);
       await set(ref(context.database(), `schedules/${org}/schedule`), schedule);
+      // This test isolates provider recovery. Supply an explicit all-day contact
+      // policy so the call is eligible regardless of the CI runner's clock.
+      await set(ref(context.database(), `agent_profiles/${org}`), {
+        agentId: 'fixture', displayName: 'Recovery fixture', timezone: 'Australia/Brisbane',
+        contactWindow: { startHour: 0, endHour: 24, maxPerDay: 20, maxPerContact: 2 }
+      });
       await set(ref(context.database(), 'tenant_lifecycle/suspended'), { state: 'suspended' });
       await set(ref(context.database(), `organizations/${org}/members/member`), { role: 'owner' });
     });
