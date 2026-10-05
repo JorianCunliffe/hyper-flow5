@@ -47,6 +47,7 @@ export async function processReceptionSms(org: string, message: CommunicationRes
   if (message.tenantId !== org) throw new Error('SMS tenant mismatch');
   const config = await deps.store.read<ReceptionConfig>(org, 'config', 'current');
   const identity = message.recipients?.length === 1 ? message.recipients[0] : '';
+  if (!identity && config?.lines.some(l => l.smsEnabled === true)) return { handled: true, status: 'needs_review', reason: 'Receiving SMS number is missing or ambiguous; no default-number reply permitted' };
   const line = config?.lines.find(l => l.identity === identity);
   if (!line || line.smsEnabled !== true) return { handled: false };
   // Human Asks have a distinct response path. Never produce a second receptionist reply.

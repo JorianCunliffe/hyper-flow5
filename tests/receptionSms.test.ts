@@ -126,3 +126,9 @@ test('permission revocation during generation and mismatched receiving identity 
   const g=fixture();const m=g.message();g.deps.client=()=>({getCommunication:async()=>({...m,recipients:['+61400000099']})});
   assert.equal((await processReceptionSms('org',m,g.client,g.deps)).status,'needs_review');assert.equal(g.sent.length,0);
 });
+
+test('missing or ambiguous receiving number never falls back to a tenant default',async()=>{
+  for(const recipients of [[],['+61400000001','+61400000003']]) {const f=fixture();const m={...f.message(),recipients};
+    const r=await processReceptionSms('org',m,f.client,f.deps);assert.equal(r.handled,true);assert.equal(r.status,'needs_review');assert.equal(f.sent.length,0);
+  }
+});
