@@ -46,6 +46,15 @@ export const receptionActionDependencies = {
           "The matching Communications release and line-read capability are required.",
       });
     }
+    if (config.lines.some(l => l.smsEnabled)) {
+      try {
+        const profile = await readTenantAgentProfile(org);
+        assertCapabilityAllowed({ profile: profile ? { ...profile, capabilityPolicy: await readTenantCapabilityPolicy(org) } : null, capability: "sms.send", autonomous: true });
+        checks.push({ name: "Reception SMS reply permission", ok: true });
+      } catch {
+        checks.push({ name: "Reception SMS reply permission", ok: false, detail: "Approve sms.send in the existing capability settings before activating SMS replies." });
+      }
+    }
     for (const p of config.projects) {
       if (p.booking) {
         const r = (await readProjectWorkspaceResources(org, p.projectId)).find(

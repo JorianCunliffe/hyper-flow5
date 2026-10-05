@@ -190,6 +190,12 @@ export default function ReceptionistsPanel({
                   />{" "}
                   Enable on activation
                 </label>
+                <label className="block">
+                  <input type="checkbox" checked={line.smsEnabled === true}
+                    onChange={e => change({ ...config, lines: config.lines.map((l, i) =>
+                      i === index ? { ...l, smsEnabled: e.target.checked } : l) })} />{" "}
+                  Handle inbound SMS (requires separate SMS send permission)
+                </label>
                 {(
                   [
                     "identity",
@@ -662,6 +668,14 @@ export default function ReceptionistsPanel({
               </button>
             </div>
           )}
+          <h3 className="font-semibold">SMS operations</h3>
+          {snapshot.smsOperations?.map((operation: any) => (
+            <article key={operation.communicationId} className="border p-3">
+              <p>{operation.communicationId}: {operation.status}</p>
+              <p>{operation.result?.reason || operation.error || "Inspect the owning communication receipt before retrying."}</p>
+              {operation.result?.responseId && <p>Reply receipt: {operation.result.responseId}</p>}
+            </article>
+          ))}
           <h3 className="font-semibold">Reception enquiries</h3>
           {snapshot.enquiries.map((e: any) => (
             <article key={e.id} className="border p-3">

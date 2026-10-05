@@ -57,6 +57,7 @@ export async function handleReception(
       enabled: receptionEnabled(),
       mode: config.lines.length ? "configured" : "legacy",
       askOperations: await deps.store.list(member.orgId, "ask_leases"),
+      smsOperations: await deps.store.list(member.orgId, "sms_receipts"),
       bookingOperations: await deps.store.list(member.orgId, "diary_locks"),
       config,
       projects: projects.map((p) => ({ id: p.id, name: p.name })),
@@ -176,6 +177,7 @@ export async function handleReception(
       checks,
       effects: proposed.lines.map((l) => ({
         number: l.identity,
+        smsEnabled: l.smsEnabled === true,
         services: proposed.projects
           .filter((p) => l.projectIds.includes(p.projectId) && p.enabled)
           .map((p) => ({
@@ -296,6 +298,7 @@ export async function receptionContext(
         orgId: input.tenant_id,
         personId: input.person_id,
         communicationId: input.communication_id,
+        channel: input.channel === "sms" ? "sms" : "voice",
         threadId: `reception_thread_${digest([input.tenant_id, input.communication_id]).slice(0, 32)}`,
         identity: input.service_identity,
         revision: 0,
@@ -531,7 +534,7 @@ export async function receptionCommand(
   if (
     communication.tenantId !== org ||
     communication.personId !== session.personId ||
-    communication.channel !== "voice" ||
+    communication.channel !== (session.channel || "voice") ||
     communication.direction !== "inbound"
   )
     fail(403, "Caller does not own this inbound communication.");
@@ -541,7 +544,7 @@ export async function receptionCommand(
   const line = config.lines.find(
     (l) => l.identity === session!.identity && l.enabled,
   );
-  if (!line) fail(403, "Reception line is disabled.");
+  if (!line || (session.channel === "sms" && (line.smsEnabled !== true || !communication.recipients?.includes(line.identity)))) fail(403, "Reception line is disabled or SMS identity does not match.");
   const project = config.projects.find(
     (p) =>
       p.projectId === session!.projectId &&
@@ -638,9 +641,10 @@ export async function receptionCommand(
           ...(project ? { projectId: project.projectId } : {}),
           lineId: line.id,
           owner: project?.intakeOwner || line.inboxOwner,
-          name: text(args.name, 100),
-          request: text(args.request, 4000),
-          callbackPreference: text(args.callbackPreference, 500),
+          name: text(args.name, 100) || (session!.channel === "sms" ? current?.name || "" : ""),
+          request: session!.channel === "sms" && current?.request
+            ? text(`${current.request}\n${text(args.request, 4000)}`, 8000) : text(args.request, 4000),
+          callbackPreference: text(args.callbackPreference, 500) || (session!.channel === "sms" ? current?.callbackPreference || "" : ""),
           visibility:
             session!.verifiedUntil || session!.verification
               ? "restricted"

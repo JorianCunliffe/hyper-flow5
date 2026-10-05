@@ -79,6 +79,7 @@ const transport = async (url: string, body?: any) => {
       checks: [{ name: "Fixture only — zero provider calls", ok: true }],
       effects: body.config.lines.map((l: any) => ({
         number: l.identity,
+        smsEnabled: l.smsEnabled === true,
         services: l.projectIds,
       })),
     };

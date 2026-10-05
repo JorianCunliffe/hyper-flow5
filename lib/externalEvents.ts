@@ -282,7 +282,7 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
 
     if (isInboundCommunicationEvent(event.type)) {
       const item = triageItemFromEvent(event, communication);
-      if (tenantSettings.triagePolicy === 'correlated_only' && !item.askId && !item.projectId) {
+      if (tenantSettings.triagePolicy === 'correlated_only' && !item.askId && !item.projectId && !(communication && await (await import('./reception/sms.js')).isReceptionSms(communication, orgId))) {
         await finishProcessing(orgId, event.event_id, 'processed');
         return { ok: true, ignored: true, reason: 'tenant_triage_policy' };
       }

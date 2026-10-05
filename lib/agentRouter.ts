@@ -349,6 +349,24 @@ export const processAgentInboxJob = async (
       readTenantAgentProfile(job.orgId),
       listTenantProjects(job.orgId)
     ]);
+    if (job.channel === 'sms') {
+      if (communication.purpose?.type === 'human_ask') {
+        await finishAgentInboxJob(job, { status: 'completed' });
+        return; // Only ask.response.received may update the Ask or its triage disposition.
+      }
+      const { processReceptionSms } = await import('./reception/sms.js');
+      const reception = await processReceptionSms(job.orgId, communication, client);
+      if (reception.handled) {
+        await finishAgentInboxJob(job, { status: reception.status || 'needs_review',
+          ...(reception.responseId ? { responseCommunicationId: reception.responseId } : {}),
+          ...(reception.status === 'needs_review' ? { error: reception.reason } : {}) });
+        if (reception.projectId) await patchTenantTriageItem(job.orgId, job.communicationId,
+          { projectId: reception.projectId }, 'sms-reception', 'reception.routed');
+        await setTenantTriageDisposition(job.orgId, job.communicationId,
+          reception.status === 'completed' ? 'resolved' : 'needs_review', 'sms-reception', reception.reason || 'SMS reception processed');
+        return;
+      }
+    }
     if (job.channel === 'voice') {
       const receptionFinished = await finishReception(job.orgId, job.communicationId);
       if (communication.purpose?.type === 'project_reception' || receptionFinished) {

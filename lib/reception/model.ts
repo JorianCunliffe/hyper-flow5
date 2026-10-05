@@ -36,6 +36,8 @@ export interface ReceptionProject {
   };
 }
 export interface ReceptionLine {
+  /** Explicit opt-in; existing voice lines never acquire SMS authority automatically. */
+  smsEnabled?: boolean;
   id: string;
   identity: string;
   enabled: boolean;
@@ -80,6 +82,7 @@ export interface ReceptionSession {
     projectId?: string;
     policyVersion: number;
   }>;
+  channel?: "voice" | "sms";
   verificationEvidence?: {
     channel: "sms";
     verifiedAt: number;
@@ -270,6 +273,7 @@ export function validateConfig(
       id: l.id,
       identity: l.identity,
       enabled: l.enabled === true,
+      smsEnabled: l.smsEnabled === true,
       name: text(l.name, 100),
       greeting: text(l.greeting, 500),
       timezone: l.timezone,

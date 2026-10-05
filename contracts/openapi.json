@@ -33198,6 +33198,11 @@
                 "enabled": {
                   "type": "boolean"
                 },
+                "smsEnabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Opt-in SMS reception on this number; requires SMS send authority."
+                },
                 "name": {
                   "type": "string"
                 },

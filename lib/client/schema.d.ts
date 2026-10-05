@@ -1681,6 +1681,11 @@ export interface components {
                 id: string;
                 identity: string;
                 enabled: boolean;
+                /**
+                 * @description Opt-in SMS reception on this number; requires SMS send authority.
+                 * @default false
+                 */
+                smsEnabled: boolean;
                 name: string;
                 greeting: string;
                 /** @default Australia/Brisbane */

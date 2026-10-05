@@ -13,7 +13,7 @@ export function discoveryResponse(format?: unknown) {
     version: "1.0.0",
     openapi: "/api/openapi.json",
     schemas: configurationSchemas,
-    reception: { configuration:'/api/reception', voiceCommands:'/api/agent/reception', flag:'PROJECT_RECEPTION_ENABLED', schema:receptionConfigSchema, projectSchema:receptionProjectSchema, actions:['availability','booking','resume_ask'], authority:'Human administrator review/apply and separate activation; signed server voice commands only', documentation:'docs/PROJECT_RECEPTION.md' },
+    reception: { configuration:'/api/reception', voiceCommands:'/api/agent/reception', sms:{enabledBy:'lines[].smsEnabled', ingress:'signed communication.received events', confirmations:'Exact CONFIRM code from reviewed booking; uncertain effects held for reconciliation', staffAsks:'Existing bound Ask responses; no public SMS staff verification escalation'}, flag:'PROJECT_RECEPTION_ENABLED', schema:receptionConfigSchema, projectSchema:receptionProjectSchema, actions:['availability','booking','resume_ask'], authority:'Human administrator review/apply and separate activation; signed server voice commands only', documentation:'docs/PROJECT_RECEPTION.md' },
     nodeTypes: Object.values(NodeType),
     taskTypes: TASK_TYPES,
     taskContracts,

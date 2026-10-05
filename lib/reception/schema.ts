@@ -112,6 +112,7 @@ export const receptionConfigSchema = {
           id: string,
           identity: { ...string, pattern: "^\\+[1-9][0-9]{7,14}$" },
           enabled,
+          smsEnabled: { type: "boolean", default: false, description: "Opt-in SMS reception on this number; requires SMS send authority." },
           name: string,
           greeting: string,
           timezone: { ...string, default: "Australia/Brisbane" },

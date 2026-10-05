@@ -42,7 +42,7 @@ HyperFlow normalizes a Communications Service GET result using explicit top-leve
 
 ## Project reception
 
-Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.
+Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration, voice and SMS contracts](PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.
 
 Outbound recovery: scheduled provider outages retry the same operation at 15-minute intervals for at most 60 minutes. Uncertain call setup receipts are read through tenant-scoped `GET /v1/calls/operations/:key`, without another call POST, every five minutes (an initially in-progress receipt backs off 15 minutes) for at most 30 minutes. Deadlines are persisted from the first failure and cannot slide with retries. A confirmed rejection escalates immediately. Legacy blocked occurrences are adopted using their recorded hold time.
 
