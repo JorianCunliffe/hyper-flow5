@@ -19,6 +19,7 @@ import {
   findFlowRunByAction,
   findFlowRunByAsk,
   findLatestActiveFlowRun,
+  listFlowRuns,
   readFlowRun,
   saveFlowRun
 } from './flowRunStore.js';
@@ -307,6 +308,11 @@ export const advanceServerFlow = async (
   const located = await findProject(orgId, projectId);
   if (!located) return { ok: false, reason: 'project_not_found' };
 
+  // A stale occurrence can be projected as the newest run. Reconcile recorded
+  // cancellations first instead of advancing that other occurrence's providers.
+  const cancellationRun = (await listFlowRuns(orgId, projectId, 100)).find(candidate =>
+    ['running', 'waiting'].includes(candidate.status) && recordedVoiceCancellation(candidate));
+  if (cancellationRun) return advanceRunAndPersist(orgId, located, cancellationRun);
   let run = await findLatestActiveFlowRun(orgId, projectId);
   if (!run) {
     const projectedOccurrence = activeOccurrenceId(located.project.projectData);
