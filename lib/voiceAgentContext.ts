@@ -21,6 +21,8 @@ import {
 const CONTEXT_TTL_MS = 24 * 60 * 60 * 1000;
 const clean = (value: unknown, max = 2_000): string => typeof value === 'string' ? value.trim().slice(0, max) : '';
 
+export const voiceProjectSelectionInstructions = 'This caller has a recognized phone identity with access to the listed projects. The project is not selected yet; this does not mean the caller is unknown or has no previous conversations. Project-specific history has not been loaded yet. Do not claim there is no prior contact, and disregard any generic empty-history fallback in the line or contact prompt. Ask one short project-selection question using the authorized project names, then call select_hyperflow_project with their answer. Do not expose project facts until selection succeeds.';
+
 export interface VoiceAgentContextRequest {
   request_id: string;
   tenant_id: string;
@@ -93,9 +95,9 @@ export const buildVoiceAgentContext = async (
       request_id: input.request_id,
       captureEnabled,
       routing,
-      greeting: names.length ? `Which project would you like to discuss: ${names.join(', ')}?` : 'No projects are available for this call.',
+      greeting: names.length ? `Hello. I recognize your number. ${names.length === 1 ? 'Would you like to discuss' : 'Which project would you like to discuss:'} ${names.join(', ')}?` : 'No projects are available for this call.',
       instructions: names.length
-        ? 'Do not expose project facts yet. Ask the caller to select one of the authorized project names, then call select_hyperflow_project with their answer.'
+        ? voiceProjectSelectionInstructions
         : 'No project is authorized for this caller. Do not answer project questions or expose tenant information.',
       candidates: visible.map(project => ({ id: String(project.id), name: project.name }))
     };
