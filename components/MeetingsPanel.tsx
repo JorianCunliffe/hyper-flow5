@@ -8,16 +8,18 @@ import type {
 } from "../lib/communications/meetingTypes";
 import type { CommitmentSource } from "../lib/commitments/model";
 import { firebaseService } from "../services/firebaseService";
+import { MeetingAudioIntake } from './MeetingAudioIntake';
+import type { CommunicationsPersonRef } from '../lib/communications/types';
 const field =
   "w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900";
 const button =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-40";
 const blank = (): MeetingInput => ({
   source: "generic",
-  externalId: "",
+  externalId: crypto.randomUUID(),
   sourceVersion: "1",
   title: "",
-  occurredAt: "",
+  occurredAt: new Date(Date.now()+10*60*60*1000).toISOString().replace('Z','+10:00'),
   attendees: [],
   topics: [{ id: "topic-1", title: "", projectId: "", segments: [] }],
 });
@@ -58,6 +60,7 @@ export const MeetingsPanel: React.FC<{
   const [candidates, setCandidates] = useState<
     Array<CommitmentSource & { projectId: string }>
   >([]);
+  const [people,setPeople]=useState<CommunicationsPersonRef[]>([]);
   const load = async (offset = 0) => {
     const result = await api(`/api/meetings?offset=${offset}`);
     setRows((old) => (offset ? [...old, ...result.data] : result.data));
@@ -71,6 +74,7 @@ export const MeetingsPanel: React.FC<{
     setDraft(newDraft());
     setError("");
     setCandidates([]);
+    setPeople([]);
     api("/api/meetings")
       .then((result) => {
         if (active) {
@@ -106,7 +110,7 @@ export const MeetingsPanel: React.FC<{
     setDraft(
       row
         ? { ...row.metadata, expectedVersion: row.metadata.version }
-        : blank(),
+        : newDraft(),
     );
     setCandidates([]);
     setDuplicate(false);
@@ -202,7 +206,7 @@ export const MeetingsPanel: React.FC<{
     >
       <h1 className="text-2xl font-bold">Meetings and action evidence</h1>
       <p className="my-2 text-sm text-slate-600">
-        Import notes that are already transcribed. Keep separate matters in
+        Paste meeting notes or upload a recording for transcription. Keep separate matters in
         separate topics. Contact matches identify attendees; they do not prove
         who spoke.
       </p>
@@ -366,8 +370,16 @@ export const MeetingsPanel: React.FC<{
           <h2 className="text-lg font-bold">
             {selected
               ? "Review or correct meeting notes"
-              : "Prepare a meeting import"}
+              : "Add meeting notes or recording"}
           </h2>
+          {!selected && <MeetingAudioIntake key={`${orgId}:${draft.externalId}`} orgId={orgId} request={api} onReview={receipt=>{
+            const segments=receipt.segments?.length?receipt.segments:(receipt.text||'').split('\n').filter(Boolean).map((text,i)=>({id:`line-${i+1}`,speakerId:null,speaker:'Unknown speaker',text}));
+            setDraft({...newDraft(),source:'hyperflow_audio_review',externalId:receipt.fileId,
+              title:draft.title||receipt.name,occurredAt:draft.occurredAt,attendees:draft.attendees,
+              topics:[{id:'topic-1',title:draft.title||receipt.name,projectId:draft.topics[0]?.projectId||'',segments}]});
+            setMessage('Transcript loaded for review. Correct speakers, split topics and choose projects before saving. Nothing has been added to project evidence yet.');
+          }}/>}
+          <p className="text-sm text-slate-600">Paste notes into the topic transcript below, load a text file, or transcribe a recording. Check the meeting date, attendees and project for each topic before saving.</p>
           <label className="block">
             Load transcribed notes
             <input
@@ -385,6 +397,8 @@ export const MeetingsPanel: React.FC<{
               onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             />
           </label>
+          <details open={!!selected}>
+            <summary>Import reference and revision</summary>
           <label className="block">
             Source name
             <input
@@ -419,6 +433,7 @@ export const MeetingsPanel: React.FC<{
             Use the provider revision or assign one to your upload. Change it
             when correcting notes; reuse it when retrying the same import.
           </p>
+          </details>
           <label className="block">
             Meeting time including timezone offset
             <input
@@ -458,6 +473,13 @@ export const MeetingsPanel: React.FC<{
             )}
           </details>
           <h3 className="font-semibold">Attendees</h3>
+          <button className={button} onClick={()=>void run(async()=>{const result=await api('/api/contacts');setPeople(result.data);})}>Choose from contacts</button>
+          {!!people.length && <label className="block">Add a known participant
+            <select className={field} value="" onChange={e=>{
+              const person=people.find(p=>p.id===e.target.value);
+              if(person && !draft.attendees.some(p=>p.id===`person-${person.id}`))setDraft({...draft,attendees:[...draft.attendees,{id:`person-${person.id}`,name:person.name||'Unnamed contact',email:person.email,phone:person.phone}]});
+            }}><option value="">Choose contact</option>{people.map(p=><option key={p.id} value={p.id}>{p.name||'Unnamed contact'} · {p.email||p.phone||p.id}</option>)}</select>
+          </label>}
           {draft.attendees.map((person, index) => (
             <div key={person.id} className="grid grid-cols-2 gap-2">
               <label>
@@ -601,8 +623,8 @@ export const MeetingsPanel: React.FC<{
           </button>
           <p className="text-sm">
             Review these source notes before importing. Instructions within the
-            transcript cannot approve work or grant permissions. No audio is
-            downloaded and no messages are sent.
+            transcript cannot approve work or grant permissions. Saving reviewed
+            notes does not send messages or execute work.
           </p>
           <button className={button} onClick={() => void save()}>
             Import reviewed transcript

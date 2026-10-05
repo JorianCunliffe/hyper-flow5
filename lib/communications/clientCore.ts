@@ -99,6 +99,20 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async listMeetings(tenantId:string, offset=0): Promise<{data:MeetingRecord[];next:number|null}> {
     this.requireTenant(tenantId); return this.rawRequest(`/v1/meetings?offset=${offset}`,{method:'GET',tenantId});
   }
+  async findRecording(tenantId:string, source:string, externalId:string):Promise<any|null> {
+    this.requireTenant(tenantId);
+    const page = await this.rawRequest(`/api/recordings?${new URLSearchParams({source,externalId,limit:'2'})}`,{method:'GET',tenantId});
+    // Fail closed with older services which ignore the externalId filter.
+    if (page.capabilities?.privateIntakeReview!==true || !Array.isArray(page.data) || page.data.some((r:any)=>r.source!==source || r.external_id!==externalId) || page.data.length>1)
+      throw new CommunicationsApiError('Recording lookup requires a compatible Communications Service',503);
+    if (!page.data.length) return null;
+    const row = await this.rawRequest(`/api/recordings/${encodeURIComponent(page.data[0].id)}`,{method:'GET',tenantId});
+    if(row.source!==source || row.external_id!==externalId) throw new CommunicationsApiError('Recording identity mismatch',503);
+    return row;
+  }
+  async queueRecording(tenantId:string, input:Record<string,unknown>):Promise<any> {
+    this.requireTenant(tenantId); return this.rawRequest('/api/recordings',{method:'POST',tenantId,body:input});
+  }
   async getMeeting(tenantId:string,id:string):Promise<MeetingRecord> {
     this.requireTenant(tenantId); return this.rawRequest(`/v1/meetings/${encodeURIComponent(id)}`,{method:'GET',tenantId});
   }

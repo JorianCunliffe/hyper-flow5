@@ -386,6 +386,7 @@ export interface paths {
          * Paged/detail transcript evidence; import/update source versions and topics
          * @description Paged/detail transcript evidence; import/update source versions and topics
          *     Authority: meetings:read; accessible nonprivate evidence
+         *     Audio staging: owner-only private managed files, up to 25 MB. Transcription does not import meeting evidence; save reviewed topics separately. Signed media links and provider errors are never returned.
          */
         get: operations["get__api_meetings"];
         put?: never;
@@ -393,6 +394,7 @@ export interface paths {
          * Paged/detail transcript evidence; import/update source versions and topics
          * @description Paged/detail transcript evidence; import/update source versions and topics
          *     Authority: meetings:write; accessible nonprivate evidence
+         *     Audio staging: owner-only private managed files, up to 25 MB. Transcription does not import meeting evidence; save reviewed topics separately. Signed media links and provider errors are never returned.
          */
         post: operations["post__api_meetings"];
         delete?: never;
@@ -8954,36 +8956,12 @@ export interface operations {
     get__api_meetings: {
         parameters: {
             query?: {
-                /** @description Used where applicable; see operation description and domain guide. */
                 id?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                projectId?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                nodeId?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                view?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                operation?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                after?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                limit?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
                 offset?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                connectionId?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                calendarKey?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                start?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                end?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                shape?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                reason?: string;
-                /** @description Used where applicable; see operation description and domain guide. */
-                requestId?: string;
+                /** @description Set to 1 for private recording list/status; fileId reads one recording, after paginates the list. */
+                audio?: string;
+                fileId?: string;
+                after?: string;
             };
             header?: never;
             path?: never;
@@ -9095,7 +9073,26 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    [key: string]: unknown;
+                    /** @constant */
+                    operation: "audio_start";
+                    fileId: string;
+                } | {
+                    source: string;
+                    externalId: string;
+                    sourceVersion: string;
+                    title: string;
+                    /** Format: date-time */
+                    occurredAt: string;
+                    attendees: {
+                        [key: string]: unknown;
+                    }[];
+                    topics: {
+                        [key: string]: unknown;
+                    }[];
+                    expectedVersion?: number;
+                    references?: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

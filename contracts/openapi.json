@@ -11989,7 +11989,7 @@
       "get": {
         "operationId": "get__api_meetings",
         "summary": "Paged/detail transcript evidence; import/update source versions and topics",
-        "description": "Paged/detail transcript evidence; import/update source versions and topics\nAuthority: meetings:read; accessible nonprivate evidence",
+        "description": "Paged/detail transcript evidence; import/update source versions and topics\nAuthority: meetings:read; accessible nonprivate evidence\nAudio staging: owner-only private managed files, up to 25 MB. Transcription does not import meeting evidence; save reviewed topics separately. Signed media links and provider errors are never returned.",
         "security": [
           {
             "FirebaseBearer": []
@@ -12110,127 +12110,43 @@
             "in": "query",
             "schema": {
               "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "projectId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "nodeId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "view",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "operation",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
+            }
           },
           {
             "name": "offset",
             "in": "query",
             "schema": {
               "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
+            }
           },
           {
-            "name": "connectionId",
+            "name": "audio",
             "in": "query",
             "schema": {
               "type": "string"
             },
-            "description": "Used where applicable; see operation description and domain guide."
+            "description": "Set to 1 for private recording list/status; fileId reads one recording, after paginates the list."
           },
           {
-            "name": "calendarKey",
+            "name": "fileId",
             "in": "query",
             "schema": {
               "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
+            }
           },
           {
-            "name": "start",
+            "name": "after",
             "in": "query",
             "schema": {
               "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "end",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "shape",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "reason",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
-          },
-          {
-            "name": "requestId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Used where applicable; see operation description and domain guide."
+            }
           }
         ]
       },
       "post": {
         "operationId": "post__api_meetings",
         "summary": "Paged/detail transcript evidence; import/update source versions and topics",
-        "description": "Paged/detail transcript evidence; import/update source versions and topics\nAuthority: meetings:write; accessible nonprivate evidence",
+        "description": "Paged/detail transcript evidence; import/update source versions and topics\nAuthority: meetings:write; accessible nonprivate evidence\nAudio staging: owner-only private managed files, up to 25 MB. Transcription does not import meeting evidence; save reviewed topics separately. Signed media links and provider errors are never returned.",
         "security": [
           {
             "FirebaseBearer": []
@@ -12351,8 +12267,76 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "additionalProperties": true
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation",
+                      "fileId"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "operation": {
+                        "const": "audio_start"
+                      },
+                      "fileId": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{8,100}$"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "source",
+                      "externalId",
+                      "sourceVersion",
+                      "title",
+                      "occurredAt",
+                      "attendees",
+                      "topics"
+                    ],
+                    "properties": {
+                      "source": {
+                        "type": "string"
+                      },
+                      "externalId": {
+                        "type": "string"
+                      },
+                      "sourceVersion": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "occurredAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "attendees": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      },
+                      "topics": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      },
+                      "expectedVersion": {
+                        "type": "integer"
+                      },
+                      "references": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    }
+                  }
+                ]
               }
             }
           }

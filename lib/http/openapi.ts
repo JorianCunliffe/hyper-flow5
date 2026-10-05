@@ -641,6 +641,14 @@ export function buildOpenApi() {
         };
       }
     }
+    if (row.path === '/api/meetings') {
+      op.description += '\nAudio staging: owner-only private managed files, up to 25 MB. Transcription does not import meeting evidence; save reviewed topics separately. Signed media links and provider errors are never returned.';
+      if (method === 'get') op.parameters = ['id','offset','audio','fileId','after'].map(name=>({name,in:'query',schema:string,description:name==='audio'?'Set to 1 for private recording list/status; fileId reads one recording, after paginates the list.':undefined}));
+      if (method === 'post') op.requestBody = body({oneOf:[
+        {type:'object',required:['operation','fileId'],additionalProperties:false,properties:{operation:{const:'audio_start'},fileId:{type:'string',pattern:'^[a-zA-Z0-9_-]{8,100}$'}}},
+        {type:'object',required:['source','externalId','sourceVersion','title','occurredAt','attendees','topics'],properties:{source:string,externalId:string,sourceVersion:string,title:string,occurredAt:{type:'string',format:'date-time'},attendees:{type:'array',items:object},topics:{type:'array',items:object},expectedVersion:integer,references:object}}
+      ]});
+    }
     if(row.path==='/api/reception'&&method==='post')op.requestBody=body({type:'object',required:['operation'],properties:{operation:{enum:domainOperations[row.path]},expectedRevision:integer,requestId:string,reviewHash:string,config:{$ref:"#/components/schemas/ReceptionConfiguration"},identity:string,utterance:string,personId:string,id:string,expectedUpdatedAt:integer,status:{enum:['open','closed','needs_review']},projectId:string,confirmed:{type:'boolean'},windows:{type:'array',items:object}}});
     if(row.path==='/api/agent/reception')op.requestBody=body({type:'object',required:['tenant_id','person_id','communication_id','thread_id','service_identity','operation','operation_id','arguments'],properties:{tenant_id:string,person_id:string,communication_id:string,thread_id:string,service_identity:string,operation:{enum:domainOperations[row.path]},operation_id:string,arguments:object}});
     if (row.path === '/api/setup-assistant/sessions') {

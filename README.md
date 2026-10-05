@@ -16,6 +16,8 @@ Configure projects, nodes, subtasks, settings and saved UI views through revisio
 
 ## Capabilities
 
+**Meeting intake:** In Meetings, paste notes, load TXT/JSON, or upload an audio recording (up to 25 MB). Choose known participants and assign each topic to a project, then review and save. Audio uses private managed storage and Communications transcription; it requires provisioned managed files and a working transcription provider. Transcription alone does not publish meeting evidence or accept obligations. See [the API reference](docs/API_REFERENCE.md#meeting-notes-and-audio-intake).
+
 | Capability | Current behavior |
 |---|---|
 | Milestones | Human-managed work with subtasks and dependencies. |

@@ -28,6 +28,8 @@ export interface ManagedFile {
   completedAt?: number;
   deletedAt?: number;
   deletedBy?: string;
+  /** Server-only transcription handoff. Never include in publicFile. */
+  audioIntake?: { generation: string; externalId: string; mediaSecret: string; expiresAt: number; createdAt: number };
 }
 export function fileKey(value: unknown): string {
   if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{8,100}$/.test(value))

@@ -33,6 +33,13 @@ function bucket(file: ManagedFile) {
     throw new FileError(503, "Stored file bucket requires operator review");
   return getManagedFileBucket(file.bucket);
 }
+/** Dedicated queue handoff, never returned to a browser. Ordinary downloads remain 60 seconds. */
+export async function transcriptionDownload(file: ManagedFile) {
+  const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+  const [url] = await bucket(file).file(file.path, { generation: file.generation })
+    .getSignedUrl({ action: 'read', version: 'v4', expires: expiresAt });
+  return { url, expiresAt };
+}
 async function metadata(file: ManagedFile): Promise<StoredObject | undefined> {
   try {
     const [m] = await bucket(file).file(file.path).getMetadata();

@@ -5,6 +5,7 @@ import { readDiagnostics } from '../../lib/tenantControl/diagnostics.js';
 import { TenantControlError } from '../../lib/tenantControl/model.js';
 import { handleMemoryContextRequest } from '../../lib/communications/memoryContext.js';
 import { handleMeetingRequest, MeetingRequestError } from '../../lib/communications/meetings.js';
+import { handleMeetingAudio } from '../../lib/communications/meetingAudio.js';
 import { handleCommitments } from '../../lib/commitments/api.js';
 import { CommitmentError } from '../../lib/commitments/model.js';
 import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
@@ -88,7 +89,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const result = await handleContacts(req, member);
       return res.status(result.status).json(result.body);
     }
-    if (action === 'meetings') return res.status(200).json(await handleMeetingRequest(req, member));
+    if (action === 'meetings') return res.status(200).json(await (
+      req.query.audio === '1' || req.body?.operation === 'audio_start'
+        ? handleMeetingAudio(req, member) : handleMeetingRequest(req, member)));
     if (action === 'commitments') return res.status(200).json(await handleCommitments(req, member));
     if (action === 'memory') return res.status(200).json(await handleMemoryContextRequest(req, member));
     if (action === 'email_policy') return res.status(200).json(await accountEmailPolicy(member, req.method, req.body));
