@@ -43,3 +43,5 @@ HyperFlow normalizes a Communications Service GET result using explicit top-leve
 ## Project reception
 
 Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.
+
+Outbound schedule holds: unavailable providers defer the same occurrence for 15 minutes; rejected/uncertain outbound operations persist `blocked` with the original error and provider code. Other jobs continue and the tick returns these holds without HTTP 500. `POST /api/schedules?action=resume` requires an owner/admin, the exact current `id` and `scheduledFor`, and a non-empty `reason` documenting receipt review. It releases only that occurrence for reconciliation on the next tick; it never clears or replaces a provider operation. `run` will not create a fresh occurrence while the current one is blocked.

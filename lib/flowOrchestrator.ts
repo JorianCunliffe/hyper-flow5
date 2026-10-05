@@ -27,6 +27,7 @@ export interface ActionExecutionContext {
 }
 
 export interface ActionOutcome {
+  providerCode?: string;
   recoveryRequired?: boolean;
   status: 'success' | 'error' | 'pending';
   output?: any;

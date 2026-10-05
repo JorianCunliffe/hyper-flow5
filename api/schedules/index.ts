@@ -2,7 +2,7 @@ import {retryReviewActions} from '../../lib/reviewActions.js';
 import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
-import { deleteTenantSchedule, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
+import { deleteTenantSchedule, readScheduleRun, releaseBlockedScheduleRun, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
 import { failedScheduleResults, runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -47,6 +47,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const member = await requireAppMember(req);
+    if (action === 'resume') {
+      if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+      if (!['owner', 'admin'].includes(member.role)) return res.status(403).json({ error: 'Administrator review required' });
+      const schedule = (await listTenantSchedules(member.orgId)).find(item => item.id === req.body?.id);
+      if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+      if (!await releaseBlockedScheduleRun(schedule, Number(req.body?.scheduledFor), member.uid, String(req.body?.reason || ''))) {
+        return res.status(409).json({ error: 'Current blocked occurrence and review reason are required' });
+      }
+      return res.status(200).json({ status: 'reviewed', scheduledFor: schedule.nextRunAt });
+    }
     if (action === 'run') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
       const id = String(req.body?.id || '');

@@ -1,8 +1,15 @@
 import React from 'react';
 
 /** A failed connection check is not evidence that an account has no mailboxes. */
-export function ServiceStatusNotices({ status }: { status?: { mailboxStatus?: string; upgradeRequired?: boolean } }) {
+export function ServiceStatusNotices({ status }: { status?: { mailboxStatus?: string; upgradeRequired?: boolean; lastRun?: { status?: string; error?: string; retryAfter?: number } } }) {
   return <>
+    {status?.lastRun?.status === 'blocked' && <p role="status" className="mt-2 text-xs font-bold text-amber-700">
+      Outbound operation held for reconciliation. No new call will be placed. {status.lastRun.error}
+    </p>}
+    {!!status?.lastRun?.retryAfter && status.lastRun.status === 'recoverable' && <p role="status" className="mt-2 text-xs font-bold text-amber-700">
+      Provider unavailable. The same occurrence will be checked again after {new Date(status.lastRun.retryAfter).toLocaleString()}. {status.lastRun.error}
+    </p>}
+
     {status?.mailboxStatus === 'unavailable' && <p role="status" className="mt-2 text-xs font-bold text-amber-700">
       Mailbox status is unavailable. Check the Communications connection before relying on this status report.
     </p>}
