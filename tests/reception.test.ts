@@ -404,6 +404,7 @@ test("availability is freshly fetched and stale or missing provider results cann
   });
   const input: any = {
     org: "tenant",
+    line: config().lines[0],
     session: {},
     project: {
       ...project(),

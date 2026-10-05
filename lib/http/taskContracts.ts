@@ -47,9 +47,9 @@ export const taskContracts = {
     "Real email only when tenant policy and project email switch allow it",
   ),
   send_sms: contract(
-    { to: s, body: s, from: s },
+    { to: s, body: s, from: s, target_source:{type:"string",enum:["event_person"]}, contact_policy:{type:"object",properties:{onRestriction:{type:"string",enum:["branch","review"]}}} },
     ["body"],
-    ["communication_id"],
+    ["communication_id", "provider_called", "contact_policy.status", "contact_policy.nextEligibleAt"],
     "Real SMS; destination/sender can fall back to configured project/tenant values",
   ),
   outgoing_call: contract(

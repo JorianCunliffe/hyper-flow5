@@ -238,7 +238,9 @@ export interface AgentInboxJob {
   threadId?: string;
   personId?: string;
   trustedProjectId?: string;
-  status: 'pending' | 'processing' | 'completed' | 'needs_review' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'needs_review' | 'failed' | 'deferred';
+  nextEligibleAt?: number;
+  policyDecision?: import('./lib/cockpit/businessHours').PolicyDecision;
   attemptCount: number;
   createdAt: number;
   updatedAt: number;

@@ -1,3 +1,4 @@
+import {contactPolicySchema} from '../cockpit/contactPolicySchema.js';
 import { receptionConfigSchema, receptionProjectSchema } from "../reception/schema.js";
 import { requestScope } from "../tenantControl/clients.js";
 import { taskContracts } from "./taskContracts.js";
@@ -76,7 +77,7 @@ export const domainOperations: Record<string, string[]> = {
     "draft_flow",
   ],
   "/api/files": ["start", "chunk", "reconcile", "delete"],
-  "/api/cockpit": ["configure", "template", "schedule", "question"],
+  "/api/cockpit": ["configure", "template", "schedule", "question", "contact_policy_preview", "contact_policy_apply"],
   "/api/captured-work-items": ["capture", "resolve", "dismiss"],
   "/api/configuration": ["validate", "plan", "apply"],
 };
@@ -138,6 +139,7 @@ const changeSchema = {
 };
 export function buildOpenApi() {
   const schemas: any = {
+    ContactPolicy:contactPolicySchema,
     ReceptionConfiguration: receptionConfigSchema,
     ReceptionProject: receptionProjectSchema,
     ...Object.fromEntries(

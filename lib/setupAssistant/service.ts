@@ -14,7 +14,7 @@ type Member = { orgId: string; uid: string; role: string; apiClientId?: string }
 export const setupDependencies = { store: sessionStore, conversation: setupConversation, enabled: setupEnabled, now: Date.now };
 const projection = (s: SetupSession) => redact(s);
 const scopeId = (id: any) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
-const commands = ['turn', 'prepare', 'expand_scope', 'apply', 'simulate', 'review_live', 'approve_live', 'review_activation', 'approve_activation', 'inspect'];
+const commands = ['expand_contact_policy', 'turn', 'prepare', 'expand_scope', 'apply', 'simulate', 'review_live', 'approve_live', 'review_activation', 'approve_activation', 'inspect'];
 
 async function bindingIssues(session: SetupSession, project: any, current: any, api: SetupApi) {
   const integrations = await api('GET', '/api/integrations');
@@ -66,6 +66,7 @@ export async function prepareProposal(session: SetupSession, draft: NonNullable<
     resourcesBefore = session.scope.kind === 'new' ? [] : (await api('GET', '/api/workspace/resources', undefined, { projectId: session.scope.projectId })).resources;
   }
   if(extras.reception){const r=await api('GET','/api/reception');const config={...r.config,projects:[...r.config.projects.filter((p:any)=>p.projectId!==session.scope.projectId),extras.reception]};const review=await api('POST','/api/reception',{operation:'prepare',expectedRevision:r.config.revision,config});extras.reception={...extras.reception,review:{config:review.config,expectedRevision:r.config.revision,reviewHash:review.reviewHash,checks:review.checks}};}
+  if(extras.contactPolicy){const r=await api('GET','/api/cockpit',undefined,{operation:'contact_policy'});const policy={...(extras.contactPolicy.policy||extras.contactPolicy),revision:r.policy.revision};extras.contactPolicy=await api('POST','/api/cockpit',{operation:'contact_policy_preview',policy,expectedRevision:r.policy.revision});}
   // Stable schedule IDs bind all retries to this proposal, never Date.now().
   extras.schedules = (extras.schedules || []).map((s: any, i: number) => ({ ...s, id: s.id || `setup_schedule_${hash({ session: session.id, s, i }).slice(0, 24)}`, enabled: false }));
   const allSchedules = (scheduleList.data || []).filter((s: any) => s.projectId === session.scope.projectId);
@@ -173,7 +174,11 @@ export async function handleSetup(req: { method?: string; query?: any; body?: an
     catch (e) { session.proposal!.operations[key] = { status: uncertain ? 'unknown' : 'failed', error: safeError(e) }; await persist(); throw e; }
   };
   try {
-    if (operation === 'expand_scope') {
+    if(operation==='expand_contact_policy'){
+      if(!['owner','admin'].includes(member.role)) fail(403,'Only administrators may configure workspace contact policy.');
+      session.scope.workspaceContactPolicy=true;delete session.proposal;delete session.liveReview;delete session.activationReview;
+      session.messages.push({role:'assistant',text:'Workspace contact policy is now included. Changes require a new review before saving.'});
+    } else if (operation === 'expand_scope') {
       if (session.scope.kind !== 'element' || body.projectId !== session.scope.projectId) fail(422, 'Scope expansion can only cover the current workflow.');
       session.scope = { kind: 'workflow', projectId: session.scope.projectId }; delete session.proposal; delete session.liveReview; delete session.activationReview;
       session.messages.push({ role: 'assistant', text: 'The session now covers this entire workflow. I will prepare a new review before saving.' });
@@ -234,6 +239,7 @@ export async function handleSetup(req: { method?: string; query?: any; body?: an
         await step('resources', () => api('PATCH', '/api/workspace/resources', { projectId: session.scope.projectId, resources: p.extras.resources }));
       }
       for (const schedule of p.extras.schedules || []) await step(`schedule_${schedule.id}`, () => api('POST', '/api/schedules', { ...schedule, enabled: false }));
+      if(p.extras.contactPolicy){if(!session.scope.workspaceContactPolicy||!['owner','admin'].includes(member.role))fail(403,'Workspace policy requires administrator scope.');await step('contact_policy',()=>api('POST','/api/cockpit',{operation:'contact_policy_apply',...p.extras.contactPolicy}));}
       if(p.extras.reception){if(!['owner','admin'].includes(member.role))fail(403,'Reception authority requires administrator approval.');const r=p.extras.reception.review;await step('reception',()=>api('POST','/api/reception',{operation:'apply',...r,requestId:`setup_reception_${p.id}`}));}
       session.proposal!.applied = true;
       session.messages.push({ role: 'assistant', text: 'Configuration saved. Schedules remain paused. Simulation, live testing and activation are separate steps.' });

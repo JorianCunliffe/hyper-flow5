@@ -56,3 +56,11 @@ test('event-person targeting cannot invent an inbound run on manual execution', 
   await assert.rejects(f.execute('send_sms', '{"target_source":"event_person"}', {}, context), /Event sender targeting/);
   assert.equal(f.sends.length, 0);
 });
+
+test('policy restriction is branchable with zero provider calls and never reported as SMS success',async()=>{
+  let calls=0;const claim={allowed:false,status:'deferred',reason:'Waiting until opening time',revision:1,source:'workspace',localTime:'19:00',reactive:false,afterHours:true,nextEligibleAt:12345};
+  const execute=createServerActionExecutor({readTenantCommunicationsSettings:async()=>({}),readTenantAgentProfile:async()=>({automaticActions:['sms']}),readTenantCapabilityPolicy:async()=>({'sms.send':'automatic'}),claimContactDispatch:async()=>claim,executeTask:async()=>{calls++;return {};}} as any);
+  const result=await execute('send_sms',JSON.stringify({to:'+61400000000',body:'Hello',contact_policy:{onRestriction:'branch'}}),{},context);
+  assert.equal(result.status,'success');assert.equal(result.output.provider_called,false);assert.equal(result.output.successful,false);assert.equal(result.output.contact_policy.nextEligibleAt,12345);assert.equal(calls,0);
+  const held=await execute('send_sms','{"to":"+61400000000","body":"Hello"}',{},context);assert.equal(held.providerCode,'CONTACT_POLICY_HOLD');assert.equal(held.recoveryRequired,true);assert.equal(calls,0);
+});

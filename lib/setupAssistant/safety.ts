@@ -28,7 +28,7 @@ export function scopedChanges(scope: SetupScope, changes: Change[]) {
   }
 }
 export function scopedExtras(scope: SetupScope, extras: any = {}) {
-  if (!extras || Object.keys(extras).some(k => !['resources', 'schedules', 'reception'].includes(k))) fail(422, 'Unsupported setup operation.');
+  if (!extras || Object.keys(extras).some(k => !['resources', 'schedules', 'reception', 'contactPolicy'].includes(k))) fail(422, 'Unsupported setup operation.');
   if (scope.kind === 'element' && ((extras.resources?.length || 0) + (extras.schedules?.length || 0))) fail(403, 'Expand to workflow scope before changing resources or schedules.');
   if(extras.reception && (scope.kind==='element'||extras.reception.projectId!==scope.projectId))fail(403,'Reception edits require workflow scope and the selected project.');
   if (extras.resources !== undefined && (!Array.isArray(extras.resources) || extras.resources.length > 25)) fail(422, 'At most 25 named resources.');
@@ -41,6 +41,7 @@ export function scopedExtras(scope: SetupScope, extras: any = {}) {
     try { new Intl.DateTimeFormat('en-AU', { timeZone: s.timezone }).format(); } catch { fail(422, 'Select a valid schedule timezone.'); }
     if (Object.keys(s.input || {}).some(k => /^(flow_|schedule_|communications_)|policy|grant|allowed|budget|permission|authority|enabled/i.test(k))) fail(422, 'Schedule inputs cannot override runtime or authority fields.');
   }
+  if(extras.contactPolicy&&!scope.workspaceContactPolicy)fail(403,'Explicitly expand scope to workspace contact policy first.');
   noSecrets(extras);
 }
 export const reviewFingerprint = (value: any) => hash(value);

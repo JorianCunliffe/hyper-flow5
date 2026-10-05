@@ -1,3 +1,4 @@
+import {businessHoursSchema,replyModeSchema} from '../cockpit/contactPolicySchema.js';
 // Shared, discoverable configuration contract. Runtime validation remains authoritative.
 const string = { type: "string" };
 const strings = { type: "array", items: string };
@@ -15,6 +16,7 @@ export const receptionProjectSchema = {
   ],
   properties: {
     projectId: string,
+    hours:businessHoursSchema,afterHoursMode:replyModeSchema,afterHoursActions:{type:"array",items:{type:"string",enum:["availability","booking","resume_ask"]}},
     enabled,
     label: { ...string, maxLength: 100 },
     aliases: strings,
@@ -118,19 +120,8 @@ export const receptionConfigSchema = {
           timezone: { ...string, default: "Australia/Brisbane" },
           projectIds: strings,
           inboxOwner: string,
-          hours: {
-            type: "object",
-            required: ["days", "start", "end"],
-            properties: {
-              days: {
-                type: "array",
-                items: { type: "integer", minimum: 0, maximum: 6 },
-                minItems: 1,
-              },
-              start: string,
-              end: string,
-            },
-          },
+          hours:businessHoursSchema,
+          afterHoursMode:replyModeSchema,
         },
       },
     },

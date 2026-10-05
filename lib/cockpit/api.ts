@@ -1,3 +1,4 @@
+import {handleContactPolicy} from './contactPolicyApi.js';
 import {
   listTenantProjects,
   readTenantAgentProfile,
@@ -19,12 +20,13 @@ import {
 } from "./model.js";
 export async function handleCockpit(
   request: { method?: string; query?: Record<string, any>; body?: any },
-  member: { orgId: string; uid: string },
+  member: { orgId: string; uid: string; apiClientId?:string },
 ) {
   const projects = await listTenantProjects(member.orgId);
   const allowed = projects.map((p) => p.id);
   const body = request.body || {};
   const query = request.query || {};
+  if(query.operation==='contact_policy'||['contact_policy_preview','contact_policy_apply'].includes(body.operation))return handleContactPolicy(request,member);
   const projectId = request.method === "GET" ? query.projectId : body.projectId;
   if (projectId && !allowed.includes(projectId))
     throw new FlowError(403, "Project is outside your permitted scope");

@@ -69,6 +69,9 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
   if (capability) assertCapabilityAllowed({ profile, capability, autonomous });
 
   let safeTemplate = templateFile;
+  let sourceCommunicationId:string|undefined;
+  let replyFrom:string|undefined;
+  let policyDecision:Awaited<ReturnType<typeof claimContactDispatch>>|undefined;
   const channel = communicationChannel(taskType);
   const parsed = jsonTemplate(templateFile);
   // Configured people need the same grant lookup for manual and scheduled runs.
@@ -83,6 +86,9 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
       const run = await dependencies.readFlowRun(ctx.orgId, ctx.projectId, ctx.flowRunId);
       if (!run || run.trigger !== 'event' || run.triggerId !== run.state.projectData.flow_trigger_event_id) throw new Error('A verified inbound FlowRun is required');
       personId = String(run.state.projectData.flow_trigger_person_id || '');
+      sourceCommunicationId=String(run.state.projectData.flow_trigger_communication_id||'')||undefined;
+      if(!sourceCommunicationId) throw new Error('The inbound run has no source communication.');
+      replyFrom=tenantCommunications?.fromNumber||profile?.serviceIdentities?.sms;
     }
     const target = await dependencies.resolveGrantedPersonTarget({
       orgId: ctx.orgId,
@@ -95,13 +101,26 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
       operationId: ctx.runId,
       target,
       channel,
-      coalesce: false
+      coalesce: false, sourceCommunicationId, from:replyFrom,projectId:ctx.projectId
     });
+    policyDecision=claim;
     // The durable operation owns an existing budget reservation during recovery.
-    if (!claim.allowed && claim.existingOperationId !== ctx.runId) throw new Error(claim.reason || 'Tenant contact policy refused the autonomous communication');
-    safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target });
+    if (!claim.allowed && claim.existingOperationId !== ctx.runId) return {
+      status:parsed.contact_policy?.onRestriction==='branch'?'success':'error',
+      recoveryRequired:parsed.contact_policy?.onRestriction!=='branch',providerCode:'CONTACT_POLICY_HOLD',
+      error:claim.reason,output:{provider_called:false,successful:false,provider_status:'not_called',contact_policy:claim},logs:[claim.reason]
+    };
+    const acknowledgement = claim.reason === 'After-hours acknowledgement only.';
+    safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target, ...(sourceCommunicationId?{from:replyFrom}:{}), ...(channel==='sms' && (claim.notice || acknowledgement)?{body:[claim.notice, acknowledgement?'Your message has been received for review during business hours.':String(parsed.body||'')].filter(Boolean).join(' ')}: {}) });
   }
 
+  if(channel && channel!=='email' && !policyDecision && ctx.orgId && parsed) {
+    const target=typeof parsed.to==='string'?parsed.to:'';
+    if(!/^\+[1-9]\d{7,14}$/.test(target)) throw new Error('A verified destination is required for contact policy.');
+    const claim=await dependencies.claimContactDispatch(ctx.orgId,{operationId:ctx.runId,target,channel,coalesce:false,projectId:ctx.projectId});
+    policyDecision=claim;
+    if(!claim.allowed&&claim.existingOperationId!==ctx.runId)return {status:parsed.contact_policy?.onRestriction==='branch'?'success':'error',recoveryRequired:parsed.contact_policy?.onRestriction!=='branch',providerCode:'CONTACT_POLICY_HOLD',error:claim.reason,output:{provider_called:false,successful:false,provider_status:'not_called',contact_policy:claim}};
+  }
   const resourceName = resourceNameFromTemplate(safeTemplate);
   const result = await withActionExecutionScope({ resourceName }, () => dependencies.executeTask(taskType, safeTemplate, projectData, {
     webhookBaseUrl: process.env.PUBLIC_BASE_URL,
@@ -117,7 +136,7 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
     return { status: 'error', providerCode: body.code, error: body.error || `Action failed (HTTP ${result.httpStatus})`, logs: body.logs };
   }
   return {
-    status: body.pending ? 'pending' : 'success', output: body.output, logs: body.logs,
+    status: body.pending ? 'pending' : 'success', output: policyDecision?{...body.output,provider_called:true,contact_policy:policyDecision}:body.output, logs: body.logs,
     externalId: body.externalId, externalExecutionId: body.externalExecutionId,
     externalService: body.externalService, startedAt: body.startedAt
   };

@@ -1647,10 +1647,46 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ContactPolicy: {
+            revision: number;
+            /** @description IANA timezone */
+            timezone: string;
+            outbound: {
+                days: number[];
+                /** @description HH:mm local time */
+                start: string;
+                /** @description HH:mm, including 24:00; earlier than start means overnight */
+                end: string;
+                closures?: string[];
+            };
+            replies: {
+                /** @enum {string} */
+                mode: "reply" | "acknowledge" | "queue";
+                /** @default 24 */
+                windowHours: number;
+                /** @default 24 */
+                expiryHours: number;
+                /** @default 200 */
+                maxPerDay: number;
+                /** @default 20 */
+                maxPerContact: number;
+            };
+        };
         ReceptionConfiguration: {
             revision?: number;
             projects: {
                 projectId: string;
+                hours?: {
+                    days: number[];
+                    /** @description HH:mm local time */
+                    start: string;
+                    /** @description HH:mm, including 24:00; earlier than start means overnight */
+                    end: string;
+                    closures?: string[];
+                };
+                /** @enum {string} */
+                afterHoursMode?: "reply" | "acknowledge" | "queue";
+                afterHoursActions?: ("availability" | "booking" | "resume_ask")[];
                 enabled: boolean;
                 label: string;
                 aliases?: string[];
@@ -1696,13 +1732,29 @@ export interface components {
                 inboxOwner: string;
                 hours?: {
                     days: number[];
+                    /** @description HH:mm local time */
                     start: string;
+                    /** @description HH:mm, including 24:00; earlier than start means overnight */
                     end: string;
+                    closures?: string[];
                 };
+                /** @enum {string} */
+                afterHoursMode?: "reply" | "acknowledge" | "queue";
             }[];
         };
         ReceptionProject: {
             projectId: string;
+            hours?: {
+                days: number[];
+                /** @description HH:mm local time */
+                start: string;
+                /** @description HH:mm, including 24:00; earlier than start means overnight */
+                end: string;
+                closures?: string[];
+            };
+            /** @enum {string} */
+            afterHoursMode?: "reply" | "acknowledge" | "queue";
+            afterHoursActions?: ("availability" | "booking" | "resume_ask")[];
             enabled: boolean;
             label: string;
             aliases?: string[];
@@ -1748,6 +1800,12 @@ export interface components {
             to?: string;
             body: string;
             from?: string;
+            /** @enum {string} */
+            target_source?: "event_person";
+            contact_policy?: {
+                /** @enum {string} */
+                onRestriction?: "branch" | "review";
+            };
         } & {
             [key: string]: unknown;
         };
@@ -5719,6 +5777,104 @@ export interface operations {
                 }) | ({
                     /** @constant */
                     operation: "question";
+                    id?: string;
+                    projectId?: string;
+                    nodeId?: string;
+                    runId?: string;
+                    askId?: string;
+                    version?: number;
+                    expectedRevision?: number;
+                    revision?: number;
+                    hash?: string;
+                    runKey?: string;
+                    prompt?: string;
+                    plan?: {
+                        [key: string]: unknown;
+                    };
+                    note?: string;
+                    communicationId?: string;
+                    templateId?: string;
+                    templateVersion?: number;
+                    calendarKey?: string;
+                    connectionId?: string;
+                    eventId?: string;
+                    proposalId?: string;
+                    change?: {
+                        [key: string]: unknown;
+                    };
+                    policy?: {
+                        [key: string]: unknown;
+                    };
+                    inputHash?: string;
+                    template?: {
+                        [key: string]: unknown;
+                    };
+                    content?: {
+                        [key: string]: unknown;
+                    };
+                    target?: {
+                        [key: string]: unknown;
+                    };
+                    contentHash?: string;
+                    publicUseChecked?: boolean;
+                    name?: string;
+                    kind?: string;
+                    sourceNotes?: unknown;
+                    windowDays?: number;
+                } & {
+                    [key: string]: unknown;
+                }) | ({
+                    /** @constant */
+                    operation: "contact_policy_preview";
+                    id?: string;
+                    projectId?: string;
+                    nodeId?: string;
+                    runId?: string;
+                    askId?: string;
+                    version?: number;
+                    expectedRevision?: number;
+                    revision?: number;
+                    hash?: string;
+                    runKey?: string;
+                    prompt?: string;
+                    plan?: {
+                        [key: string]: unknown;
+                    };
+                    note?: string;
+                    communicationId?: string;
+                    templateId?: string;
+                    templateVersion?: number;
+                    calendarKey?: string;
+                    connectionId?: string;
+                    eventId?: string;
+                    proposalId?: string;
+                    change?: {
+                        [key: string]: unknown;
+                    };
+                    policy?: {
+                        [key: string]: unknown;
+                    };
+                    inputHash?: string;
+                    template?: {
+                        [key: string]: unknown;
+                    };
+                    content?: {
+                        [key: string]: unknown;
+                    };
+                    target?: {
+                        [key: string]: unknown;
+                    };
+                    contentHash?: string;
+                    publicUseChecked?: boolean;
+                    name?: string;
+                    kind?: string;
+                    sourceNotes?: unknown;
+                    windowDays?: number;
+                } & {
+                    [key: string]: unknown;
+                }) | ({
+                    /** @constant */
+                    operation: "contact_policy_apply";
                     id?: string;
                     projectId?: string;
                     nodeId?: string;

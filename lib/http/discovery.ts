@@ -1,3 +1,4 @@
+import {contactPolicySchema} from '../cockpit/contactPolicySchema.js';
 import { receptionConfigSchema, receptionProjectSchema } from "../reception/schema.js";
 import { taskContracts } from "./taskContracts.js";
 import { buildOpenApi, domainOperations } from "./openapi.js";
@@ -13,6 +14,7 @@ export function discoveryResponse(format?: unknown) {
     version: "1.0.0",
     openapi: "/api/openapi.json",
     schemas: configurationSchemas,
+    contactPolicy:{endpoint:'/api/cockpit',read:'GET ?operation=contact_policy',preview:'contact_policy_preview',apply:'contact_policy_apply',flag:'CONTACT_POLICY_V2_ENABLED',schema:contactPolicySchema,authority:'Administrator review; expectedRevision and planHash required. No replay or reception activation.',primitives:['SMS','phone','Condition','Wait','Human Ask'],documentation:'docs/CONTACT_POLICY.md'},
     meetings: {endpoint:'/api/meetings',notes:'Review topics and project assignments before import',audio:{upload:'/api/files',start:{operation:'audio_start',fileId:'owned private managed file ID'},status:'/api/meetings?audio=1&fileId=<id>',resume:'/api/meetings?audio=1&after=<cursor>',maxBytes:26214400,reviewRequired:true,storageFlag:'HYPERFLOW_MANAGED_FILES',provider:'Communications recording queue'}},
     reception: { configuration:'/api/reception', voiceCommands:'/api/agent/reception', sms:{enabledBy:'lines[].smsEnabled', ingress:'signed communication.received events', confirmations:'Exact CONFIRM code from reviewed booking; uncertain effects held for reconciliation', staffAsks:'Existing bound Ask responses; no public SMS staff verification escalation'}, flag:'PROJECT_RECEPTION_ENABLED', schema:receptionConfigSchema, projectSchema:receptionProjectSchema, actions:['availability','booking','resume_ask'], authority:'Human administrator review/apply and separate activation; signed server voice commands only', documentation:'docs/PROJECT_RECEPTION.md' },
     nodeTypes: Object.values(NodeType),

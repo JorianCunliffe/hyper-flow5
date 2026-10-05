@@ -130,7 +130,7 @@ export const durableActionExecutor = (
         return saved.providerRequests![index];
       }
     }, () => execute(request.taskType, request.template, request.data, request.context));
-    if (outcome.status === 'error') {
+    if (outcome.status === 'error' && !(outcome.providerCode==='CONTACT_POLICY_HOLD'&&outcome.output?.provider_called===false)) {
       // Network/HTTP errors cannot prove that the provider did not perform the effect.
       throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain', outcome.providerCode
         || (taskType === 'outgoing_call' ? 'IDEMPOTENCY_RECONCILIATION_REQUIRED' : undefined));

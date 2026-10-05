@@ -245,3 +245,5 @@ A ready Vercel deployment is build evidence. Check runtime scheduler results sep
 Administrators can configure number-to-project reception directories with separate save and activation reviews. See [reception configuration and voice contracts](docs/PROJECT_RECEPTION.md). The `PROJECT_RECEPTION_ENABLED` flag defaults to false.
 
 Inbound SMS reception is opt-in per number (`smsEnabled`) and shares public services, scoped history and enquiry intake with voice. See [SMS reception and confirmation rules](docs/PROJECT_RECEPTION.md#inbound-sms).
+
+Contact and business-hours configuration, reviewed API operations and existing primitive setup patterns are documented in [Contact policy](docs/CONTACT_POLICY.md). Rollout defaults off (`CONTACT_POLICY_V2_ENABLED`).

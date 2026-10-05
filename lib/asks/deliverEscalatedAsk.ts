@@ -34,7 +34,7 @@ export const deliverEscalatedAsk = async (project: Project, orgId: string, ask: 
     assertCapabilityAllowed({ profile, capability: channel === 'voice' ? 'phone.call' : 'sms.send', autonomous: true });
     const recipient = await dependencies.resolveGrantedPersonTarget({ orgId, projectId: project.id, personId, channel, profile });
     const claim = await dependencies.claimContactDispatch(orgId, { operationId: runId, target: recipient, channel, coalesce: false });
-    if (!claim.allowed && claim.existingOperationId !== runId) throw new Error(claim.reason || 'Contact policy refused this attempt');
+    if (!claim.allowed && claim.existingOperationId !== runId) return {...ask,escalationState:{...state,nextAt:claim.nextEligibleAt||(claim.status==='blocked'?now+86400000:now+300_000),error:claim.reason}};
     const settings = await dependencies.readTenantCommunicationsSettings(orgId);
     const input = { ask: channel === 'sms' ? { ...ask, prompt: `${project.name}: please call back to continue the workflow. Your answers are still needed.` } : ask,
       orgId, projectId: project.id, personId, recipient, channel, deliveryAskId, deliveryToken,

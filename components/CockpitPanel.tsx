@@ -1,3 +1,4 @@
+import { ContactPolicyEditor } from './ContactPolicyEditor';
 import { ViewOptions } from './ViewOptions';
 import React, { useEffect, useState } from "react";
 import type { OperatingSnapshot, CockpitView } from "../lib/cockpit/model";
@@ -270,6 +271,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
       {data && (
         <details className="rounded-lg border p-4">
           <summary>CEO channel access and receptionist settings</summary>
+          <ContactPolicyEditor />
           <form
             key={data.asOf}
             className="mt-3 space-y-3"
@@ -284,8 +286,8 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
                   form.get("receptionistProjectId") || "",
                 ),
                 contactWindow: {
-                  startHour: Number(form.get("startHour")),
-                  endHour: Number(form.get("endHour")),
+                  startHour: data.configuration.contactWindow.startHour,
+                  endHour: data.configuration.contactWindow.endHour,
                   maxPerDay: Number(form.get("maxPerDay")),
                   maxPerContact: Number(form.get("maxPerContact")),
                 },
@@ -345,7 +347,7 @@ export const CockpitPanel: React.FC<{ projectId: string | null }> = ({ projectId
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               {(
-                ["startHour", "endHour", "maxPerDay", "maxPerContact"] as const
+                ["maxPerDay", "maxPerContact"] as const
               ).map((key) => (
                 <label key={key}>
                   {

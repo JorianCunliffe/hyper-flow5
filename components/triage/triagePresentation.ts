@@ -3,7 +3,7 @@ import type { AgentInboxJob, TriageItem } from '../../types';
 export type TriageResponseTone = 'emerald' | 'indigo' | 'red' | 'amber' | 'slate';
 
 export interface TriageResponsePresentation {
-  kind: 'response_created' | 'draft_prepared' | 'draft_failed' | 'delivery_failed' | 'agent_failed' | 'needs_review' | 'excluded' | 'none';
+  kind: 'deferred' | 'response_created' | 'draft_prepared' | 'draft_failed' | 'delivery_failed' | 'agent_failed' | 'needs_review' | 'excluded' | 'none';
   label: string;
   detail: string;
   tone: TriageResponseTone;
@@ -13,6 +13,7 @@ const hasAuditAction = (item: TriageItem, action: string) =>
   item.audit?.some(entry => entry.action === action) === true;
 
 export const triageResponsePresentation = (item: TriageItem, job?: AgentInboxJob): TriageResponsePresentation => {
+  if(job?.status==='deferred')return {kind:'deferred',label:'Waiting until opening time',tone:'amber',detail:job.error||'Saved for a scheduled reply. No provider failure.'};
   if (job?.responseCommunicationId) return {
     kind: 'response_created', label: 'Response created', tone: 'emerald',
     detail: 'A response communication is linked to this email.'

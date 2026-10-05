@@ -1,3 +1,4 @@
+import { validateHours, hoursOpen, type BusinessHours, type ReplyMode } from '../cockpit/businessHours.js';
 import { createHash } from "node:crypto";
 import { TenantControlError } from "../tenantControl/model.js";
 export const fail = (status: number, message: string): never => {
@@ -9,6 +10,9 @@ export const text = (v: unknown, max = 500) =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 export type ReceptionAction = "availability" | "booking" | "resume_ask";
 export interface ReceptionProject {
+  hours?: BusinessHours;
+  afterHoursMode?: ReplyMode;
+  afterHoursActions?: ReceptionAction[];
   projectId: string;
   enabled: boolean;
   label: string;
@@ -46,7 +50,8 @@ export interface ReceptionLine {
   timezone: string;
   projectIds: string[];
   inboxOwner: string;
-  hours?: { days: number[]; start: string; end: string };
+  hours?: BusinessHours;
+  afterHoursMode?: ReplyMode;
 }
 export interface ReceptionConfig {
   revision: number;
@@ -104,6 +109,7 @@ export interface ReceptionSession {
     }
   >;
   proposal?: {
+    contactPolicyRevision?: number;
     id: string;
     hash: string;
     kind: "booking" | "ask";
@@ -199,6 +205,15 @@ export function validateConfig(
       intakeOwner: p.intakeOwner,
       actions,
     };
+    if(p.hours) value.hours=validateHours(p.hours);
+    if(p.afterHoursMode !== undefined) {
+      if(!['reply','acknowledge','queue'].includes(p.afterHoursMode)) fail(422,'Choose a valid project response mode.');
+      value.afterHoursMode=p.afterHoursMode;
+    }
+    if(p.afterHoursActions !== undefined) {
+      if(!Array.isArray(p.afterHoursActions)||p.afterHoursActions.some((a:any)=>!actions.includes(a))) fail(422,'After-hours actions must already be authorized.');
+      value.afterHoursActions=[...new Set<ReceptionAction>(p.afterHoursActions)];
+    }
     if (p.availabilityConnection)
       value.availabilityConnection = text(p.availabilityConnection, 100);
     if (actions.includes("availability") && !value.availabilityConnection)
@@ -280,20 +295,10 @@ export function validateConfig(
       projectIds: [...new Set<string>(l.projectIds)],
       inboxOwner: l.inboxOwner,
     };
-    if (l.hours) {
-      const h = l.hours;
-      if (
-        !Array.isArray(h.days) ||
-        !h.days.length ||
-        h.days.some((d: any) => !Number.isInteger(d) || d < 0 || d > 6) ||
-        ![h.start, h.end].every((v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v)) ||
-        h.start >= h.end
-      )
-        fail(
-          422,
-          "Opening hours require weekdays and a same-day start/end time.",
-        );
-      value.hours = { days: h.days, start: h.start, end: h.end };
+    if(l.hours) value.hours=validateHours(l.hours);
+    if(l.afterHoursMode !== undefined) {
+      if(!['reply','acknowledge','queue'].includes(l.afterHoursMode)) fail(422,'Choose a valid after-hours response mode.');
+      value.afterHoursMode=l.afterHoursMode;
     }
     return value;
   });
@@ -358,21 +363,8 @@ export function routeReception(
     candidates,
   };
 }
-export function isOpen(line: ReceptionLine, now = Date.now()) {
-  if (!line.hours) return true;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: line.timezone,
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(now);
-  const get = (key: string) => parts.find((p) => p.type === key)?.value || "";
-  return (
-    line.hours.days.includes(
-      ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday")),
-    ) &&
-    `${get("hour")}:${get("minute")}` >= line.hours.start &&
-    `${get("hour")}:${get("minute")}` < line.hours.end
-  );
+export function isOpen(line:ReceptionLine,now=Date.now()) {return hoursOpen(line.hours,line.timezone,now);}
+export function allowedReceptionActions(line:ReceptionLine,project:ReceptionProject|undefined,now:number):ReceptionAction[] {
+  if(!project) return [];
+  return isOpen(line,now)&&hoursOpen(project.hours,line.timezone,now)?project.actions:project.actions.filter(a=>project.afterHoursActions?.includes(a));
 }

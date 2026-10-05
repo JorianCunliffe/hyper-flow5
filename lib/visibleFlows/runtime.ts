@@ -39,7 +39,7 @@ export const executeVisibleStep = async (
     >;
     profile?: typeof readTenantAgentProfile;
     executor?: typeof serverExecutor;
-    contactClaim?: typeof claimContactDispatch;
+    contactClaim?: (...args:Parameters<typeof claimContactDispatch>)=>Promise<{allowed:boolean;reason:string}>;
   } = {},
 ): Promise<ActionOutcome> => {
   // Recheck resource/tenant authority on every dispatch, never from model output.
@@ -262,7 +262,7 @@ export const executeVisibleStep = async (
       channel: step.action === "send_sms" ? "sms" : "voice",
       coalesce: step.inputs.followUp === "true",
     });
-    if (!claim.allowed) throw new FlowError(409, claim.reason);
+    if (!claim.allowed) return {status:"error",recoveryRequired:true,providerCode:"CONTACT_POLICY_HOLD",error:claim.reason,output:{provider_called:false,successful:false,provider_status:'not_called',contact_policy:claim}};
   }
   // Inputs that authorize recipients/actions are pinned literals. Prior output
   // is evidence for report generation only, never a template substitution source.

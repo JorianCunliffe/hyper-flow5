@@ -1,3 +1,4 @@
+import { ContactPolicyHold } from './cockpit/businessHours.js';
 import { finishReception } from './reception/service.js';
 import { recordAgentDraft } from './triage/agentDraft.js';
 import { conversationEvidence, conversationInstructions, continuityRules, type ConversationEvidence } from './conversationContinuity.js';
@@ -19,6 +20,7 @@ import { advanceEventServerFlow } from './serverFlow.js';
 import {
   claimAgentInboxJobs,
   claimContactDispatch,
+  acknowledgeContactNotice,
   finishAgentInboxJob,
   listCoachingSessions,
   listTenantProjects,
@@ -292,9 +294,23 @@ const deliverAgentReply = async (
   const to = phoneNumber(communication.sender);
   const from = settings.fromNumber || profile.serviceIdentities?.sms || profile.serviceIdentities?.phone;
   if (!to || !from) throw new Error('Inbound communication has no verified SMS reply route');
-  const claim=await claimContactDispatch(job.orgId,{operationId:`agent:${job.id}`,target:to,channel:'sms',coalesce:false});
-  if(!claim.allowed)throw new Error(claim.reason);
-  const result = await client.sendSms({ to, from, body: body.slice(0, 1_500), thread_id: communication.threadId || job.threadId, correlation, purpose: communication.purpose || { type: 'triage' } });
+  const dispatch={operationId:`agent:${job.id}`,target:to,channel:'sms',coalesce:false,sourceCommunicationId:communication.id,from,projectId};
+  const preview=await claimContactDispatch(job.orgId,{...dispatch,preview:true});
+  if(!preview.allowed)throw new ContactPolicyHold(preview);
+  const acknowledgement=preview.reason==='After-hours acknowledgement only.';
+  if(acknowledgement)dispatch.operationId+=':ack';
+  const claim=await claimContactDispatch(job.orgId,dispatch);
+  if(!claim.allowed)throw new ContactPolicyHold(claim);
+  if(claim.revision!==preview.revision)throw new ContactPolicyHold({...claim,status:"needs_review",allowed:false,reason:"Contact policy changed during preparation; review before sending."});
+  if(acknowledgement) body='Your message has been received. We will review it during business hours.';
+  if(claim.notice) body = `${claim.notice} ${body}`;
+  const result = await client.sendSms({ to, from, body: body.slice(0, 1_500), thread_id: communication.threadId || job.threadId, correlation:{...correlation,run_id:`op:${dispatch.operationId}`}, purpose: communication.purpose || { type: 'triage' } });
+  if(claim.notice)await acknowledgeContactNotice(job.orgId,claim.noticeKey,result.id);
+  if(acknowledgement){
+    const decision={...claim,status:claim.nextEligibleAt?'deferred' as const:'needs_review' as const,allowed:false,reason:claim.nextEligibleAt?'Acknowledgement sent; waiting until contact hours open.':'Acknowledgement sent; staff review required before expiry.'};
+    await finishAgentInboxJob(job,{status:decision.status,nextEligibleAt:decision.nextEligibleAt,policyDecision:decision,responseCommunicationId:result.id});
+    throw new ContactPolicyHold(decision);
+  }
   return { kind: 'sent', id: result.id };
 };
 
@@ -356,6 +372,7 @@ export const processAgentInboxJob = async (
       }
       const { processReceptionSms } = await import('./reception/sms.js');
       const reception = await processReceptionSms(job.orgId, communication, client);
+      if(reception.policyDecision && reception.status==='deferred') throw new ContactPolicyHold(reception.policyDecision);
       if (reception.handled) {
         await finishAgentInboxJob(job, { status: reception.status || 'needs_review',
           ...(reception.responseId ? { responseCommunicationId: reception.responseId } : {}),
@@ -554,6 +571,12 @@ export const processAgentInboxJob = async (
     );
   } catch (error: any) {
     const message = String(error?.message || error).slice(0, 1_000);
+    if(error instanceof ContactPolicyHold) {
+      const decision=error.decision;
+      await finishAgentInboxJob(job,{status:decision.status==='deferred'?'deferred':'needs_review',error:message,policyDecision:decision,nextEligibleAt:decision.nextEligibleAt});
+      await setTenantTriageDisposition(job.orgId,job.communicationId,'needs_review','agent-router',message);
+      return;
+    }
     const status = job.attemptCount >= 5 ? 'needs_review' : 'failed';
     await finishAgentInboxJob(job, { status, error: message });
     await setTenantTriageDisposition(job.orgId, job.communicationId, 'needs_review', 'agent-router', message).catch(() => null);

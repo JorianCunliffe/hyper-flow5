@@ -1,3 +1,4 @@
+import { applyContactPolicyRevision, normalizeContactPolicy, policyDefaults, evaluateContactPolicy, type ContactPolicy } from './cockpit/businessHours.js';
 import { encodeRtdbRecord, decodeRtdbRecord, encodeWorkspace, decodeWorkspace } from './rtdbJson.js';
 import { normalizeScheduleDays } from './scheduleDays.js';
 import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
@@ -113,18 +114,68 @@ export async function transactCalendarLedger(orgId:string,id:string,update:(curr
   }finally{reference.off('value',listener);}
 }
 
-export async function claimContactDispatch(orgId:string,input:{operationId:string;target:string;channel:string;coalesce:boolean},now=Date.now()) {
+export async function acknowledgeContactNotice(orgId:string,key:string|undefined,communicationId:string){
+  if(key) await getDb().ref(`contact_reply_notices/${safeRtdbKey(orgId)}/${key}`).set({communicationId,at:Date.now()});
+}
+export async function readContactPolicy(orgId:string):Promise<ContactPolicy|null> {
+  const snap=await getDb().ref(`contact_policies/${safeRtdbKey(orgId)}`).get();
+  return snap.exists()?normalizeContactPolicy(snap.val()):null;
+}
+export async function saveContactPolicy(orgId:string, raw:unknown, expectedRevision:number, requestId:string):Promise<ContactPolicy> {
+  const policy=normalizeContactPolicy(raw);
+  const ref=getDb().ref(`contact_policies/${safeRtdbKey(orgId)}`);
+  const listener=()=>{};
+  try {
+    await new Promise<void>((resolve,reject)=>{ref.on('value',listener,reject);ref.once('value',()=>resolve(),reject);});
+    const result=await ref.transaction(current=>applyContactPolicyRevision(current,policy,expectedRevision,requestId),undefined,false);
+    if(!result.committed) throw new Error('Contact policy was not saved.');
+    return normalizeContactPolicy(result.snapshot.val());
+  } finally {ref.off('value',listener);}
+}
+export async function claimContactDispatch(orgId:string,input:{operationId:string;target:string;channel:string;coalesce:boolean;sourceCommunicationId?:string;from?:string;projectId?:string;preview?:boolean},now=Date.now()) {
   const profile=await readTenantAgentProfile(orgId);if(!profile)throw new Error('Tenant contact policy is unavailable');
-  const policy=normalizeContactWindow(profile.contactWindow);
-  if(!contactWindowOpen(now,profile.timezone,policy))return{allowed:false,reason:'Outside the configured contact hours.'};
-  const day=new Intl.DateTimeFormat('en-CA',{timeZone:profile.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
-  const reference=getDb().ref(`contact_dispatch_days/${safeRtdbKey(orgId)}/${safeRtdbKey(day)}`);
+  const legacy=normalizeContactWindow(profile.contactWindow);
+  const saved=process.env.CONTACT_POLICY_V2_ENABLED==='true'?await readContactPolicy(orgId):null;
+  const policy=saved||policyDefaults(profile.timezone,legacy);
+  // Only server-fetched persisted evidence can authorize a reactive dispatch.
+  const source=input.sourceCommunicationId ? await (await import('./communications/client.js')).createCommunicationsClient().getCommunication(orgId,input.sourceCommunicationId):undefined;
+  const config=saved && input.from ? await (await import('./reception/store.js')).receptionStore.read<import('./reception/model.js').ReceptionConfig>(orgId,'config','current'):null;
+  const line=config?.lines.find(l=>l.identity===input.from && l.enabled && l.smsEnabled);
+  const project=line?.projectIds.includes(input.projectId||'') ? config?.projects.find(p=>p.projectId===input.projectId&&p.enabled):undefined;
+  const {restrictReplyMode}=await import('./cockpit/businessHours.js');
+  const decision=evaluateContactPolicy(policy,{orgId,target:input.target,from:input.from,channel:input.channel,source,now,mode:restrictReplyMode(line?.afterHoursMode,project?.afterHoursMode),businessHours:line?.hours,projectHours:project?.hours,businessTimezone:line?.timezone});
+  if(line) decision.source='workspace + receptionist'+(project?' + project':'');
+  if(decision.notice){
+    const date=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+    decision.noticeKey=safeRtdbKey(`${input.from}:${input.target}:${date}`);
+    if((await getDb().ref(`contact_reply_notices/${safeRtdbKey(orgId)}/${decision.noticeKey}`).get()).exists())delete decision.notice;
+  }
+  console.info('[contact-policy]',{operationId:input.operationId,status:decision.status,revision:decision.revision,source:decision.source,reactive:decision.reactive,nextEligibleAt:decision.nextEligibleAt});
+  if(input.preview) return {...decision,existingOperationId:undefined};
+  if(decision.reactive && source && now-Date.parse(source.occurredAt!)>60000) {
+    const recent=await (await import('./communications/client.js')).createCommunicationsClient().listCommunications(orgId,{personId:source.personId,channel:source.channel,limit:100});
+    if(recent.nextCursor && recent.data.every(m=>Date.parse(m.occurredAt||'')>Date.parse(source.occurredAt!))) return {...decision,status:'needs_review' as const,allowed:false,reason:'Recent conversation exceeds the reconciliation window; review before replying.',existingOperationId:undefined};
+    if(recent.data.some(m=>m.id!==source.id&&m.correlation?.run_id!==`op:${input.operationId}:ack`&&Date.parse(m.occurredAt||'')>Date.parse(source.occurredAt!)&&((m.direction==='inbound'&&m.sender===source.sender&&m.recipients?.includes(input.from!))||(m.direction==='outbound'&&m.sender===input.from&&m.recipients?.includes(input.target)))))
+      return {...decision,status:'needs_review' as const,allowed:false,reason:'A newer message or reply supersedes this response; review the conversation.',existingOperationId:undefined};
+  }
+  if(!decision.allowed) return {...decision,existingOperationId:undefined};
+  const operationRef=getDb().ref(`contact_dispatch_operations/${safeRtdbKey(orgId)}/${safeRtdbKey(input.operationId)}`);
+  const previousOperation=(await operationRef.get()).val();
+  if(previousOperation) return {...decision,status:'needs_review' as const,allowed:false,reason:'Contact operation already reserved; reconcile its owning receipt.',existingOperationId:input.operationId};
+  const budget=decision.reactive && saved ? {...legacy,maxPerDay:policy.replies.maxPerDay,maxPerContact:policy.replies.maxPerContact}:legacy;
+  const day=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
+  const bucket=decision.reactive && saved?'reactive':'proactive';
+  const reference=getDb().ref(`contact_dispatch_days/${safeRtdbKey(orgId)}/${safeRtdbKey(day+(bucket==='reactive'?':reactive':''))}`);
   let listener=()=>{};let outcome:ReturnType<typeof claimContactDay>|undefined;
   try{
     await new Promise<void>((resolve,reject)=>{listener=()=>resolve();reference.on('value',listener,reject);});
-    const result=await reference.transaction((current:ContactDay|null)=>{outcome=claimContactDay(current,{...input,now},policy);return JSON.parse(JSON.stringify(outcome.row));},undefined,false);
+    const result=await reference.transaction((current:ContactDay|null)=>{outcome=claimContactDay(current,{...input,now},budget);return JSON.parse(JSON.stringify(outcome.row));},undefined,false);
     if(!result.committed||!outcome)throw new Error('Contact budget claim was not saved');
-    return{allowed:outcome.allowed,reason:outcome.reason,...('existingOperationId' in outcome?{existingOperationId:outcome.existingOperationId}:{})};
+    if(outcome.allowed) {
+      const reservation=await operationRef.transaction(current=>current?undefined:{at:now,channel:input.channel,sourceCommunicationId:input.sourceCommunicationId||null,policyRevision:decision.revision});
+      if(!reservation.committed) return {...decision,status:'needs_review' as const,allowed:false,reason:'Contact operation already reserved; reconcile its owning receipt.',existingOperationId:input.operationId};
+    }
+    return {...decision,allowed:outcome.allowed,status:outcome.allowed?'allowed' as const:'blocked' as const,reason:outcome.reason||decision.reason,existingOperationId:'existingOperationId' in outcome?outcome.existingOperationId:undefined};
   }finally{reference.off('value',listener);}
 }
 
@@ -1397,7 +1448,7 @@ export const claimAgentInboxJobs = async (limit = 10, now = Date.now(), target?:
       });
       result = await jobRef.transaction(current => {
       if (!current) return undefined;
-      const recoverable = current.status === 'pending' || current.status === 'failed' ||
+      const recoverable = current.status === 'pending' || current.status === 'failed' || (current.status === 'deferred' && current.nextEligibleAt <= now) ||
         (current.status === 'processing' && Number(current.leaseExpiresAt || 0) <= now);
       if (!recoverable || Number(current.attemptCount || 0) >= 5) return undefined;
       return {
@@ -1420,6 +1471,7 @@ export const claimAgentInboxJobs = async (limit = 10, now = Date.now(), target?:
         orgId, jobId, availableAt: job.leaseExpiresAt, createdAt: job.createdAt
       });
     }
+    if(!result.committed){const held=result.snapshot.val();if(held?.status==='deferred'&&held.nextEligibleAt>now)await agentInboxIndexRef(orgId,jobId).set({orgId,jobId,availableAt:held.nextEligibleAt,createdAt:held.createdAt});}
     // A competing worker may own the lease; retain its recovery index.
   }
   return claimed;
@@ -1427,7 +1479,7 @@ export const claimAgentInboxJobs = async (limit = 10, now = Date.now(), target?:
 
 export const finishAgentInboxJob = async (
   job: AgentInboxJob,
-  patch: Pick<AgentInboxJob, 'status'> & Partial<Pick<AgentInboxJob, 'routing' | 'responseCommunicationId' | 'responseDraftId' | 'error'>>
+  patch: Pick<AgentInboxJob, 'status'> & Partial<Pick<AgentInboxJob, 'routing' | 'responseCommunicationId' | 'responseDraftId' | 'error' | 'nextEligibleAt' | 'policyDecision'>>
 ): Promise<void> => {
   const now = Date.now();
   await agentInboxJobRef(job.orgId, job.id).update({
@@ -1435,7 +1487,10 @@ export const finishAgentInboxJob = async (
     updatedAt: now,
     leaseExpiresAt: null
   });
-  if (patch.status === 'failed' && job.attemptCount < 5) {
+  if (patch.status === 'deferred' && patch.nextEligibleAt) {
+    await agentInboxJobRef(job.orgId, job.id).update({attemptCount: Math.max(0,job.attemptCount-1)});
+    await agentInboxIndexRef(job.orgId,job.id).set({orgId:job.orgId,jobId:job.id,availableAt:patch.nextEligibleAt,createdAt:job.createdAt});
+  } else if (patch.status === 'failed' && job.attemptCount < 5) {
     const delay = Math.min(5 * 60_000, 15_000 * Math.max(job.attemptCount, 1));
     await agentInboxIndexRef(job.orgId, job.id).set({
       orgId: job.orgId, jobId: job.id, availableAt: now + delay, createdAt: job.createdAt

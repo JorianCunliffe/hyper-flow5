@@ -40,6 +40,7 @@ export const formatCommunicationDisposition = (disposition?: string): string | u
 
 export const actionRunStatusLabel = (run: ActionRun, nodeType?: NodeType): string => {
   if (run.status === 'pending') return 'Waiting';
+  if(run.output?.provider_called===false&&run.output?.contact_policy)return run.output.contact_policy.status==='deferred'?'Waiting until opening time':'Contact policy review required';
   const outcome = run.communicationOutcome || communicationOutcomeFromOutput(run.output);
   if (run.status === 'error') return formatCommunicationDisposition(outcome?.disposition) || 'Failed';
   if (nodeType === NodeType.SMS) return 'Delivered';
@@ -48,6 +49,7 @@ export const actionRunStatusLabel = (run: ActionRun, nodeType?: NodeType): strin
 };
 
 export const actionRunStatusClasses = (run: ActionRun): string => {
+  if(run.output?.provider_called===false&&run.output?.contact_policy)return 'bg-amber-50 border-amber-200 text-amber-800';
   if (run.status === 'pending') return 'bg-amber-50 border-amber-200 text-amber-800';
   if (run.status === 'success') return 'bg-emerald-50 border-emerald-200 text-emerald-800';
   return 'bg-red-50 border-red-200 text-red-700';

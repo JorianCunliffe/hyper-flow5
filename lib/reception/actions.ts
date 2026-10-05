@@ -1,5 +1,6 @@
 import {
   digest,
+  allowedReceptionActions,
   fail,
   text,
   type ReceptionConfig,
@@ -148,7 +149,7 @@ export async function receptionAction({
   deps,
 }: any) {
   const permitted = (name: string) => {
-    if (!project.actions.includes(name))
+    if (!allowedReceptionActions(line,project,deps.now()).some(action=>action===name))
       fail(403, "This action is not enabled for this service.");
   };
   if (operation === "availability") {
