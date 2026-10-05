@@ -62,7 +62,7 @@ export const runTenantSchedule = async (
 ): Promise<ScheduleExecutionResult> => {
   if (options.advanceSchedule === false && scheduledFor !== schedule.nextRunAt) {
     const held = await readScheduleRun(schedule, schedule.nextRunAt);
-    if (held?.status === 'blocked' || held?.manualReviewRequired) return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };
+    if (held?.status === 'blocked' || held?.manualReviewRequired || held?.recoveryReviewedAt) return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };
   }
   const previous = await readScheduleRun(schedule, scheduledFor);
   // Adopt legacy holds into the bounded policy without dispatching a new call.
@@ -73,6 +73,7 @@ export const runTenantSchedule = async (
   const run = await claimScheduleRun(schedule, scheduledFor, randomUUID());
   if (!run) {
     const existing = await readScheduleRun(schedule, scheduledFor);
+    if (existing?.recoveryReviewedAt) return {scheduleId: schedule.id, status: 'blocked', error: 'Review closed; failed occurrence remains held. No retry was requested.'};
     if (existing?.manualReviewRequired) {
       if (!existing.recoveryAskId) {
         await saveRecoveryEscalation(schedule, existing);

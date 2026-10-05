@@ -14109,7 +14109,20 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    [key: string]: unknown;
+                    /**
+                     * @description Explicit actions require an authenticated member. close_recovery requires owner/admin and closes only the matching recovery review; it never retries the call.
+                     * @enum {string}
+                     */
+                    responseAction?: "answer" | "comment" | "close_recovery";
+                    /** @enum {string} */
+                    decision?: "approved" | "rejected" | "revise";
+                    text?: string;
+                    values?: {
+                        [key: string]: unknown;
+                    };
+                    uploads?: {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
         };

@@ -108,7 +108,7 @@ export interface FlowRunState {
  * milestones remain the editable definition; mutable execution state lives here.
  */
 export interface FlowRun {
-  outboundRecoveryHold?: { operationId: string; askId: string; at: number };
+  outboundRecoveryHold?: { operationId: string; askId: string; at: number; reviewedAt?: number; reviewedBy?: string; reviewNote?: string };
   dispatchVersion?: 1;
   id: string;
   orgId: string;

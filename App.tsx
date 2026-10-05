@@ -71,6 +71,7 @@ import { getNodeType } from './lib/flowEngine';
 import { ActionExecutor, advanceProjectFlow, runActionNode } from './lib/flowOrchestrator';
 import { applyAskToProject, normalizeNodeAsks, openAsks, recordAskResponse, upsertAsk } from './lib/humanAsk';
 import { buildResponse, validateResponse } from './lib/askResponses';
+import { applySubmissionAction } from './lib/asks/submissionAction';
 import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
 import { ServiceConfigurationPanel } from './components/ServiceConfigurationPanel';
 
@@ -1788,6 +1789,7 @@ export const App: React.FC = () => {
           body: JSON.stringify({
             actor: currentUser?.email || currentUser?.displayName || currentUser?.uid || 'unknown',
             decision: submission.decision,
+            responseAction: submission.responseAction,
             text: submission.text,
             values: submission.values,
             attachments: submission.attachments
@@ -1796,19 +1798,21 @@ export const App: React.FC = () => {
       );
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Ask response failed');
+      if (submission.responseAction === 'answer' && result.askStatus !== 'answered') throw new Error(result.log?.[0] || 'The question is still open. Complete the required fields.');
       setFlowLog(result.log || []);
       setReviewingAsk(null);
       return;
     }
 
-    const response = buildResponse(ask, {
+    if (submission.responseAction === 'close_recovery') throw new Error('Sign in to close this recovery review through the server.');
+    const response = applySubmissionAction(ask, buildResponse(ask, {
       via: 'web',
       actor: currentUser?.email || currentUser?.displayName || currentUser?.uid || 'unknown',
       decision: submission.decision,
       text: submission.text,
       values: submission.values,
       attachments: submission.attachments
-    });
+    }), submission.responseAction, true);
 
     const invalid = validateResponse(ask, response);
     if (invalid) throw new Error(invalid);
@@ -1819,6 +1823,13 @@ export const App: React.FC = () => {
       milestones: proj.milestones.map(m => (m.id === node.id ? upsertAsk(m, updatedAsk) : m))
     };
     if (updatedAsk.status === 'answered') next = applyAskToProject(next, updatedAsk.id);
+
+    if (submission.responseAction === 'comment') {
+      commitProject(next);
+      setFlowLog(['Comment saved. The question remains open.']);
+      setReviewingAsk(null);
+      return;
+    }
 
     const advanced = await advanceProjectFlow(next, httpExecutor, {
       orgId: firebaseService.getCurrentOrgId() || undefined
