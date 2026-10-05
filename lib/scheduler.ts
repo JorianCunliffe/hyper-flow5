@@ -1,3 +1,4 @@
+import { outboundScheduleRecovery } from './outboundScheduleRecovery.js';
 import { randomUUID } from 'node:crypto';
 import type { TenantSchedule } from '../types.js';
 import { advanceScheduledServerFlow } from './serverFlow.js';
@@ -23,7 +24,7 @@ import {
 
 export interface ScheduleExecutionResult {
   scheduleId: string;
-  status: 'completed' | 'deferred' | 'failed' | 'duplicate' | 'skipped';
+  status: 'completed' | 'deferred' | 'failed' | 'duplicate' | 'skipped' | 'blocked';
   processedCount?: number;
   projectId?: string;
   runId?: string;
@@ -52,10 +53,16 @@ export const runTenantSchedule = async (
   scheduledFor = schedule.nextRunAt,
   options: { advanceSchedule?: boolean } = {}
 ): Promise<ScheduleExecutionResult> => {
+  if (options.advanceSchedule === false && scheduledFor !== schedule.nextRunAt) {
+    const held = await readScheduleRun(schedule, schedule.nextRunAt);
+    if (held?.status === 'blocked') return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };
+  }
   const run = await claimScheduleRun(schedule, scheduledFor, randomUUID());
   if (!run) {
     const existing = await readScheduleRun(schedule, scheduledFor);
     if (existing?.status === 'completed' && options.advanceSchedule !== false) await advanceTenantSchedule(schedule, scheduledFor);
+    if (existing?.status === 'blocked') return { scheduleId: schedule.id, status: 'blocked', error: existing.error };
+    if (existing?.retryAfter && existing.retryAfter > Date.now()) return { scheduleId: schedule.id, status: 'deferred', error: existing.error };
     return { scheduleId: schedule.id, status: 'duplicate' };
   }
   let cursorBefore: string | undefined;
@@ -80,6 +87,12 @@ export const runTenantSchedule = async (
     }
     if (actionError) {
       const message = actionError instanceof Error ? actionError.message : String(actionError);
+      const recovery = outboundScheduleRecovery(actionError);
+      if (recovery) {
+        await finishScheduleRun(run, { ...recovery, error: message });
+        console.warn('[scheduler] outbound occurrence held', { scheduleId: schedule.id, scheduledFor, ...recovery });
+        return { scheduleId: schedule.id, status: recovery.status === 'blocked' ? 'blocked' : 'deferred', error: message };
+      }
       await finishScheduleRun(run, { status: 'recoverable', error: message });
       console.error('[scheduler] flow occurrence failed', { scheduleId: schedule.id, scheduledFor, message });
       return { scheduleId: schedule.id, status: 'failed', error: message };

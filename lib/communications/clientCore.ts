@@ -435,7 +435,7 @@ export class HttpCommunicationsClient implements CommunicationsClient {
     options: { method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; idempotencyKey?: string; tenantId?: string }
   ): Promise<any> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), path === '/v1/calls' || path === '/v1/messages' ? Math.max(this.timeoutMs, 60000) : this.timeoutMs);
     try {
       const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: options.method,

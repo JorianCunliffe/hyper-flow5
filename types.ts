@@ -423,7 +423,9 @@ export interface ScheduleRun {
   projectId?: string;
   flowId?: string;
   scheduledFor: number;
-  status: 'running' | 'partial' | 'waiting' | 'recoverable' | 'completed' | 'failed';
+  status: 'running' | 'partial' | 'waiting' | 'recoverable' | 'blocked' | 'completed' | 'failed';
+  providerCode?: string;
+  retryAfter?: number;
   flowRunId?: string;
   claimId: string;
   startedAt: number;

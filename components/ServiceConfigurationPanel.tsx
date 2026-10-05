@@ -30,6 +30,7 @@ export const ServiceConfigurationPanel: React.FC<{ project: Project; onConfigure
       if (!response.ok) throw new Error(body.error || `${kind} failed`);
       if (kind === 'run') {
         const result = body.result || {};
+        if (result.status === 'blocked' || (result.status === 'deferred' && result.error)) { setNotice(result.error || 'Outbound operation held for review.'); await load(); return; }
         if (result.status === 'failed') throw new Error(result.error || `${isCoaching ? 'Coaching' : 'Email triage'} run failed`);
         setNotice(!isCoaching && result.status === 'deferred'
           ? `Processed ${result.processedCount || 0} message(s). More backlog is queued safely.`

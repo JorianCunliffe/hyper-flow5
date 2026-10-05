@@ -295,7 +295,7 @@ export async function executeTask(
       return communicationResponse(result, logs, { sms_data: templateData });
     } catch (smsError: any) {
       logs.push(`Communications Error: ${smsError.message}`);
-      return { httpStatus: 500, body: { status: 'error', error: smsError.message, logs } };
+      return { httpStatus: smsError.status || 500, body: { status: 'error', error: smsError.message, code: smsError.responseBody?.code, logs } };
     }
   } else if (taskType === 'read_google_doc') {
     try {
@@ -539,7 +539,7 @@ export async function executeTask(
       return communicationResponse(result, logs, { call_data: templateData, conversation_context: {status:history.status,sourceIds:history.sources} });
     } catch (callError: any) {
       logs.push(`Communications Error: ${callError.message}`);
-      return { httpStatus: 500, body: { status: 'error', error: callError.message, logs } };
+      return { httpStatus: callError.status || 500, body: { status: 'error', error: callError.message, code: callError.responseBody?.code, logs } };
     }
   } else if (taskType === 'write_report') {
     logs.push('--- REPORT WRITING MULTI-STEP GENERATION ---');

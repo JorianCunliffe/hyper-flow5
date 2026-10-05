@@ -8,6 +8,7 @@ import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 /** Infrastructure uncertainty must never enter a graph's business retry branch. */
 export class ActionRecoveryRequired extends Error {
   readonly recoverable = true;
+  constructor(message: string, public readonly providerCode?: string) { super(message); }
 }
 
 export interface ActionDispatch {
@@ -116,7 +117,7 @@ export const durableActionExecutor = (
     }, () => execute(request.taskType, request.template, request.data, request.context));
     if (outcome.status === 'error') {
       // Network/HTTP errors cannot prove that the provider did not perform the effect.
-      throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain');
+      throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain', outcome.providerCode);
     }
     row = await store.transact(orgId, id, current => {
       if (!current) throw new ActionRecoveryRequired('Action claim disappeared');

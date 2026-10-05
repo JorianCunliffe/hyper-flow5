@@ -114,7 +114,7 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
   }));
   const body = result.body || {};
   if (result.httpStatus >= 400 || (body.status && body.status !== 'success')) {
-    return { status: 'error', error: body.error || `Action failed (HTTP ${result.httpStatus})`, logs: body.logs };
+    return { status: 'error', providerCode: body.code, error: body.error || `Action failed (HTTP ${result.httpStatus})`, logs: body.logs };
   }
   return {
     status: body.pending ? 'pending' : 'success', output: body.output, logs: body.logs,

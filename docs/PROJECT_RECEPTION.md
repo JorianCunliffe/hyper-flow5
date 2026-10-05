@@ -62,3 +62,7 @@ Deploy matching Communications and HyperFlow releases and Firebase rules first, 
 Runtime records live under backend-only `reception/{org}` and participate in tenant lifecycle removal. Redacted operational logs contain operation/status/policy version; call receipts and enquiry queues remain available for operator review.
 
 See [verification record](PROJECT_RECEPTION_VERIFICATION.md) for local evidence and the remaining controlled-provider gate.
+
+### Outbound provider holds
+
+Calls and SMS preserve structured Communications readiness/reconciliation codes through durable dispatch. `OUTBOUND_NOT_READY` and a recent `IDEMPOTENCY_IN_PROGRESS` defer the same occurrence for fifteen minutes. `OUTBOUND_PROVIDER_REJECTED` and `IDEMPOTENCY_RECONCILIATION_REQUIRED` persist the schedule occurrence as `blocked`, keeping the original operation key and preventing automatic replay. Service status displays the hold and reason; unrelated schedules continue. These expected provider holds appear in tick results without making the entire scheduler HTTP 500. Unexpected infrastructure failures still fail the tick. A blocked run requires receipt reconciliation before continuation; creating a new run is not recovery.

@@ -1993,10 +1993,7 @@ export const claimScheduleRun = async (
   const startedAt = Date.now();
   let claimed: ScheduleRun | null = null;
   const result = await ref.transaction(current => {
-    const stale = scheduleRunIsStale(current, startedAt);
-    // Completed occurrences are immutable. Failed occurrences and expired
-    // leases may be claimed again without advancing the schedule or cursor.
-    if (current && !['failed', 'partial', 'waiting', 'recoverable'].includes(current.status) && !stale) return undefined;
+    if (!scheduleRunCanBeClaimed(current, startedAt)) return undefined;
     claimed = {
       ...(current || {}),
       id: `${schedule.id}:${scheduledFor}`,
@@ -2027,6 +2024,28 @@ export const claimScheduleRun = async (
 
 export const readScheduleRun = async (schedule: TenantSchedule, scheduledFor = schedule.nextRunAt): Promise<ScheduleRun | null> =>
   (await getDb().ref(`schedule_runs/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}/${scheduledFor}`).get()).val();
+
+/** Explicit operator review releases only the original occurrence, never its provider key. */
+export const releaseBlockedScheduleRun = async (schedule: TenantSchedule, scheduledFor: number, actor: string, reason: string): Promise<boolean> => {
+  if (scheduledFor !== schedule.nextRunAt || !reason.trim()) return false;
+  const reference = getDb().ref(`schedule_runs/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}/${scheduledFor}`);
+  const initial = (await reference.get()).val() as ScheduleRun | null;
+  if (initial?.status !== 'blocked') return false;
+  let invocation = 0;
+  const result = await reference.transaction(current => {
+    const persisted = seededScheduleTransactionValue(current, initial, ++invocation);
+    return persisted?.status === 'blocked'
+      ? { ...persisted, status: 'recoverable', retryAfter: 0, recoveryReview: { actor, reason: reason.slice(0, 1000), at: Date.now() } }
+      : undefined;
+  });
+  return result.committed;
+};
+
+export const scheduleRunCanBeClaimed = (current: Pick<ScheduleRun, 'status' | 'startedAt' | 'retryAfter'> | null, now: number): boolean => {
+  if (!current) return true;
+  if (current.status === 'blocked' || Number(current.retryAfter || 0) > now) return false;
+  return ['failed', 'partial', 'waiting', 'recoverable'].includes(current.status) || scheduleRunIsStale(current, now);
+};
 
 export const SCHEDULE_RUN_LEASE_MS = 2 * 60_000;
 
