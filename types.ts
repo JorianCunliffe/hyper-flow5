@@ -212,6 +212,9 @@ export interface ConversationContext {
   topic?: string;
   selectionConfidence?: number;
   clarificationState?: 'none' | 'awaiting_project';
+  pendingCommunicationId?: string;
+  candidateProjectIds?: string[];
+  receivingIdentity?: string;
   replyWindowStartedAt?: number;
   automaticReplyCount?: number;
   lastAutomaticReplyAt?: number;

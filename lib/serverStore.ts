@@ -1573,6 +1573,14 @@ export const saveConversationContext = async (context: ConversationContext): Pro
   await conversationContextRef(context.orgId, context.threadId).set(JSON.parse(JSON.stringify(context)));
 };
 
+export async function clearProjectClarification(orgId:string,key:string,sourceId:string) {
+  await conversationContextRef(orgId,key).transaction(current=>{
+    if(current?.pendingCommunicationId!==sourceId)return;
+    const {pendingCommunicationId,candidateProjectIds,...rest}=current;
+    return {...rest,clarificationState:'none'};
+  });
+}
+
 export const readVoiceContextResponse = async (
   orgId: string,
   requestId: string,

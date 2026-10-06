@@ -1,4 +1,5 @@
 import { validateHours, hoursOpen, type BusinessHours, type ReplyMode } from '../cockpit/businessHours.js';
+import { matchProjectReferences } from '../projectReferences.js';
 import { createHash } from "node:crypto";
 import { TenantControlError } from "../tenantControl/model.js";
 export const fail = (status: number, message: string): never => {
@@ -331,12 +332,7 @@ export function routeReception(
       line.projectIds.includes(p.projectId) &&
       (p.visibility === "public" || associations.includes(p.projectId)),
   );
-  const words = ` ${norm(utterance)} `;
-  const matches = candidates.filter((p) =>
-    [p.label, ...p.aliases].some(
-      (n) => norm(n).length > 2 && words.includes(` ${norm(n)} `),
-    ),
-  );
+  const matches = matchProjectReferences(utterance,candidates,p=>[p.label,...p.aliases]);
   const result = (p: ReceptionProject, reason: string) => ({
     kind: "routed" as const,
     line,

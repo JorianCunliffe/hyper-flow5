@@ -1,4 +1,6 @@
 import { ContactPolicyHold } from './cockpit/businessHours.js';
+import { matchProjectReferences, isProjectSelection } from './projectReferences.js';
+import {clarificationKey,clarificationQuestion} from './projectClarification.js';
 import { finishReception } from './reception/service.js';
 import { recordAgentDraft } from './triage/agentDraft.js';
 import { conversationEvidence, conversationInstructions, continuityRules, type ConversationEvidence } from './conversationContinuity.js';
@@ -27,6 +29,7 @@ import {
   listTenantTriageItems,
   patchTenantTriageItem,
   readConversationContext,
+  clearProjectClarification,
   readTenantAgentProfile,
   readTenantCommunicationsSettings,
   saveConversationContext,
@@ -38,7 +41,6 @@ const REPLY_WINDOW_MS = 60 * 60 * 1000;
 const REPLY_COOLDOWN_MS = 15_000;
 const MAX_AUTOMATIC_REPLIES_PER_WINDOW = 6;
 const clean = (value: unknown, max = 4_000): string => typeof value === 'string' ? value.trim().slice(0, max) : '';
-const normalize = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 export const allowedProjectIdsForPerson = (
   profile: TenantAgentProfile,
@@ -110,12 +112,7 @@ export const decideProjectRoute = (input: {
   if (input.trustedProjectId && allowedIds.has(String(input.trustedProjectId)) && ids.includes(String(input.trustedProjectId))) {
     return routed(String(input.trustedProjectId), 'trusted_correlation', 1);
   }
-  const text = normalize(input.content);
-  const explicit = projects.filter(project => {
-    const id = normalize(String(project.id));
-    const name = normalize(project.name || '');
-    return (id.length >= 3 && (` ${text} `).includes(` ${id} `)) || (name.length >= 3 && (` ${text} `).includes(` ${name} `));
-  });
+  const explicit = matchProjectReferences(input.content,projects,p=>[String(p.id),p.name||'']);
   if (explicit.length === 1) {
     if (input.profile.clarificationPolicy === 'always' && input.context?.clarificationState !== 'awaiting_project') {
       return { kind: 'clarification', reason: 'ambiguous', confidence: 0, candidateProjectIds: [String(explicit[0].id)], decidedAt: now };
@@ -409,7 +406,10 @@ export const processAgentInboxJob = async (
       throw new Error('Inbound person is not authorized for this tenant agent');
     }
     const threadId = job.threadId || communication.threadId || job.communicationId;
-    const context = await readConversationContext(job.orgId, threadId);
+    const pendingKey=clarificationKey(job.personId,communication);
+    const pending=pendingKey?await readConversationContext(job.orgId,pendingKey):null;
+    const threadContext=await readConversationContext(job.orgId, threadId);
+    const context = threadContext || pending;
     const routing = decideProjectRoute({
       content: communication.content || '', trustedProjectId: job.trustedProjectId,
       projects, profile, context, personId: job.personId
@@ -429,11 +429,15 @@ export const processAgentInboxJob = async (
         return;
       }
       const delivery = await deliverAgentReply(client, job, communication, message, profile.defaultProjectId || 'unassigned', profile);
-      await saveConversationContext({
+      const clarification:ConversationContext={
         id: threadId, orgId: job.orgId, threadId, personId: job.personId, channel: job.channel,
         clarificationState: 'awaiting_project', ...replyContextFields(allowance, replyAt),
+        pendingCommunicationId:communication.id,candidateProjectIds:routing.candidateProjectIds,
+        receivingIdentity:communication.recipients?.[0],
         updatedAt: replyAt, expiresAt: replyAt + CONTEXT_TTL_MS
-      });
+      };
+      await saveConversationContext(clarification);
+      if(pendingKey)await saveConversationContext({...clarification,id:pendingKey,threadId:pendingKey,expiresAt:replyAt+15*60_000});
       await finishAgentInboxJob(job, {
         status: delivery.kind === 'sent' ? 'completed' : 'needs_review', routing,
         ...(delivery.kind === 'sent' ? { responseCommunicationId: delivery.id } : { responseDraftId: delivery.id })
@@ -446,6 +450,14 @@ export const processAgentInboxJob = async (
     }
 
     const project = projects.find(candidate => String(candidate.id) === routing.projectId)!;
+    let resumedQuestion:string|undefined;
+    let resumedQuestionThreadId:string|undefined;
+    const awaiting=pending||context;
+    if(awaiting?.pendingCommunicationId&&routing.reason==='explicit_reference'&&isProjectSelection(communication.content||'',[project.name,String(project.id)])) {
+      const source=await client.getCommunication(job.orgId,awaiting.pendingCommunicationId);
+      resumedQuestion=clarificationQuestion(awaiting,source,communication,routing.projectId);
+      if(resumedQuestion)resumedQuestionThreadId=source.threadId;
+    }
 
     // A project-correlated event may already have entered the flow at the signed
     // webhook boundary. In that case this inbox job only closes the routing/audit
@@ -458,7 +470,7 @@ export const processAgentInboxJob = async (
     // Uncorrelated inbound communications first pass the normal project router.
     // Once a project is selected, the same trusted Event primitive gets first
     // refusal. Message text is payload data only; it never grants authority.
-    if (!job.trustedProjectId) {
+    if (!job.trustedProjectId && !resumedQuestion) {
       const parsedOccurredAt = Date.parse(String(communication.occurredAt || ''));
       const eventOutcome = await advanceEventServerFlow(job.orgId, routing.projectId, {
         id: job.eventId,
@@ -490,7 +502,7 @@ export const processAgentInboxJob = async (
     const operating = await channelOperatingContext(job.orgId,job.personId || '',routing.projectId);
     const history = await conversationEvidence({orgId:job.orgId,personId:job.personId || '',projectId:routing.projectId,profile,threadId});
     const analysis = await analyzeRequest({
-      communication, project, operating, history, customInstructions:conversationInstructions(profile,job.channel),
+      communication:resumedQuestion?{...communication,content:resumedQuestion}:communication, project, operating, history, customInstructions:conversationInstructions(profile,job.channel),
       triage: (operating.audience === 'ceo' ? triage : []).filter(item => triageVisibleToProject(item, project)).map(item => ({
         occurredAt: item.occurredAt, subject: item.subject, summary: item.summary, priority: item.priority,
         intent: item.intent, disposition: item.disposition, recommendation: item.recommendation
@@ -569,6 +581,10 @@ export const processAgentInboxJob = async (
       job.orgId, job.communicationId, delivery.kind === 'sent' ? 'resolved' : 'draft_prepared',
       'agent-router', `Read-only answer ${delivery.kind === 'sent' ? 'sent' : 'drafted for review'} for ${project.name}`
     );
+    if(resumedQuestion&&awaiting?.pendingCommunicationId){
+      if(pendingKey)await clearProjectClarification(job.orgId,pendingKey,awaiting.pendingCommunicationId);
+      if(resumedQuestionThreadId)await clearProjectClarification(job.orgId,resumedQuestionThreadId,awaiting.pendingCommunicationId);
+    }
   } catch (error: any) {
     const message = String(error?.message || error).slice(0, 1_000);
     if(error instanceof ContactPolicyHold) {
