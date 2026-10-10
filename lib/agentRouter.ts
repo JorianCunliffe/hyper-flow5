@@ -367,6 +367,32 @@ export const processAgentInboxJob = async (
         await finishAgentInboxJob(job, { status: 'completed' });
         return; // Only ask.response.received may update the Ask or its triage disposition.
       }
+      if (profile) {
+        const permitted = allowedProjectIdsForPerson(profile, job.personId) || [];
+        const { pendingSmsReply } = await import('./asks/pendingSmsReply.js');
+        const matches = await pendingSmsReply({ orgId: job.orgId, personId: job.personId,
+          projectIds: projects.filter(p => permitted.includes(p.id)).map(p => p.id),
+          message: communication, trustedProjectId: job.trustedProjectId }, client);
+        if (matches.length > 1) {
+          const reason = 'Several pending SMS questions match this sender and number; review which question this reply answers.';
+          await finishAgentInboxJob(job, { status: 'needs_review', error: reason });
+          await setTenantTriageDisposition(job.orgId, job.communicationId, 'needs_review', 'ask-reply-routing', reason);
+          return;
+        }
+        if (matches.length === 1) {
+          const match = matches[0];
+          const { receiveExternalEvent } = await import('./externalEvents.js');
+          const outcome = await receiveExternalEvent({ event_id: `sms-ask-reply:${job.communicationId}`,
+            source: 'communications', type: 'ask.response.received', occurred_at: communication.occurredAt,
+            communication_id: job.communicationId, ask_id: match.deliveryAskId, channel: 'sms',
+            purpose: { type: 'human_ask', ask_id: match.deliveryAskId },
+            correlation: { tenant_id: job.orgId, project_id: match.projectId, person_id: job.personId },
+            payload: { channel: 'sms', content: communication.content }, response: { text: communication.content } });
+          if (!outcome.ok) throw new Error(outcome.reason || 'SMS question response could not be recorded');
+          await finishAgentInboxJob(job, { status: 'completed' });
+          return;
+        }
+      }
       const { processReceptionSms } = await import('./reception/sms.js');
       const reception = await processReceptionSms(job.orgId, communication, client);
       if(reception.policyDecision && reception.status==='deferred') throw new ContactPolicyHold(reception.policyDecision);
