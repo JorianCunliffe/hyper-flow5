@@ -6,7 +6,7 @@ export interface ContactPolicy {
   revision: number;
   timezone: string;
   outbound: BusinessHours;
-  outboundExceptions?: Array<{ target: string; projectId: string; channels: Array<'sms' | 'voice'>; startsAt: number; expiresAt: number; reason: string }>;
+  outboundExceptions?: Array<{ target: string; projectId: string; channels: Array<'sms' | 'voice'>; startsAt: number; expiresAt: number; reason: string; maxPerContact?: number }>;
   replies: { mode: ReplyMode; windowHours: number; expiryHours: number; maxPerDay: number; maxPerContact: number };
 }
 export interface PolicyDecision {
@@ -45,8 +45,8 @@ export function normalizeContactPolicy(raw: any): ContactPolicy {
     !e || typeof e.target !== 'string' || !/^\+[1-9]\d{7,14}$/.test(e.target) || typeof e.projectId !== 'string' || !e.projectId.trim() ||
     !Array.isArray(e.channels) || !e.channels.length || e.channels.some((c:any)=>!['sms','voice'].includes(c)) ||
     !Number.isSafeInteger(e.startsAt) || !Number.isSafeInteger(e.expiresAt) || e.expiresAt <= e.startsAt || e.expiresAt-e.startsAt > 86400000 ||
-    typeof e.reason !== 'string' || !e.reason.trim() || e.reason.length > 500))) throw new Error('Contact exceptions require an exact phone number, project, channels, reason and a window of at most 24 hours.');
-  return { revision: raw.revision, timezone: raw.timezone, outbound: validateHours(raw.outbound), ...(exceptions ? {outboundExceptions:exceptions.map((e:any)=>({target:e.target,projectId:e.projectId,channels:[...new Set(e.channels)],startsAt:e.startsAt,expiresAt:e.expiresAt,reason:e.reason}))} : {}), replies: {mode:r.mode,windowHours:r.windowHours,expiryHours:r.expiryHours,maxPerDay:r.maxPerDay,maxPerContact:r.maxPerContact} };
+    (e.maxPerContact !== undefined && (!Number.isInteger(e.maxPerContact) || e.maxPerContact < 1 || e.maxPerContact > 10)) || typeof e.reason !== 'string' || !e.reason.trim() || e.reason.length > 500))) throw new Error('Contact exceptions require an exact phone number, project, channels, reason and a window of at most 24 hours.');
+  return { revision: raw.revision, timezone: raw.timezone, outbound: validateHours(raw.outbound), ...(exceptions ? {outboundExceptions:exceptions.map((e:any)=>({target:e.target,projectId:e.projectId,channels:[...new Set(e.channels)],startsAt:e.startsAt,expiresAt:e.expiresAt,reason:e.reason,...(e.maxPerContact===undefined?{}:{maxPerContact:e.maxPerContact})}))} : {}), replies: {mode:r.mode,windowHours:r.windowHours,expiryHours:r.expiryHours,maxPerDay:r.maxPerDay,maxPerContact:r.maxPerContact} };
 }
 export function policyDefaults(timezone = 'Australia/Brisbane', legacy?: {startHour:number;endHour:number}): ContactPolicy {
   return {revision:0,timezone,outbound:{days:[0,1,2,3,4,5,6],start:`${String(legacy?.startHour ?? 9).padStart(2,'0')}:00`,end: legacy?.endHour === 24 ? '24:00' : `${String(legacy?.endHour ?? 17).padStart(2,'0')}:00`,closures:[]},replies:{mode:legacy?'queue':'reply',windowHours:24,expiryHours:24,maxPerDay:200,maxPerContact:20}};

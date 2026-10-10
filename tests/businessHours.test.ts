@@ -72,3 +72,9 @@ test('exception normalization rejects unbounded or malformed scopes',()=>{
   for(const patch of [{target:'*'},{projectId:''},{channels:['email']},{channels:[]},{expiresAt:now},{expiresAt:now+86400001},{reason:''}])
     assert.throws(()=>normalizeContactPolicy({...policy,outboundExceptions:[{...valid,...patch}]}));
 });
+
+test('temporary contact allowance survives review normalization and remains bounded',()=>{
+  const exception={target:'+61400000001',projectId:'test',channels:['sms'],startsAt:now,expiresAt:now+3600000,reason:'Volume test',maxPerContact:10};
+  assert.equal(normalizeContactPolicy({...policy,outboundExceptions:[exception]}).outboundExceptions![0].maxPerContact,10);
+  for(const maxPerContact of [0,11,1.5,'10']) assert.throws(()=>normalizeContactPolicy({...policy,outboundExceptions:[{...exception,maxPerContact}]}));
+});

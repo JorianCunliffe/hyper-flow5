@@ -162,7 +162,9 @@ export async function claimContactDispatch(orgId:string,input:{operationId:strin
   const operationRef=getDb().ref(`contact_dispatch_operations/${safeRtdbKey(orgId)}/${safeRtdbKey(input.operationId)}`);
   const previousOperation=(await operationRef.get()).val();
   if(previousOperation) return {...decision,status:'needs_review' as const,allowed:false,reason:'Contact operation already reserved; reconcile its owning receipt.',existingOperationId:input.operationId};
-  const budget=decision.reactive && saved ? {...legacy,maxPerDay:policy.replies.maxPerDay,maxPerContact:policy.replies.maxPerContact}:legacy;
+  const budget=decision.reactive && saved ? {...legacy,maxPerDay:policy.replies.maxPerDay,maxPerContact:policy.replies.maxPerContact}:{...legacy};
+  const exception=policy.outboundExceptions?.find(e=>e.target===input.target&&e.projectId===input.projectId&&e.channels.some(c=>c===input.channel)&&now>=e.startsAt&&now<e.expiresAt);
+  if(!decision.reactive&&exception?.maxPerContact) budget.maxPerContact=Math.max(budget.maxPerContact,exception.maxPerContact);
   const day=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
   const bucket=decision.reactive && saved?'reactive':'proactive';
   const reference=getDb().ref(`contact_dispatch_days/${safeRtdbKey(orgId)}/${safeRtdbKey(day+(bucket==='reactive'?':reactive':''))}`);
