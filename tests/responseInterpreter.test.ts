@@ -4,6 +4,7 @@ import { interpretAskResponse } from '../lib/triage/responseInterpreter';
 import { replaceProvisionalCommunicationResponse, respondToAsk } from '../lib/asks/respondToAsk';
 import type { HumanAsk } from '../types';
 import { validateResponse } from '../lib/askResponses';
+import { recordAskResponse } from '../lib/humanAsk';
 
 const approvalAsk: HumanAsk = {
   id: 'ask_1', token: 'token_1', kind: 'approval', status: 'open', prompt: 'Approve this?',
@@ -11,6 +12,66 @@ const approvalAsk: HumanAsk = {
 };
 
 describe('conservative response interpretation', () => {
+  test('Sharehouse voice answer has a declared output field and completes the question', async () => {
+    const previous = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-only';
+    try {
+      const ask: HumanAsk = { ...approvalAsk, kind: 'question', fields: [
+        { name: 'direct_booking_policy', label: 'Do we accept direct bookings, or must they go through listing sites?', type: 'string', required: true }
+      ] };
+      const text = "No, they have to go through the listing and we have to check them. There's no direct booking.";
+      const response = await interpretAskResponse(ask, { via: 'voice', actor: 'caller', text }, async request => {
+        const schema = request.config?.responseSchema as any;
+        assert.equal(schema.properties.values.properties.direct_booking_policy.type, 'STRING');
+        assert.match(schema.properties.values.properties.direct_booking_policy.description, /direct bookings/);
+        assert.equal(schema.properties.values.required, undefined);
+        assert.equal(schema.properties.decision, undefined);
+        // Emulate schema-constrained generation: undeclared keys cannot appear.
+        const values = Object.fromEntries(Object.keys(schema.properties.values.properties).map(key => [key, text]));
+        return { text: JSON.stringify({ values, intent: 'answer', confidence: 0.95, evidence: text }) } as any;
+      });
+      assert.deepEqual(response.values, { direct_booking_policy: text });
+      assert.equal(response.needsInterpretation, undefined);
+      assert.equal(recordAskResponse(ask, response).status, 'answered');
+    } finally {
+      if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous;
+    }
+  });
+
+  test('typed extraction preserves missing-answer and review safeguards', async () => {
+    const previous = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-only';
+    try {
+      const ask: HumanAsk = { ...approvalAsk, kind: 'question', fields: [
+        { name: 'available', type: 'boolean', required: true },
+        { name: 'duration', type: 'number', required: true },
+        { name: 'day', type: 'date' },
+        { name: 'location', type: 'string', options: ['Martyn', 'Other'] },
+        { name: 'attachment', type: 'file' }
+      ] };
+      for (const scenario of [
+        { values: {}, confidence: 1, review: false },
+        { values: { available: false }, confidence: 1, review: false },
+        { values: { available: true, duration: 15 }, confidence: 0.5, review: false },
+        { values: { available: true, duration: 15 }, confidence: 1, review: true }
+      ]) {
+        const current = { ...ask, responseContract: { reviewRequired: scenario.review } };
+        const response = await interpretAskResponse(current, { via: 'voice', actor: 'caller', text: 'Recorded caller evidence' }, async request => {
+          const properties = (request.config?.responseSchema as any).properties.values.properties;
+          assert.equal(properties.available.type, 'BOOLEAN');
+          assert.equal(properties.duration.type, 'NUMBER');
+          assert.match(properties.day.description, /YYYY-MM-DD/);
+          assert.deepEqual(properties.location.enum, ['Martyn', 'Other']);
+          assert.equal(properties.attachment, undefined);
+          return { text: JSON.stringify({ ...scenario, intent: 'answer', evidence: 'Recorded caller evidence' }) } as any;
+        });
+        assert.equal(recordAskResponse(current, response).status, 'open');
+      }
+    } finally {
+      if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous;
+    }
+  });
+
   test('voice question extracts confirmed fields without accepting a model approval decision', async () => {
     const previous = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'test-only';
