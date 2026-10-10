@@ -10,7 +10,7 @@ const incoming: CommunicationResult = { id: 'reply', status: 'completed', tenant
   content: 'No we have to go through the booking form', occurredAt: new Date(now).toISOString(), threadId: 'new-provider-thread' };
 const sent: CommunicationResult = { ...incoming, id: 'notification', direction: 'outbound', sender: '+61700000000',
   recipients: ['+61400000000'], purpose: { type: 'human_ask', ask_id: 'delivery' },
-  correlation: { tenant_id: 'org', project_id: 'project' }, threadId: 'old-provider-thread' };
+  correlation: { tenant_id: 'org', external_project_id: 'project' }, threadId: 'old-provider-thread' };
 const run = { id: 'fr_owner', orgId: 'org', projectId: 'project', status: 'waiting', state: { milestones: [{
   id: 'wait', asks: [{ id: 'ask', runId: 'fr_owner', status: 'open', responses: [], deliveries: [{
     channel: 'sms', personId: 'person', status: 'accepted', communicationId: 'notification', deliveryAskId: 'delivery', at: now - 600_000
@@ -50,4 +50,29 @@ test('multiple live SMS questions remain ambiguous instead of choosing the most 
 });
 test('missing provider receipt fails closed', async () => {
   await assert.rejects(pendingSmsReply(input, { getCommunication: async () => { throw Error('unavailable'); } }, async () => [run]), /unavailable/);
+});
+
+test('canonical HTTP receipt binds the next SMS to the owning question', async () => {
+  const { HttpCommunicationsClient } = await import('../lib/communications/clientCore');
+  const http = new HttpCommunicationsClient({ baseUrl: 'https://communications.example', apiKey: 'fixture',
+    fetchImpl: async () => new Response(JSON.stringify({ contract_version: '2.0', communication_id: 'notification',
+      tenant_id: 'org', person_id: 'person', channel: 'sms', direction: 'outbound',
+      sender: '+61700000000', recipients: ['+61400000000'],
+      purpose: { type: 'human_ask', ask_id: 'delivery' },
+      correlation: { tenant_id: 'org', external_project_id: 'project' } }), { status: 200 }) });
+  assert.deepEqual(await pendingSmsReply(input, http, async () => [run]), [
+    { projectId: 'project', runId: 'fr_owner', askId: 'ask', deliveryAskId: 'delivery' }
+  ]);
+});
+
+test('legacy project alias works but conflicting or foreign project receipts do not', async () => {
+  for (const [correlation, count] of [
+    [{ tenant_id: 'org', project_id: 'project' }, 1],
+    [{ tenant_id: 'org', external_project_id: 'other', project_id: 'project' }, 0],
+    [{ tenant_id: 'org', external_project_id: 'project', project_id: 'other' }, 0],
+    [{ tenant_id: 'org', external_project_id: 'other' }, 0]
+  ] as const) {
+    const matches = await pendingSmsReply(input, { getCommunication: async () => ({ ...sent, correlation }) }, async () => [run]);
+    assert.equal(matches.length, count);
+  }
 });

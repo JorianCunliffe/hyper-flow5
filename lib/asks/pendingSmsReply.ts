@@ -45,6 +45,9 @@ export function smsReceiptMatches(m: CommunicationResult, sent: CommunicationRes
     && sent.direction === 'outbound' && !['failed', 'cancelled'].includes(sent.status)
     && sent.sender === m.recipients?.[0] && sent.recipients?.length === 1 && sent.recipients[0] === m.sender
     && sent.purpose?.type === 'human_ask' && sent.purpose.ask_id === deliveryAskId
-    && sent.correlation?.project_id === projectId && sent.correlation?.tenant_id === orgId
+    && (sent.correlation?.external_project_id || sent.correlation?.project_id) === projectId
+    && (!sent.correlation?.external_project_id || !sent.correlation?.project_id
+      || sent.correlation.external_project_id === sent.correlation.project_id)
+    && sent.correlation?.tenant_id === orgId
     && Boolean(ask.id);
 }
