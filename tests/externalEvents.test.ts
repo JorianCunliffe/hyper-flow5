@@ -1,13 +1,29 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createExternalEventRecord, isCompletedHumanAskCall, isStandaloneTerminalCommunication, hydrateCompletedCallPayload, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
+import { createExternalEventRecord, isCompletedHumanAskCall, isHumanAskDeliveryEvent, isStandaloneTerminalCommunication, hydrateCompletedCallPayload, isInboundCommunicationEvent, normalizeExternalEvent, terminalExternalEventResult, terminalExternalEventStatus } from '../lib/externalEvents';
 
 const fixture = (name: string): any => JSON.parse(readFileSync(
   new URL(`./fixtures/communications/${name}`, import.meta.url), 'utf8'
 ));
 
 describe('external event inbox envelope', () => {
+  test('Ask notification receipts do not resolve the waiting workflow action', () => {
+    const raw = { event_id: 'evt_delivery', source: 'communications', type: 'sms.delivered',
+      communication_id: 'comm_sms', purpose: { type: 'human_ask', ask_id: 'ask_sms' },
+      correlation: { tenant_id: 'org_1', project_id: 'project_1', run_id: 'flow_1', task_id: 'wait_1' },
+      payload: { channel: 'sms', status: 'delivered' } };
+    for (const type of ['sms.delivered', 'sms.failed', 'call.failed']) {
+      assert.equal(isHumanAskDeliveryEvent(normalizeExternalEvent({ ...raw, type })), true);
+    }
+    for (const override of [
+      { type: 'ask.response.received' }, { type: 'call.completed' }, { type: 'sms.sent' },
+      { purpose: { type: 'workflow_action', ask_id: 'ask_sms' } },
+      { purpose: { type: 'human_ask' } }, { communication_id: undefined }
+    ]) assert.equal(isHumanAskDeliveryEvent(normalizeExternalEvent({ ...raw, ...override })), false);
+    assert.equal(isCompletedHumanAskCall(normalizeExternalEvent({ ...raw, type: 'call.completed' })), true);
+  });
+
   test('routes only an explicitly identified completed Ask call to response recovery', () => {
     const raw = { event_id: 'evt_call', source: 'communications', type: 'call.completed',
       communication_id: 'comm_call', purpose: { type: 'human_ask', ask_id: 'ask_call' },

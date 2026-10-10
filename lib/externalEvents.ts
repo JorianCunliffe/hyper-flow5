@@ -23,6 +23,11 @@ export const isInboundCommunicationEvent = (type: string): boolean =>
 
 export const isCompletedHumanAskCall = (event: ExternalEventEnvelope): boolean =>
   event.type === 'call.completed' && event.purpose?.type === 'human_ask' && Boolean(event.ask_id && event.communication_id);
+
+/** Delivery acknowledges an Ask notification, never the person's answer. */
+export const isHumanAskDeliveryEvent = (event: ExternalEventEnvelope): boolean =>
+  ['sms.delivered', 'sms.failed', 'call.failed'].includes(event.type)
+  && event.purpose?.type === 'human_ask' && Boolean(event.ask_id && event.communication_id);
 import type { CommunicationResult } from './communications/types.js';
 
 export type ExternalEventProcessingStatus = 'received' | 'processing' | 'processed' | 'processing_failed';
@@ -346,6 +351,18 @@ export const receiveExternalEvent = async (raw: any): Promise<ExternalEventOutco
       if (event.type === 'email.failed') await upsertTriageItem(triageItemFromEvent(event, communication));
       await finishProcessing(orgId, event.event_id, 'processed');
       return { ok: true, reason: 'delivery_state_updated' };
+    }
+
+    if (isHumanAskDeliveryEvent(event)) {
+      await writeCommunicationDeliveryState(orgId, event.communication_id!, {
+        eventId: event.event_id,
+        type: event.type,
+        askId: event.ask_id,
+        occurredAt: event.occurred_at || Date.now(),
+        payload: event.payload
+      });
+      await finishProcessing(orgId, event.event_id, 'processed');
+      return { ok: true, reason: 'human_ask_delivery_recorded' };
     }
 
     // A completed Ask call is response evidence, not an action-node callback.
