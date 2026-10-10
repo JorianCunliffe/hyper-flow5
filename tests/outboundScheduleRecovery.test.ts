@@ -1,6 +1,18 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {outboundScheduleRecovery} from '../lib/outboundScheduleRecovery';
+import {outboundScheduleRecovery, manualRecoveryOccurrence} from '../lib/outboundScheduleRecovery';
+import type {ScheduleRun} from '../types';
+
+test('manual retry keeps the original held occurrence despite newer successful runs',()=>{
+ const held={scheduledFor:100,status:'recoverable',providerCode:'OUTBOUND_NOT_READY',recoveryOperationId:'original-call'} as ScheduleRun;
+ const completed={scheduledFor:200,status:'completed'} as ScheduleRun;
+ assert.equal(manualRecoveryOccurrence([completed,held]),held);
+ assert.equal(manualRecoveryOccurrence([completed]),undefined);
+ for(const status of ['blocked','failed'] as const){
+  const review={...held,status,manualReviewRequired:true};
+  assert.equal(manualRecoveryOccurrence([completed,review]),review);
+ }
+});
 import {ActionRecoveryRequired,durableActionExecutor} from '../lib/actionDispatch';
 import {failedScheduleResults} from '../lib/scheduler';
 
