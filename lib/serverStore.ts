@@ -143,7 +143,7 @@ export async function claimContactDispatch(orgId:string,input:{operationId:strin
   const line=config?.lines.find(l=>l.identity===input.from && l.enabled && l.smsEnabled);
   const project=line?.projectIds.includes(input.projectId||'') ? config?.projects.find(p=>p.projectId===input.projectId&&p.enabled):undefined;
   const {restrictReplyMode}=await import('./cockpit/businessHours.js');
-  const decision=evaluateContactPolicy(policy,{orgId,target:input.target,from:input.from,channel:input.channel,source,now,mode:restrictReplyMode(line?.afterHoursMode,project?.afterHoursMode),businessHours:line?.hours,projectHours:project?.hours,businessTimezone:line?.timezone});
+  const decision=evaluateContactPolicy(policy,{orgId,target:input.target,projectId:input.projectId,from:input.from,channel:input.channel,source,now,mode:restrictReplyMode(line?.afterHoursMode,project?.afterHoursMode),businessHours:line?.hours,projectHours:project?.hours,businessTimezone:line?.timezone});
   if(line) decision.source='workspace + receptionist'+(project?' + project':'');
   if(decision.notice){
     const date=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);

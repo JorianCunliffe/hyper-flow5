@@ -58,3 +58,17 @@ test('setup scope and private storage never let an element or browser widen cont
   const rules=JSON.parse(readFileSync('database.rules.json','utf8')).rules;
   for(const name of ['contact_policies','contact_dispatch_operations','contact_reply_notices']){assert.equal(rules[name]['.read'],false);assert.equal(rules[name]['.write'],false);assert.match(rules[name].$orgId['.write'],/hyperflow_runtime/);}
 });
+
+test('approved exception is bounded to exact recipient, project, channel and expiry',()=>{
+  const p=normalizeContactPolicy({...policy,outboundExceptions:[{target:'+61400000001',projectId:'test',channels:['sms','voice'],startsAt:now-1000,expiresAt:now+1000,reason:'Controlled test'}]});
+  const request={orgId:'org',target:'+61400000001',projectId:'test',channel:'voice',now};
+  assert.equal(evaluateContactPolicy(p,request).allowed,true);
+  for(const patch of [{target:'+61400000009'},{projectId:'other'},{projectId:undefined},{channel:'email'},{now:now+1000},{now:now-1001}])
+    assert.equal(evaluateContactPolicy(p,{...request,...patch}).allowed,false);
+  assert.equal(evaluateContactPolicy(p,{...request,source:{...source,channel:'voice'}}).status,'needs_review');
+});
+test('exception normalization rejects unbounded or malformed scopes',()=>{
+  const valid={target:'+61400000001',projectId:'test',channels:['voice'],startsAt:now,expiresAt:now+1000,reason:'Controlled test'};
+  for(const patch of [{target:'*'},{projectId:''},{channels:['email']},{channels:[]},{expiresAt:now},{expiresAt:now+86400001},{reason:''}])
+    assert.throws(()=>normalizeContactPolicy({...policy,outboundExceptions:[{...valid,...patch}]}));
+});

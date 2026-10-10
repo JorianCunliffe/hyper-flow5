@@ -39,7 +39,7 @@ SMS form regression: the original S1 Ask remains open in `fr_5b90d9cac525c183587
 | C1 | Clear natural-language policy answer | Answer mapped to the current Ask; question completed | Original failed; reviewed recovery complete; fresh policy extraction passed in C2 |
 | C2 | Multiple questions, one per turn | All required fields captured; no repeated answered questions | PASS automatic field extraction and completion; individual read-backs were repetitive |
 | C3 | Partial or ambiguous answer | Missing field remains open; useful clarification/review | Boolean answer passed; uncertainty scenario still not covered |
-| C4 | Correct an answer before confirmation | Final confirmed answer wins; original evidence retained | Blocked before dispatch by OUTBOUND_NOT_READY; no completed call |
+| C4 | Correct an answer before confirmation | Final confirmed answer wins; original evidence retained | PASS: caller changed 10 to 18, confirmed 18; Ask automatically answered with 18 |
 | C5 | Inspection availability and read-back | Correct date/duration/travel, explicit TEST ONLY confirmation | Not run |
 | S1 | Natural answer to a linked SMS Ask | Correct current Ask progresses | Delivered; awaiting handset reply; receipt routing bug found |
 | S2 | Partial multi-field SMS answer | Next missing question only; no premature completion | Not run |
@@ -49,8 +49,38 @@ SMS form regression: the original S1 Ask remains open in `fr_5b90d9cac525c183587
 
 ## Full-flow acceptance
 
+Fresh-run failure found: question preparation replaced the email's Sunday 14:00 request with the Martyn preference of 16:00. Its call Ask `ask_c635e5d75e7a4276b74c124fb372bcfa` was held by contact hours before any accepted delivery. The run was cancelled conditionally after verifying that undispatched state, preserving the defective output as evidence. Updated the saved preparation/planning setup prompts to preserve explicit requested times, treat preferences as fallback only, distinguish alternatives from confirmed slots, and surface unavailable-property evidence. No contact-hours exception was applied; Jorian's choice about continuing after hours is pending. Read-only question preparation is being rechecked before another call.
+
+C4 completed `human_completed` (60 seconds); transcript contains initial 10, correction 18 and explicit confirmation. Persisted Ask `ask_5cf1d6a722954b83925ca56a7efd2209` is answered with `inspection_minutes: 18`, no interpretation review required. Synthetic value does not alter business rules.
+
+Fresh full-flow occurrence `fr_d00ebaffe876db31d693cb56f3b8` is bound to `comm_5cdbe5f5280a4a1f87a04fe8cb3fbef6`. The old missing-source occurrence was cancelled with its evidence preserved after verifying no draft/booking/final-SMS nodes had run. This was a conditional administrative recovery, not an automatic-flow pass. The new setup gate `ask_ccae800fe4a241fc94e8ae14c28e6327` was released through the authenticated UI within the existing Jorian-only test authorization; production restrictions remain. Fresh run is running and intake has been advanced, with no booking confirmed yet.
+
+C4 recovery dispatch verified: original run `fr_849888cf17cfcc55d564e8393bc6`, schedule occurrence `1791613382784`, and delivery `delivery_8c15c1883dff5a6bf42c9025ac7f76ccc84d94a0c632537e0d476d3ab0c05051` were retained. Schedule attempt 2 reached waiting; the Ask records accepted communication `comm_66cb2987c8d94a3caccf696723586a44`. This is dispatch evidence only; correction transcript/answer verification remains pending. Recovery deployment is READY and CI succeeded.
+
+Follow-up: the refreshed intake attempt `op:fr_a26a8fe0badb2b0b3f31be3fa395:m-1790716779527:2` completed after resuming its batch checkpoint and includes the new Jorian enquiry. Voice readiness recovered (all model probes working at 06:37 UTC). C4's original schedule receipt remains recoverable with `providerOutcome: not_dispatched`, rather than a completed/failed call. Added manual-run recovery selection so Run now reuses a held occurrence before allocating a new one. Commit `31364e2` passed focused tests and TypeScript; first Vercel attempt failed before build with `git_info_fail`, and the same commit was redeployed.
+
 Fresh Jorian enquiry verified after mailbox synchronization: `comm_5cdbe5f5280a4a1f87a04fe8cb3fbef6`, subject `Tasty only - jorian inspection`, received 10 October 2026 at 06:06:23 UTC. It asks about available rooms at 80 Martyn Street and an inspection Sunday at 14:00 (11 October, Australia/Brisbane). This is a request, not confirmed staff availability or a booking. The manual draft-disabled intake refresh is still in progress; the existing v2 plan retains the old missing source binding and must be regenerated against the verified new enquiry before any downstream effect.
 
 C4 run `fr_849888cf17cfcc55d564e8393bc6` retained its original dispatch operation and returned a manual-review hold. At 06:27 UTC the public health endpoint reported Twilio active with balance OK, but cached voice and recording-transcription probes had timed out. This does not establish exhausted model credits. Do not create a replacement occurrence to bypass the readiness hold; reconcile the existing operation before resuming.
 
 Still required: fresh controlled email source; correct source/recipient binding; availability and diary reads; confirmed staff availability; unsent provider draft receipt; TEST ONLY diary write and read-back; original draft finalisation; final Jorian SMS delivery; terminal successful run. The old controlled source was absent from the current intake. This is not a completed full-flow test.
+
+## Latest SMS/form recheck
+
+Read-only production recheck confirms original SMS Ask `ask_4a17bfc5b3f349f39893fda68d9d1325` remains open in its owning waiting run, with zero saved responses. Later call runs still contain cancelled historical copies; these are not authoritative. Original SMS delivery-token URL returns HTTP 200 with a response form and no cancellation notice. Latest inbound SMS event remains `comm_67258475098049b089b6b628369ae4f9`; no fresh post-fix handset reply was observed.
+
+Reran `flowRunAskLookup`, `askFormSubmission`, and `pendingSmsReply`: 13 tests passed. Covers original versus copied Ask, real cancellation, missing owners, same-link submission, false Boolean values, incomplete/review feedback, completed feedback, rejected submissions, and bounded SMS matching. Live form submission and resulting workflow progression remain NOT RUN after the fix; do not count URL availability as a completed test.
+
+### Controlled question preparation recheck
+
+Saved setup revision 1987 restricts preparation questions to the configured test source, with separate independently answerable fields. Read-only preparation `op:fr_d00ebaffe876db31d693cb56f3b8:m-1790716865528:3` completed successfully. It preserves Sunday 14:00, excludes unrelated financial/pest-control enquiries, and separates room verification from staff attendance. Fresh availability still reports no Martyn rooms. Alternative-property/time fields remain marked required even though conditional; this needs checking before the next call so irrelevant alternatives do not block completion. This is preparation evidence only, not a resumed cancelled run or a full-flow pass. No call, booking, draft or SMS was dispatched by this check.
+
+### Initial-question verification — latest
+
+Setup revision 1989 removes conditional alternatives from the initial required Ask fields. Preparation `op:fr_d00ebaffe876db31d693cb56f3b8:m-1790716865528:4` succeeded with exactly two fields: room availability at 80 Martyn St; staff attendance Sunday 14:00. Neither alternative property/time nor unrelated enquiries appear. The fresh availability gap remains explicit. No provider contact or diary write occurred. The cancelled run remains cancelled; this check updates preparation output only.
+
+Remaining live prerequisites: original SMS-form submission; explicit choice about after-hours controlled contact; actual room/staff confirmation before a TEST ONLY booking. Full-flow and approximately five-call/five-SMS acceptance remain incomplete.
+
+### Live form acceptance and after-hours authorization
+
+User submitted the original SMS-linked form. Owning Ask `ask_4a17bfc5b3f349f39893fda68d9d1325` is answered with web values `direct_booking_policy: No` and synthetic `inspection_minutes: 17`; run moved waiting to running. This passes the live form submission/Ask progression check, not whole-project completion. Business inspection defaults remain 15 minutes. User explicitly authorized continuing after hours with existing Jorian-only boundaries. Added bounded recipient/project/channel/time contact-policy exceptions so this need not expand workspace-wide hours; 25 focused policy/execution tests and TypeScript passed.

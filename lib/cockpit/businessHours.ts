@@ -6,6 +6,7 @@ export interface ContactPolicy {
   revision: number;
   timezone: string;
   outbound: BusinessHours;
+  outboundExceptions?: Array<{ target: string; projectId: string; channels: Array<'sms' | 'voice'>; startsAt: number; expiresAt: number; reason: string }>;
   replies: { mode: ReplyMode; windowHours: number; expiryHours: number; maxPerDay: number; maxPerContact: number };
 }
 export interface PolicyDecision {
@@ -39,7 +40,13 @@ export function normalizeContactPolicy(raw: any): ContactPolicy {
   if (!r || !['reply','acknowledge','queue'].includes(r.mode) || ![r.windowHours,r.expiryHours,r.maxPerDay,r.maxPerContact].every(Number.isInteger) ||
       r.windowHours < 1 || r.windowHours > 168 || r.expiryHours < 1 || r.expiryHours > 168 || r.maxPerDay < 1 || r.maxPerDay > 1000 || r.maxPerContact < 1 || r.maxPerContact > 100)
     throw new Error('Reply policy requires a mode, 1–168 hour windows and bounded contact budgets.');
-  return { revision: raw.revision, timezone: raw.timezone, outbound: validateHours(raw.outbound), replies: {mode:r.mode,windowHours:r.windowHours,expiryHours:r.expiryHours,maxPerDay:r.maxPerDay,maxPerContact:r.maxPerContact} };
+  const exceptions = raw.outboundExceptions;
+  if (exceptions !== undefined && (!Array.isArray(exceptions) || exceptions.length > 10 || exceptions.some((e:any) =>
+    !e || typeof e.target !== 'string' || !/^\+[1-9]\d{7,14}$/.test(e.target) || typeof e.projectId !== 'string' || !e.projectId.trim() ||
+    !Array.isArray(e.channels) || !e.channels.length || e.channels.some((c:any)=>!['sms','voice'].includes(c)) ||
+    !Number.isSafeInteger(e.startsAt) || !Number.isSafeInteger(e.expiresAt) || e.expiresAt <= e.startsAt || e.expiresAt-e.startsAt > 86400000 ||
+    typeof e.reason !== 'string' || !e.reason.trim() || e.reason.length > 500))) throw new Error('Contact exceptions require an exact phone number, project, channels, reason and a window of at most 24 hours.');
+  return { revision: raw.revision, timezone: raw.timezone, outbound: validateHours(raw.outbound), ...(exceptions ? {outboundExceptions:exceptions.map((e:any)=>({target:e.target,projectId:e.projectId,channels:[...new Set(e.channels)],startsAt:e.startsAt,expiresAt:e.expiresAt,reason:e.reason}))} : {}), replies: {mode:r.mode,windowHours:r.windowHours,expiryHours:r.expiryHours,maxPerDay:r.maxPerDay,maxPerContact:r.maxPerContact} };
 }
 export function policyDefaults(timezone = 'Australia/Brisbane', legacy?: {startHour:number;endHour:number}): ContactPolicy {
   return {revision:0,timezone,outbound:{days:[0,1,2,3,4,5,6],start:`${String(legacy?.startHour ?? 9).padStart(2,'0')}:00`,end: legacy?.endHour === 24 ? '24:00' : `${String(legacy?.endHour ?? 17).padStart(2,'0')}:00`,closures:[]},replies:{mode:legacy?'queue':'reply',windowHours:24,expiryHours:24,maxPerDay:200,maxPerContact:20}};
@@ -64,7 +71,7 @@ export function nextOpening(hours:BusinessHours, timezone:string, now:number, de
 export function restrictReplyMode(...modes:Array<ReplyMode|undefined>):ReplyMode {
   return modes.includes('queue')?'queue':modes.includes('acknowledge')?'acknowledge':'reply';
 }
-export function evaluateContactPolicy(policy:ContactPolicy,input:{orgId:string;target:string;from?:string;channel:string;source?:CommunicationResult;now:number;mode?:ReplyMode;businessHours?:BusinessHours;businessTimezone?:string;projectHours?:BusinessHours}):PolicyDecision {
+export function evaluateContactPolicy(policy:ContactPolicy,input:{orgId:string;target:string;projectId?:string;from?:string;channel:string;source?:CommunicationResult;now:number;mode?:ReplyMode;businessHours?:BusinessHours;businessTimezone?:string;projectHours?:BusinessHours}):PolicyDecision {
   const {now,source}=input;
   const open=hoursOpen(policy.outbound,policy.timezone,now);
   const businessOpen=hoursOpen(input.businessHours,input.businessTimezone||policy.timezone,now) && hoursOpen(input.projectHours,input.businessTimezone||policy.timezone,now);
@@ -86,6 +93,8 @@ export function evaluateContactPolicy(policy:ContactPolicy,input:{orgId:string;t
     }
     return {...base,nextEligibleAt:base.afterHours&&mode==='acknowledge'?next:undefined,notice:base.afterHours?AFTER_HOURS_NOTICE:undefined,reason:base.afterHours&&mode==='acknowledge'?'After-hours acknowledgement only.':'Direct inbound response permitted.'};
   }
+  if(!open && policy.outboundExceptions?.some(e=>e.target===input.target && e.projectId===input.projectId && e.channels.some(c=>c===input.channel) && now>=e.startsAt && now<e.expiresAt))
+    return {...base,source:'workspace approved contact exception',reason:'Time-limited contact exception applies; permissions and contact budgets still apply.'};
   if(!open){const next=nextOpening(policy.outbound,policy.timezone,now);return {...base,status:next?'deferred':'needs_review',allowed:false,reason:next?'Outside the configured contact hours.':'No contact opening in the next eight days; review required.',nextEligibleAt:next};}
   return base;
 }

@@ -22,6 +22,14 @@ export function ContactPolicyEditor({transport=request}:{transport?:typeof reque
       <fieldset><legend>Outbound contact days</legend>{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day,i)=><label key={day} className="mr-3"><input type="checkbox" checked={policy.outbound.days.includes(i)} onChange={e=>change({...policy,outbound:{...policy.outbound,days:e.target.checked?[...policy.outbound.days,i]:policy.outbound.days.filter(d=>d!==i)}})}/>{day}</label>)}</fieldset>
       <label className="block">Closed dates (one YYYY-MM-DD per line)<textarea value={policy.outbound.closures?.join('\n')||''} onChange={e=>change({...policy,outbound:{...policy.outbound,closures:e.target.value.split('\n').filter(Boolean)}})}/></label>
       <button type="button" onClick={()=>void submit(false)}>Review contact policy</button>
+      <fieldset><legend>Time-limited outbound exceptions</legend><p>Exact recipient and project only, for up to 24 hours. Existing permissions and budgets still apply.</p>
+        {(policy.outboundExceptions||[]).map((exception,index)=><div key={index} className="space-y-2 border p-2">
+          {(['target','projectId','reason'] as const).map(key=><label className="block" key={key}>{({target:'Recipient phone (international format)',projectId:'Project ID',reason:'Reason'})[key]}<input value={exception[key]} onChange={e=>change({...policy,outboundExceptions:policy.outboundExceptions!.map((x,i)=>i===index?{...x,[key]:e.target.value}:x)})}/></label>)}
+          <p>Starts: {new Date(exception.startsAt).toLocaleString("en-AU",{timeZone:policy.timezone})}. Expires: {new Date(exception.expiresAt).toLocaleString("en-AU",{timeZone:policy.timezone})} ({policy.timezone}).</p>
+          <p>Channels: {exception.channels.join(', ')}</p><button type="button" onClick={()=>change({...policy,outboundExceptions:policy.outboundExceptions!.filter((_,i)=>i!==index)})}>Remove exception</button>
+        </div>)}
+        <button type="button" onClick={()=>change({...policy,outboundExceptions:[...(policy.outboundExceptions||[]),{target:'',projectId:'',reason:'',channels:['sms','voice'],startsAt:Date.now(),expiresAt:Date.now()+2*3600000}]})}>Add two-hour contact exception</button>
+      </fieldset>
       {review&&<div aria-label="Contact policy review"><p>Outbound contact: {review.preview.reason} Inbound after-hours mode: {review.policy.replies.mode}. Local time: {review.preview.localTime}. Source: {review.preview.source}. Revision: {review.expectedRevision}.</p><p>{review.preview.nextEligibleAt?`Next outbound opening: ${new Date(review.preview.nextEligibleAt).toLocaleString("en-AU",{timeZone:review.policy.timezone})}. `:""}{review.note}</p><pre className="overflow-auto">{JSON.stringify(review.policy,null,2)}</pre><button type="button" onClick={()=>void submit(true)}>Apply reviewed contact policy</button></div>}
     </fieldset>}
   </section>;
