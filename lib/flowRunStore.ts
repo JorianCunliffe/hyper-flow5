@@ -137,7 +137,36 @@ export const findFlowRunByAction = async (
 
 const askMatches = (ask: HumanAsk, askId?: string, askToken?: string): boolean =>
   (!!askId && ask.id === askId) || (!!askToken && ask.token === askToken) ||
-  (ask.deliveries || []).some(delivery => delivery.deliveryAskId === askId || delivery.deliveryToken === askToken);
+  (ask.deliveries || []).some(delivery =>
+    (!!askId && delivery.deliveryAskId === askId) || (!!askToken && delivery.deliveryToken === askToken));
+
+/** Historical Asks are copied into later snapshots; only their owning run is authoritative. */
+export const resolveFlowRunAsk = async (
+  runs: FlowRun[],
+  readOwner: (id: string) => Promise<FlowRun | null>,
+  askId?: string,
+  askToken?: string
+): Promise<{ run: FlowRun; node: Milestone; ask: HumanAsk } | null> => {
+  const find = (run: FlowRun) => {
+    for (const node of run.state.milestones) {
+      const ask = (node.asks || []).find(item => askMatches(item, askId, askToken));
+      if (ask) return { run, node, ask };
+    }
+    return null;
+  };
+  for (const run of runs) {
+    const match = find(run);
+    if (!match) continue;
+    const ownerId = match.ask.runId;
+    if (!ownerId?.startsWith('fr_') || ownerId === run.id) return match;
+    // Read by persisted ownership, including owners outside the recent-history page.
+    // Never substitute a copied cancelled/open state when the owner is unavailable.
+    const owner = await readOwner(ownerId);
+    const original = owner && find(owner);
+    return original?.ask.runId === ownerId ? original : null;
+  }
+  return null;
+};
 
 export const findFlowRunByAsk = async (
   orgId: string,
@@ -148,11 +177,5 @@ export const findFlowRunByAsk = async (
   if (!askId && !askToken) return null;
   const active = await (await import('./reception/asks.js')).listActiveReceptionRuns(orgId,projectId);
   const runs = [...active,...await listFlowRuns(orgId, projectId, 100)];
-  for (const run of runs) {
-    for (const node of run.state.milestones) {
-      const ask = (node.asks || []).find(item => askMatches(item, askId, askToken));
-      if (ask) return { run, node, ask };
-    }
-  }
-  return null;
+  return resolveFlowRunAsk(runs, id => readFlowRun(orgId, projectId, id), askId, askToken);
 };

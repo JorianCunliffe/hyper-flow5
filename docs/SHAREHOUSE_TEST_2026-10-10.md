@@ -22,14 +22,20 @@ S1/S2 occurrence `fr_5b90d9cac525c183587d65e0e09b`, Ask `ask_4a17bfc5b3f349f3989
 
 CI found an existing critical `proxy-addr` advisory. The lockfile was updated from 2.0.7 to 2.0.8; production dependency audit is clean. Receipt-fix targeted tests, TypeScript and build pass.
 
+Receipt fix `95f2fb4` is READY in production (`dpl_62MELZ1qLqHFaojoALfUrEmUqwBK`); CI run `38030459924` passed all jobs. The original failed receipt was not replayed or represented as repaired evidence.
+
+C3 occurrence `fr_57a28b6bed3ee2581d2dc336617e`, Ask `ask_2937724e2f3c4550adcbf457cd008684`, call `comm_0ead518449424c23aa75714cec3cbeda`: caller gave “17 Scotch Street”, said availability was confirmed, and confirmed the read-back. Automatic extraction stored `test_property: "17 Scotch Street"` and `staff_available: true`; Ask answered. This verifies the boolean case, not uncertainty: the caller did not provide an uncertain answer. No booking was made.
+
 ## Live test matrix
+
+SMS form regression: the original S1 Ask remains open in `fr_5b90d9cac525c183587d65e0e09b`, but later call runs contain cancelled historical copies. Lookup incorrectly returned the first copy instead of the persisted owner. The fix resolves the owning run before returning or accepting an Ask, including owners outside the recent-history page. Delivery aliases require a supplied matching identifier. Forty focused tests and TypeScript checks pass; live form verification pending deployment.
 
 | Case | Scenario | Required evidence | Status |
 | --- | --- | --- | --- |
 | C1 | Clear natural-language policy answer | Answer mapped to the current Ask; question completed | Original failed; reviewed recovery complete; fresh policy extraction passed in C2 |
 | C2 | Multiple questions, one per turn | All required fields captured; no repeated answered questions | PASS automatic field extraction and completion; individual read-backs were repetitive |
-| C3 | Partial or ambiguous answer | Missing field remains open; useful clarification/review | Not run |
-| C4 | Correct an answer before confirmation | Final confirmed answer wins; original evidence retained | Not run |
+| C3 | Partial or ambiguous answer | Missing field remains open; useful clarification/review | Boolean answer passed; uncertainty scenario still not covered |
+| C4 | Correct an answer before confirmation | Final confirmed answer wins; original evidence retained | Blocked before dispatch by OUTBOUND_NOT_READY; no completed call |
 | C5 | Inspection availability and read-back | Correct date/duration/travel, explicit TEST ONLY confirmation | Not run |
 | S1 | Natural answer to a linked SMS Ask | Correct current Ask progresses | Delivered; awaiting handset reply; receipt routing bug found |
 | S2 | Partial multi-field SMS answer | Next missing question only; no premature completion | Not run |
@@ -38,5 +44,9 @@ CI found an existing critical `proxy-addr` advisory. The lockfile was updated fr
 | S5 | Final inspection schedule | Verified diary times and delivery receipt to Jorian only | Not run |
 
 ## Full-flow acceptance
+
+Fresh Jorian enquiry verified after mailbox synchronization: `comm_5cdbe5f5280a4a1f87a04fe8cb3fbef6`, subject `Tasty only - jorian inspection`, received 10 October 2026 at 06:06:23 UTC. It asks about available rooms at 80 Martyn Street and an inspection Sunday at 14:00 (11 October, Australia/Brisbane). This is a request, not confirmed staff availability or a booking. The manual draft-disabled intake refresh is still in progress; the existing v2 plan retains the old missing source binding and must be regenerated against the verified new enquiry before any downstream effect.
+
+C4 run `fr_849888cf17cfcc55d564e8393bc6` retained its original dispatch operation and returned a manual-review hold. At 06:27 UTC the public health endpoint reported Twilio active with balance OK, but cached voice and recording-transcription probes had timed out. This does not establish exhausted model credits. Do not create a replacement occurrence to bypass the readiness hold; reconcile the existing operation before resuming.
 
 Still required: fresh controlled email source; correct source/recipient binding; availability and diary reads; confirmed staff availability; unsent provider draft receipt; TEST ONLY diary write and read-back; original draft finalisation; final Jorian SMS delivery; terminal successful run. The old controlled source was absent from the current intake. This is not a completed full-flow test.
