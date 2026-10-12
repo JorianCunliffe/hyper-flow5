@@ -70,6 +70,7 @@ const TaskEmailButton: React.FC<{
 };
 
 interface MilestoneNodeProps {
+  executionStatus?:'running'|'waiting'|'failed';
   milestone: Milestone;
   showSubtasks: boolean;
   onAddSubtask: (milestoneId: string) => void;
@@ -108,6 +109,7 @@ interface MilestoneNodeProps {
 }
 
 export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
+  executionStatus,
   milestone,
   showSubtasks,
   onAddSubtask,
@@ -317,11 +319,13 @@ export const MilestoneNode: React.FC<MilestoneNodeProps> = ({
 
   return (
     <div 
-      className={`absolute flex flex-col items-center group z-10 transition-opacity ${isLinkingMode && !isSource ? 'opacity-90 hover:opacity-100' : ''}`}
+      className={`absolute flex flex-col items-center group z-10 transition-opacity ${executionStatus ? 'ring-4 ring-offset-4 rounded-xl '+(executionStatus==='failed'?'ring-red-400':'ring-indigo-400') : ''} ${isLinkingMode && !isSource ? 'opacity-90 hover:opacity-100' : ''}`}
+      aria-label={executionStatus ? `${milestone.name}: ${executionStatus}` : undefined}
       style={{ left: currentPos.x, top: currentPos.y, transform: 'translate(-50%, -50%)', cursor: isDragging ? 'grabbing' : 'auto' }}
       onMouseEnter={() => onHover(milestone.id)}
       onMouseLeave={() => onHover(null)}
     >
+      {executionStatus && <div className="absolute -top-7 flex items-center gap-1 rounded-full bg-white px-2 py-1 text-xs font-semibold text-indigo-800 shadow-sm">{executionStatus==='running'&&<Loader2 size={12} className="animate-spin motion-reduce:animate-none"/>}{executionStatus==='waiting'&&<Clock size={12}/>} {executionStatus}</div>}
       <div className="mb-2 h-7 flex flex-col items-center justify-center">
         {isEditing ? (
           <input

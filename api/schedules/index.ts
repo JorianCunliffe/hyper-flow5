@@ -76,7 +76,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const schedule = (await listTenantSchedules(member.orgId)).find(item => item.id === id);
       if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
       const recovery = manualRecoveryOccurrence(await listScheduleRuns(member.orgId, id, 100));
-      return res.status(200).json({ result: await runTenantSchedule(schedule, recovery?.scheduledFor ?? Date.now(), { advanceSchedule: false }) });
+      const requested=req.body?.scheduledFor;
+      if(requested!==undefined && (!Number.isSafeInteger(requested)||requested<=0||requested>Date.now()+30000))return res.status(422).json({error:'Invalid manual occurrence timestamp'});
+      if(requested!==undefined && requested<Date.now()-600000 && !await readScheduleRun(schedule,requested))return res.status(409).json({error:'Manual start expired; check saved run status before starting again'});
+      const scheduledFor=recovery?.scheduledFor ?? requested ?? Date.now();
+      return res.status(200).json({ scheduledFor, result: await runTenantSchedule(schedule, scheduledFor, { advanceSchedule: false }) });
     }
     if (req.method === 'GET') return res.status(200).json({ data: await listTenantSchedules(member.orgId) });
     if (req.method === 'POST' || req.method === 'PATCH') {

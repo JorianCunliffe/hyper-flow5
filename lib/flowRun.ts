@@ -24,6 +24,7 @@ const nodeStatus = (project: Project, node: Milestone): NodeRunStatus => {
   const states = resolveNodeStates(project);
   const resolution = states.get(node.id);
   if (resolution === 'skipped') return 'skipped';
+  if (node.actionConfig?.lastRun?.status === 'error' && node.actionConfig.lastRun.recoveryRequired) return 'failed';
   if (resolution === 'complete') return 'completed';
   const action = node.actionConfig?.lastRun;
   if (action?.status === 'error' && action.output?.manual_review_required === true) return 'failed';
@@ -106,7 +107,12 @@ export const reconcileNodeRuns = (run: FlowRun, project: Project, now = Date.now
 export const deriveFlowRunStatus = (project: Project): FlowRunStatus => {
   const states = resolveNodeStates(project);
   const active = project.milestones.filter(node => states.get(node.id) !== 'skipped');
-  if (project.milestones.length && active.every(node => states.get(node.id) === 'complete')) return 'completed';
+  if (project.milestones.length && active.every(node => states.get(node.id) === 'complete')) {
+    // A terminal failure branch does not resolve a dispatch hold. Explicit policy
+    // branches return success; unresolved recovery errors must remain visible.
+    return active.some(node => node.actionConfig?.lastRun?.status === 'error' && node.actionConfig.lastRun.recoveryRequired)
+      ? 'failed' : 'completed';
+  }
 
   const blockedFailure = active.some(node =>
     isActionNode(node) && node.actionConfig?.lastRun?.status === 'error' && node.actionConfig.failureMode !== 'continue'

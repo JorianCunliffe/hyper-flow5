@@ -1,13 +1,14 @@
 import {
   listTenantProjects, listTenantSchedules, listWorkspaceConnectionRefs,
-  readSchedulerHealth, listScheduleRuns, listTenantTriageDigests,
+  readSchedulerHealth, listScheduleRuns, readScheduleRun, listTenantTriageDigests,
   readServiceSetupDraft, saveServiceSetupDraft, type AuthenticatedMember,
 } from './serverStore.js';
 import { createCommunicationsClient } from './communications/client.js';
 import { validateServiceSetup, type ServiceSetupInput } from './serviceSetup.js';
+import { readServiceRunProgress } from './serviceRunProgress.js';
 
 export const serviceProjectDependencies = {
-  listTenantProjects, listTenantSchedules, listWorkspaceConnectionRefs,
+  readScheduleRun, readServiceRunProgress, listTenantProjects, listTenantSchedules, listWorkspaceConnectionRefs,
   readSchedulerHealth, listScheduleRuns, listTenantTriageDigests,
   readServiceSetupDraft, saveServiceSetupDraft, validateServiceSetup,
   listMailboxes: (org: string) => createCommunicationsClient().listMailboxes(org),
@@ -52,6 +53,18 @@ export async function serviceProjectRequest(
   if (action !== 'service_setup_status') return result(404, { error: 'Unknown service-project operation' });
   if (req.method !== 'GET') return result(405, { error: 'Method not allowed' });
   const projectId = String(q.projectId || '').trim();
+  if(q.progress==='true') {
+    if(!projectId)return result(400,{error:'projectId required'});
+    const [projects,schedules]=await Promise.all([deps.listTenantProjects(member.orgId),deps.listTenantSchedules(member.orgId)]);
+    const project=projects.find(p=>String(p.id)===projectId);
+    const schedule=schedules.find(s=>s.projectId===projectId&&(!q.scheduleId||s.id===q.scheduleId));
+    if(!project||!schedule)return result(404,{error:'Project schedule not found'});
+    const at=q.scheduledFor===undefined?undefined:Number(q.scheduledFor);
+    if(at!==undefined&&(!Number.isSafeInteger(at)||at<=0))return result(400,{error:'Invalid occurrence timestamp'});
+    const occurrence=at===undefined?(await deps.listScheduleRuns(member.orgId,schedule.id,1))[0]||null:await deps.readScheduleRun(schedule,at);
+    if(!occurrence&&at===undefined)return result(200,{progress:null});
+    return result(200,{progress:await deps.readServiceRunProgress(schedule,occurrence,project,at??occurrence!.scheduledFor)});
+  }
   let mailboxStatus: 'available' | 'unavailable' = 'available';
   const [projects, schedules, mailboxes, workspaces, scheduler] = await Promise.all([
     deps.listTenantProjects(member.orgId), deps.listTenantSchedules(member.orgId),

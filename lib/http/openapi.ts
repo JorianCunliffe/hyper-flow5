@@ -456,6 +456,10 @@ export function buildOpenApi() {
           });
     if (["post", "put", "patch", "delete"].includes(method) && !op.requestBody)
       op.requestBody = body(object);
+    if(row.path==='/api/service-projects/status') {
+      for(const name of ['progress','scheduleId','scheduledFor'])op.parameters.push({name,in:'query',schema:string,description:'Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds.'});
+    }
+    if(row.path==='/api/schedules/run')op.requestBody=body({type:'object',required:['id'],properties:{id:string,scheduledFor:{type:'integer',description:'Optional stable manual occurrence timestamp, created once at click time and retained for progress/reconciliation.'}}});
     if (row.path === '/api/schedules/recovery') {
       op.requestBody=body({type:'object',required:['operation','id','scheduledFor'],additionalProperties:false,properties:{orgId:string,operation:{enum:['preview','apply']},id:string,scheduledFor:{type:'integer',minimum:1},requestId:string,decision:{enum:['resume_future','retry_original','keep_held']},note:{type:'string',maxLength:1000},planHash:string,reviewedAt:integer,acceptUncertainty:{type:'boolean'},confirmCall:{type:'boolean'},nextRunAt:integer}});
       op.responses['200']={description:'Human-admin recovery preview or durable decision receipt. No call is dispatched by this endpoint. See SCHEDULE_RECOVERY.md.',...json(object)};

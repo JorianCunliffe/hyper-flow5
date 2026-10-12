@@ -74,6 +74,7 @@ import { buildResponse, validateResponse } from './lib/askResponses';
 import { applySubmissionAction } from './lib/asks/submissionAction';
 import { ReviewPanel, ReviewSubmission } from './components/ReviewPanel';
 import { ServiceConfigurationPanel } from './components/ServiceConfigurationPanel';
+import type { ServiceRunProgress } from './lib/serviceRunProgress';
 
 // Imported Components
 import { Dashboard } from './components/Dashboard';
@@ -346,6 +347,7 @@ export const App: React.FC = () => {
   }, [selectedProjectId]);
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [serviceProgress,setServiceProgress]=useState<ServiceRunProgress|null>(null);
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
@@ -2542,7 +2544,7 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={view => { const url = new URL(window.location.href); if (view === 'coaching') url.searchParams.set('activity', 'coaching'); else url.searchParams.delete('activity'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); openView('activity'); }} /></div>}
+                  {['email_triage', 'daily_email_triage', 'daily_coaching'].includes(String(activeProject.projectData?.project_template)) && <div className="shrink-0 bg-white px-6 pt-4"><ServiceConfigurationPanel onShowStep={id=>{const node=canvasData.milestones.find(n=>n.id===id);if(node&&containerRef.current)setPan({x:containerRef.current.clientWidth/2-(node.x||0)*zoom,y:containerRef.current.clientHeight/2-(node.y||0)*zoom});}} onProgress={setServiceProgress} project={activeProject} onConfigure={() => { setServiceConfigurationProjectId(String(activeProject.id)); setIsSettingsOpen(true); }} onOpenActivity={view => { const url = new URL(window.location.href); if (view === 'coaching') url.searchParams.set('activity', 'coaching'); else url.searchParams.delete('activity'); window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`); openView('activity'); }} /></div>}
 
                   {/* MAP CANVAS */}
                   <div 
@@ -2730,7 +2732,7 @@ export const App: React.FC = () => {
                             
                             return (
                               <div key={m.id} className={`pointer-events-auto ${setupChangedNodes.includes(m.id) ? 'ring-4 ring-indigo-300 rounded-xl' : ''}`}>
-                                <MilestoneNode 
+                                <MilestoneNode executionStatus={serviceProgress?.projectId===String(activeProject.id)?serviceProgress.nodes.find(n=>n.id===m.id)?.status:undefined}
                                   milestone={m}
                                   showSubtasks={showSubtasks}
                                   onAddSubtask={handleAddSubtask}

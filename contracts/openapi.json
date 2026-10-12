@@ -17811,6 +17811,30 @@
               "type": "string"
             },
             "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "progress",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds."
+          },
+          {
+            "name": "scheduleId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds."
+          },
+          {
+            "name": "scheduledFor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds."
           }
         ],
         "summary": "Read project readiness and scheduler/connection state",
@@ -19570,7 +19594,18 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "additionalProperties": true
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "scheduledFor": {
+                    "type": "integer",
+                    "description": "Optional stable manual occurrence timestamp, created once at click time and retained for progress/reconciliation."
+                  }
+                }
               }
             }
           }

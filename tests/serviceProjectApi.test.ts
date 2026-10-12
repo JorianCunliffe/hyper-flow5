@@ -10,6 +10,7 @@ function fixture() {
   const schedules = Object.freeze([Object.freeze({ id: 'orphan', activity: 'communications_triage', enabled: true, nextRunAt: Date.now() + 60000 })]);
   const scoped = (org: string) => { assert.equal(org, member.orgId); calls.push(org); };
   const deps: typeof serviceProjectDependencies = {
+    readScheduleRun:async()=>null,readServiceRunProgress:serviceProjectDependencies.readServiceRunProgress,
     listTenantProjects: async org => { scoped(org); return [{ id: 'project-a', projectData: { project_template: 'email_triage' } }] as any; },
     listTenantSchedules: async org => { scoped(org); return schedules as any; },
     listWorkspaceConnectionRefs: async org => { scoped(org); return []; },

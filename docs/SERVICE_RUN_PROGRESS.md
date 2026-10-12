@@ -1,0 +1,15 @@
+# Service Run now progress
+
+Service Configuration tracks the exact manual occurrence selected by Run now. The click creates one timestamp, sends it as `scheduledFor`, and retains the schedule/occurrence reference in session storage scoped to the signed-in user, organization and project. If the server selects an existing recovery occurrence, the returned timestamp replaces that reference. A dropped start response never automatically starts another occurrence.
+
+The button shows Starting, Running, Waiting, Held for review, or Checking run status and prevents repeat clicks while work is active or uncertain. The status names all currently running/waiting nodes or the failed step. The map outlines those nodes; Show current step centres a node only when clicked. Reduced-motion settings disable the spinner animation.
+
+`GET /api/service-projects/status?projectId=...&progress=true&scheduleId=...&scheduledFor=...` reads the exact saved occurrence and its frozen FlowRun, NodeRuns and action dispatch records. It does not call mailbox or communications providers. Omit scheduledFor to discover the most recent occurrence when first opening the page. No prompts, recipient details, action inputs or provider error payloads are returned by progress reads. Existing tenant/project API authority applies. Responses are not cached.
+
+Polling runs every three seconds, with no overlapping requests, while the page is visible. It stops on completion, failure or cancellation and is cancelled when leaving the project. A ready node is not shown as running until saved execution evidence exists. Parallel active nodes are shown together. During a connection loss the map retains its last confirmed state and the panel marks status as being checked.
+
+The optional `scheduledFor` field on `POST /api/schedules/run` supplies a stable manual occurrence reference. New references must be recent; retries of an existing reference retain the existing occurrence. Legacy callers can omit it. Execution, provider idempotency, scheduling, prompts and primitives are unchanged.
+
+An unresolved action recovery error remains failed when the graph reaches its terminal branch, even with `failureMode: continue`. Reaching the end does not prove the call happened. Explicitly handled policy branches can still finish normally, and active Wait/retry branches retain their waiting state. After-hours manual calls require an administrator-approved, time-limited contact exception for the exact recipient, project and channel; Run now does not bypass contact policy.
+
+Verification: `tests/serviceRunProgress.test.ts` covers executing versus merely ready nodes, parallel work, waiting, held and terminal states, exact occurrence lookup, tenant/project binding and provider-free status reads. `tests/e2e/service-progress.html` exercises the actual panel, polling hook and map node with simulated requests only. Browser checks covered start, waiting, page refresh, network interruption, completion and failure; no live call was placed.

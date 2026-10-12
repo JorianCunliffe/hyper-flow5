@@ -12,6 +12,8 @@ Scheduled outbound failures use bounded recovery: provider outages back off for 
 
 [Schedule recovery](docs/SCHEDULE_RECOVERY.md) lets administrators review held calls, resume future occurrences without replaying missed days, or approve a verified safe retry.
 
+[Run progress](docs/SERVICE_RUN_PROGRESS.md) tracks a manual run across refreshes, shows its current steps, and highlights active nodes without moving the map.
+
 Use the [versioned testing catalogue](docs/testing/README.md) for the complete capability, failure, live-journey and soak programme. It includes 101 cases, a campaign ledger template and an offline primitive-coverage check (`npm run test:catalogue`). Creating the catalogue does not execute live tests or mark historical coverage passed.
 
 The **complete Cairns Sharehouse workflow** is the acceptance baseline: morning intake, task extraction, planning, native Outlook drafts, confirmed human answers, finalisation, notifications, ongoing inbound handling and failure recovery must all work. Follow the [Sharehouse acceptance test](docs/SHAREHOUSE_ACCEPTANCE_TEST.md) for the required setup, cases and evidence. Partial flows, reduced-scope substitutes and passing component tests do not pass acceptance. The full baseline is **not yet accepted**; see [implementation status](docs/IMPLEMENTATION_STATUS.md) for source capabilities versus verified results.

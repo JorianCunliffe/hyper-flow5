@@ -12584,6 +12584,12 @@ export interface operations {
                 reason?: string;
                 /** @description Used where applicable; see operation description and domain guide. */
                 requestId?: string;
+                /** @description Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds. */
+                progress?: string;
+                /** @description Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds. */
+                scheduleId?: string;
+                /** @description Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds. */
+                scheduledFor?: string;
             };
             header?: never;
             path?: never;
@@ -13777,7 +13783,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    [key: string]: unknown;
+                    id: string;
+                    /** @description Optional stable manual occurrence timestamp, created once at click time and retained for progress/reconciliation. */
+                    scheduledFor?: number;
                 };
             };
         };

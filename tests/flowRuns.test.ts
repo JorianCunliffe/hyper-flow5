@@ -9,6 +9,25 @@ import type { FlowHold, RuntimeMilestone } from '../lib/flowRuntimeTypes';
 import { action, node, project } from './helpers';
 
 describe('FlowRun execution isolation', () => {
+  test('a policy-blocked call reaching an end remains failed without replaying the provider', async () => {
+    const definition = project([
+      action('CALL', NodeType.PHONE_CALL, { actionConfig: { template: '{}', autoExecute: true, failureMode: 'continue' } }),
+      node('END', { nodeType: NodeType.END, dependsOn: ['CALL'] })
+    ]);
+    const run = createFlowRun({ orgId: 'org', project: definition, occurrenceId: 'manual:policy', trigger: 'manual' });
+    let attempts = 0;
+    const execute = async () => { attempts++; return { status: 'error' as const, recoveryRequired: true,
+      providerCode: 'CONTACT_POLICY_HOLD', error: 'Outside contact hours', output: { provider_called: false } }; };
+    const first = await advanceProjectFlow(materializeFlowRunProject(definition, run), execute);
+    const updated = updateFlowRunFromProject(run, first.project);
+    assert.equal(updated.status, 'failed');
+    assert.equal(updated.nodeRuns.CALL.at(-1)?.status, 'failed');
+    await advanceProjectFlow(first.project, execute);
+    assert.equal(attempts, 1);
+    first.project.milestones[0].actionConfig!.lastRun!.status = 'success';
+    first.project.milestones[0].actionConfig!.lastRun!.recoveryRequired = false;
+    assert.equal(updateFlowRunFromProject(run, first.project).status, 'completed', 'explicitly handled policy branch can finish');
+  });
   test('a prior answered human Wait does not suppress the next occurrence approval', async () => {
     const wait = node('WAIT', { nodeType: NodeType.WAIT }) as RuntimeMilestone;
     wait.holdConfig = { kind: 'human', resultVariable: 'approval', payloadVariable: 'answers',

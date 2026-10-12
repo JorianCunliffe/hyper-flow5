@@ -99,6 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(await handleThreadRegisterRequest(action, req, member));
     }
     if (action && Object.values(SERVICE_PROJECT_ROUTES).includes(action as any)) {
+      res.setHeader('Cache-Control','no-store');
       const result = await serviceProjectRequest(action, req, member);
       return res.status(result.status).json(result.body);
     }
