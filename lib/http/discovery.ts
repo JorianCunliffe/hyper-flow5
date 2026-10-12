@@ -12,6 +12,8 @@ export function discoveryResponse(format?: unknown) {
   if (format === "openapi") return buildOpenApi();
   return {
     version: "1.0.0",
+    scheduleRecovery: {endpoint:'/api/schedules?action=recovery',operations:['preview','apply'],authority:'Human tenant owner/admin only',decisions:['resume_future','retry_original','keep_held'],review:'Fresh planHash, stable requestId; uncertain outcomes require acknowledgement; retry requires verified non-dispatch and separate call approval',documentation:'docs/SCHEDULE_RECOVERY.md'},
+    operationalLog: { endpoint:'/api/operational-log', authority:'Tenant human administrator', filters:['projectId','runId','operationId','communicationId','campaignId','type','severity','from','to'], pagination:'before cursor; 200 scanned events per page; follow next even when items is empty', export:'format=ndjson; X-Next-Cursor', lifecycle:'configure hotRetentionDays; archive to retained internal archive; no purge', documentation:'docs/OPERATIONAL_LOG.md' },
     openapi: "/api/openapi.json",
     schemas: configurationSchemas,
     contactPolicy:{endpoint:'/api/cockpit',read:'GET ?operation=contact_policy',preview:'contact_policy_preview',apply:'contact_policy_apply',flag:'CONTACT_POLICY_V2_ENABLED',schema:contactPolicySchema,authority:'Administrator review; expectedRevision and planHash required. No replay or reception activation.',primitives:['SMS','phone','Condition','Wait','Human Ask'],documentation:'docs/CONTACT_POLICY.md'},

@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { SETUP_PROMPT, SETUP_PROMPT_VERSION } from './prompt.js';
 import { fail, redact } from './safety.js';
 import type { SetupReply, SetupSession } from './types.js';
+import { recordOperationalEvent } from '../operationalLog.js';
 
 export async function setupConversation(session: SetupSession, tool: (name: string, args?: any) => Promise<any>): Promise<SetupReply> {
   if (!process.env.GEMINI_API_KEY) fail(503, 'The setup model is not configured. Manual configuration remains available.');
@@ -18,11 +19,15 @@ export async function setupConversation(session: SetupSession, tool: (name: stri
     let response: any;
     try {
       response = await ai.models.generateContent({ model: process.env.SETUP_ASSISTANT_MODEL || 'gemini-3.5-flash', contents: JSON.stringify(redact(context)), config: { systemInstruction: SETUP_PROMPT, responseMimeType: 'application/json', maxOutputTokens: 12000, httpOptions: { timeout: 20000 } } });
-    } catch { fail(503, 'The setup model is unavailable or its quota is exhausted. Your conversation is saved; manual editors remain available.'); }
+    } catch {
+      await recordOperationalEvent({tenantId:session.orgId,type:'model.failed',projectId:session.scope.projectId,sourceId:session.id,severity:'error',details:{model:process.env.SETUP_ASSISTANT_MODEL || 'gemini-3.5-flash',promptVersion:SETUP_PROMPT_VERSION,latencyMs:Date.now()-started}});
+      fail(503, 'The setup model is unavailable or its quota is exhausted. Your conversation is saved; manual editors remain available.');
+    }
     let reply: SetupReply;
     try { reply = JSON.parse(response.text || ''); } catch { fail(502, 'The setup model returned an invalid response. No configuration was changed.'); }
     if (!reply || typeof reply.message !== 'string' || reply.message.length > 10000) fail(502, 'Invalid setup response.');
     console.info('[setup-assistant] model response', { promptVersion: SETUP_PROMPT_VERSION, latencyMs: Date.now() - started, tokens: response.usageMetadata?.totalTokenCount || null, round });
+    await recordOperationalEvent({tenantId:session.orgId,type:'model.completed',projectId:session.scope.projectId,sourceId:session.id,details:{model:process.env.SETUP_ASSISTANT_MODEL || 'gemini-3.5-flash',promptVersion:SETUP_PROMPT_VERSION,latencyMs:Date.now()-started,tokens:response.usageMetadata?.totalTokenCount,round}});
     if (!reply.toolCalls?.length) {
       if (reply.question && (typeof reply.question.text !== 'string' || reply.question.text.length > 2000 || (reply.question.options && (!Array.isArray(reply.question.options) || reply.question.options.some(x => typeof x !== 'string' || x.length > 500))))) fail(502, 'Invalid setup question.');
       return redact(reply);

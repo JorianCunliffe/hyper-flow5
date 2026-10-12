@@ -343,6 +343,9 @@ export type ScheduleRecurrence =
 export type ScheduleMisfirePolicy = 'run_once' | 'catch_up' | 'skip';
 
 export interface TenantScheduleBase {
+  /** Server-owned recovery command journal; never accepted from configuration input. */
+  recoveryPendingId?: string | null;
+  recoveryCommands?: Record<string, any>;
   id: string;
   orgId: string;
   name: string;
@@ -421,6 +424,8 @@ export type TenantScheduleInput = Partial<Omit<TenantScheduleBase, 'id' | 'orgId
 };
 
 export interface ScheduleRun {
+  recoveryResolution?: { requestId: string; decision: 'resume_future'; at: number; actor: string };
+  recoveryRetryCommandId?: string;
   id: string;
   orgId: string;
   scheduleId: string;

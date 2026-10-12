@@ -12,6 +12,364 @@
     }
   ],
   "paths": {
+    "/api/schedules/recovery": {
+      "post": {
+        "operationId": "post__api_schedules_recovery",
+        "summary": "Preview and apply a reviewed held-schedule recovery decision; preserves original provider evidence",
+        "description": "Preview and apply a reviewed held-schedule recovery decision; preserves original provider evidence\nAuthority: Human tenant owner/admin only; separate retry approval",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "api/schedules/index.ts; lib/scheduleRecovery.ts",
+        "x-authority": "Human tenant owner/admin only; separate retry approval",
+        "responses": {
+          "200": {
+            "description": "Human-admin recovery preview or durable decision receipt. No call is dispatched by this endpoint. See SCHEDULE_RECOVERY.md.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "schedules:write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "const": "preview"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "askId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "expectedRevision": {
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "type": "integer"
+                      },
+                      "hash": {
+                        "type": "string"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "communicationId": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateVersion": {
+                        "type": "integer"
+                      },
+                      "calendarKey": {
+                        "type": "string"
+                      },
+                      "connectionId": {
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "type": "string"
+                      },
+                      "change": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "inputHash": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "content": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "contentHash": {
+                        "type": "string"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "sourceNotes": {},
+                      "windowDays": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "const": "apply"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "askId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "expectedRevision": {
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "type": "integer"
+                      },
+                      "hash": {
+                        "type": "string"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "communicationId": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateVersion": {
+                        "type": "integer"
+                      },
+                      "calendarKey": {
+                        "type": "string"
+                      },
+                      "connectionId": {
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "type": "string"
+                      },
+                      "change": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "inputHash": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "content": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "contentHash": {
+                        "type": "string"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "sourceNotes": {},
+                      "windowDays": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "preview",
+          "apply"
+        ]
+      }
+    },
     "/api/organizations/create": {
       "post": {
         "operationId": "post__api_organizations_create",
@@ -33234,6 +33592,819 @@
           "confirm_action",
           "reconcile_action",
           "record_segments"
+        ]
+      }
+    },
+    "/api/operational-log": {
+      "get": {
+        "operationId": "get__api_operational_log",
+        "summary": "Read or export tenant operational timeline and logging health",
+        "description": "Read or export tenant operational timeline and logging health\nAuthority: Human tenant owner/admin",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "lib/operationalLogApi.ts",
+        "x-authority": "Human tenant owner/admin",
+        "responses": {
+          "200": {
+            "description": "Bounded tenant-admin timeline page, health, or NDJSON export; follow cursor even for empty filtered pages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "nodeId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "calendarKey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "shape",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Used where applicable; see operation description and domain guide."
+          },
+          {
+            "name": "orgId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "operationId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "communicationId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "campaignId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "archive",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post__api_operational_log",
+        "summary": "Configure hot retention or archive an eligible bounded batch; no purge",
+        "description": "Configure hot retention or archive an eligible bounded batch; no purge\nAuthority: Human tenant owner/admin",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "lib/operationalLogApi.ts",
+        "x-authority": "Human tenant owner/admin",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "const": "health"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "askId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "expectedRevision": {
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "type": "integer"
+                      },
+                      "hash": {
+                        "type": "string"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "communicationId": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateVersion": {
+                        "type": "integer"
+                      },
+                      "calendarKey": {
+                        "type": "string"
+                      },
+                      "connectionId": {
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "type": "string"
+                      },
+                      "change": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "inputHash": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "content": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "contentHash": {
+                        "type": "string"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "sourceNotes": {},
+                      "windowDays": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "const": "configure"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "askId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "expectedRevision": {
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "type": "integer"
+                      },
+                      "hash": {
+                        "type": "string"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "communicationId": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateVersion": {
+                        "type": "integer"
+                      },
+                      "calendarKey": {
+                        "type": "string"
+                      },
+                      "connectionId": {
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "type": "string"
+                      },
+                      "change": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "inputHash": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "content": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "contentHash": {
+                        "type": "string"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "sourceNotes": {},
+                      "windowDays": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "const": "archive"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "askId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer"
+                      },
+                      "expectedRevision": {
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "type": "integer"
+                      },
+                      "hash": {
+                        "type": "string"
+                      },
+                      "runKey": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "plan": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "communicationId": {
+                        "type": "string"
+                      },
+                      "templateId": {
+                        "type": "string"
+                      },
+                      "templateVersion": {
+                        "type": "integer"
+                      },
+                      "calendarKey": {
+                        "type": "string"
+                      },
+                      "connectionId": {
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "type": "string"
+                      },
+                      "proposalId": {
+                        "type": "string"
+                      },
+                      "change": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "policy": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "inputHash": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "content": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "contentHash": {
+                        "type": "string"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "sourceNotes": {},
+                      "windowDays": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "health",
+          "configure",
+          "archive"
         ]
       }
     }

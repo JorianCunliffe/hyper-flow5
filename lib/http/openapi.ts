@@ -17,6 +17,8 @@ const body = (schema: any) => ({
 });
 const json = (schema: any) => ({ content: { "application/json": { schema } } });
 export const domainOperations: Record<string, string[]> = {
+  '/api/schedules/recovery':['preview','apply'],
+  '/api/operational-log':['health','configure','archive'],
   '/api/reception':['preview','prepare','apply','review_activation','activate','review_enquiry','confirm_availability','reconcile_booking','reconcile_ask'],
   '/api/agent/reception':['record_enquiry','select_enquiry','verify','pending_asks','select_ask','availability','prepare_action','confirm_action','reconcile_action','record_segments'],
   "/api/flows": [
@@ -454,6 +456,18 @@ export function buildOpenApi() {
           });
     if (["post", "put", "patch", "delete"].includes(method) && !op.requestBody)
       op.requestBody = body(object);
+    if (row.path === '/api/schedules/recovery') {
+      op.requestBody=body({type:'object',required:['operation','id','scheduledFor'],additionalProperties:false,properties:{orgId:string,operation:{enum:['preview','apply']},id:string,scheduledFor:{type:'integer',minimum:1},requestId:string,decision:{enum:['resume_future','retry_original','keep_held']},note:{type:'string',maxLength:1000},planHash:string,reviewedAt:integer,acceptUncertainty:{type:'boolean'},confirmCall:{type:'boolean'},nextRunAt:integer}});
+      op.responses['200']={description:'Human-admin recovery preview or durable decision receipt. No call is dispatched by this endpoint. See SCHEDULE_RECOVERY.md.',...json(object)};
+    }
+    if (row.path === '/api/operational-log') {
+      if(method==='get') {
+        for(const name of ['orgId','service','runId','operationId','communicationId','campaignId','type','severity','from','to','before','archive','format']) {
+          if(!op.parameters.some((p:any)=>p.name===name))op.parameters.push({name,in:'query',schema:string,description:'See OPERATIONAL_LOG.md; service=communications uses that service cursor. Times are epoch milliseconds.'});
+        }
+        op.responses['200']={description:'Bounded tenant-admin timeline page, health, or NDJSON export; follow cursor even for empty filtered pages',...json(object)};
+      } else op.requestBody=body({type:'object',required:['operation'],properties:{orgId:string,operation:{enum:['configure','archive']},expectedRevision:{type:'integer',minimum:0},hotRetentionDays:{type:'integer',minimum:7,maximum:3650}},additionalProperties:false});
+    }
     if (row.path === '/api/communications/contacts' && method === 'post') {
       op.requestBody = body({ type: 'object', additionalProperties: false,
         required: ['name', 'phone_number'], properties: {

@@ -6,6 +6,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/schedules/recovery",
+      "destination": "/api/schedules?action=recovery"
+    },
+    {
+      "source": "/api/operational-log",
+      "destination": "/api/gemini?action=operational_log"
+    },
+    {
       "source": "/api/reception",
       "destination": "/api/gemini?action=reception"
     },

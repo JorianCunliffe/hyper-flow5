@@ -67,12 +67,13 @@ export async function serviceProjectRequest(
   const digests = projectId ? (await deps.listTenantTriageDigests(member.orgId, 30)).filter(item => item.projectId === projectId) : [];
   const overdue = projectSchedules.some(item => item.enabled && item.nextRunAt < Date.now() - 10 * 60_000);
   const catchingUp = overdue && ['running', 'partial'].includes(String(runs[0]?.status || ''));
+  const recoveryHeld = projectSchedules.some(item=>item.recoveryPendingId) || (!runs[0]?.recoveryResolution && !!(runs[0]?.recoveryReviewedAt || runs[0]?.manualReviewRequired || runs[0]?.status==='blocked'));
   return result(200, {
     project: project || null, schedules: projectSchedules, mailboxes, mailboxStatus, workspaces,
     lastRun: runs[0] || null, lastDigest: digests[0] || null,
     scheduler: {
       ...scheduler, overdue, catchingUp,
-      warning: overdue ? catchingUp
+      warning: overdue ? recoveryHeld ? 'This occurrence is held for recovery. Use Resolve held run to review it; scheduler ticks do not release it.' : catchingUp
         ? 'Mailbox backlog catch-up is in progress. Queued batches will continue on scheduler ticks.'
         : 'A project schedule is overdue. Check the five-minute scheduler helper.' : null,
     },

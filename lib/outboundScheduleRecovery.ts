@@ -3,8 +3,8 @@ import type { ScheduleRun } from '../types.js';
 /** Manual Run now must reconcile an unfinished provider attempt before allocating another. */
 export const manualRecoveryOccurrence = (runs: ScheduleRun[]): ScheduleRun | undefined =>
   [...runs].sort((a, b) => b.scheduledFor - a.scheduledFor).find(run =>
-    Boolean(run.providerCode) && ['recoverable', 'blocked', 'running'].includes(run.status)
-    || Boolean(run.manualReviewRequired || run.recoveryReviewedAt));
+    !run.recoveryResolution && (Boolean(run.providerCode) && ['recoverable', 'blocked', 'running'].includes(run.status)
+    || Boolean(run.manualReviewRequired || run.recoveryReviewedAt)));
 
 /** Provider holds are not failed scheduler infrastructure and never change keys. */
 export function outboundScheduleRecovery(error: unknown, now = Date.now(), previous?: Partial<ScheduleRun>): Partial<ScheduleRun> & Pick<ScheduleRun, 'status'> | null {

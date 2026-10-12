@@ -1,4 +1,5 @@
 import { applyContactPolicyRevision, normalizeContactPolicy, policyDefaults, evaluateContactPolicy, type ContactPolicy } from './cockpit/businessHours.js';
+import { recordOperationalEvent } from './operationalLog.js';
 import { encodeRtdbRecord, decodeRtdbRecord, encodeWorkspace, decodeWorkspace } from './rtdbJson.js';
 import { normalizeScheduleDays } from './scheduleDays.js';
 import { cert, getApps, initializeApp, ServiceAccount } from 'firebase-admin/app';
@@ -151,6 +152,7 @@ export async function claimContactDispatch(orgId:string,input:{operationId:strin
     if((await getDb().ref(`contact_reply_notices/${safeRtdbKey(orgId)}/${decision.noticeKey}`).get()).exists())delete decision.notice;
   }
   console.info('[contact-policy]',{operationId:input.operationId,status:decision.status,revision:decision.revision,source:decision.source,reactive:decision.reactive,nextEligibleAt:decision.nextEligibleAt});
+  if (!input.preview) await recordOperationalEvent({tenantId:orgId,type:'policy.evaluated',projectId:input.projectId,operationId:input.operationId,communicationId:input.sourceCommunicationId,status:decision.status,details:{policyRevision:decision.revision,channel:input.channel}});
   if(input.preview) return {...decision,existingOperationId:undefined};
   if(decision.reactive && source && now-Date.parse(source.occurredAt!)>60000) {
     const recent=await (await import('./communications/client.js')).createCommunicationsClient().listCommunications(orgId,{personId:source.personId,channel:source.channel,limit:100});
@@ -731,7 +733,11 @@ export const writeProject = async (orgId: string, index: number, project: Projec
     }
     return clean;
   });
-  if (!result.committed) throw new ProjectConflictError(`Project ${project.id} write conflict (${conflictReason}); retry the operation`);
+  if (!result.committed) {
+    await recordOperationalEvent({tenantId:orgId,type:'project.revision_conflict',projectId:project.id,severity:'warning',details:{expectedRevision,storedRevision:Number(result.snapshot.val()?.revision || 0)}});
+    throw new ProjectConflictError(`Project ${project.id} write conflict (${conflictReason}); retry the operation`);
+  }
+  await recordOperationalEvent({tenantId:orgId,type:'project.saved',projectId:project.id,at:clean.updatedAt,dedupeKey:`project:${project.id}:${expectedRevision+1}`,details:{revision:expectedRevision+1}});
   await tenantRef.child('dataRevision').transaction(current => Number(current || 0) + 1);
   await tenantRef.update({ lastUpdated: Date.now() });
 };
@@ -979,15 +985,23 @@ export const finishExternalEventProcessing = async (
     processing_started_at: null
   };
   const reference = externalEventRef(orgId, eventId);
-  if (!claimId) { await reference.update(patch); return; }
+  if (!claimId) {
+    await reference.update(patch);
+    await recordOperationalEvent({tenantId:orgId,type:'callback.processed',sourceId:eventId,status,severity:status==='processing_failed'?'error':'info'});
+    return;
+  }
   const listener = () => {};
   try {
     await new Promise<void>((resolve, reject) => {
       reference.on('value', listener, reject);
       reference.once('value', () => resolve(), reject);
     });
-    await reference.transaction(current => current?.processing_claim_id === claimId
+    const saved = await reference.transaction(current => current?.processing_claim_id === claimId
       ? { ...current, ...patch } : undefined, undefined, false);
+    if (saved.committed) {
+      const event = saved.snapshot.val(); const corr = event?.payload?.correlation || {};
+      await recordOperationalEvent({tenantId:orgId,type:'callback.processed',sourceId:eventId,projectId:corr.external_project_id || corr.project_id,runId:corr.run_id,askId:corr.ask_id,communicationId:event?.payload?.communication_id,status,severity:status==='processing_failed'?'error':'info'});
+    }
   } finally { reference.off('value', listener); }
 };
 
@@ -1170,6 +1184,9 @@ export const listTenantSchedules = async (orgId: string): Promise<TenantSchedule
   return snap.exists() ? Object.values(snap.val() || {}) as TenantSchedule[] : [];
 };
 
+export const readTenantSchedule = async (orgId: string, id: string): Promise<TenantSchedule | null> =>
+  (await scheduleRef(orgId,id).get()).val();
+
 export const saveTenantSchedule = async (
   orgId: string,
   input: TenantScheduleInput
@@ -1182,8 +1199,17 @@ export const saveTenantSchedule = async (
   if (schedule.activity === 'flow_start' && !schedule.projectId) {
     throw new Error('projectId is required for a flow_start schedule');
   }
-  await scheduleRef(orgId, id).set(JSON.parse(JSON.stringify(schedule)));
-  return schedule;
+  const reference=scheduleRef(orgId,id); const listener=()=>{};
+  try {
+    await new Promise<void>((resolve,reject)=>{reference.on('value',listener,reject);reference.once('value',()=>resolve(),reject);});
+    const saved=await reference.transaction(current=>{
+      if(current?.recoveryPendingId)throw new Error('A recovery operation is being applied. Complete it before editing this schedule.');
+      if(JSON.stringify(current)!==JSON.stringify(existing))return undefined;
+      return JSON.parse(JSON.stringify({...schedule,...(current?.recoveryCommands?{recoveryCommands:current.recoveryCommands}:{})}));
+    },undefined,false);
+    if(!saved.committed)throw new Error('Schedule changed; reload before editing');
+    return saved.snapshot.val();
+  } finally {reference.off('value',listener);}
 };
 
 export const normalizeTenantSchedule = (
@@ -1489,6 +1515,7 @@ export const finishAgentInboxJob = async (
     updatedAt: now,
     leaseExpiresAt: null
   });
+  await recordOperationalEvent({tenantId:job.orgId,type:'routing.completed',sourceId:job.id,communicationId:job.communicationId,projectId:patch.routing?.projectId,status:patch.status,at:now,details:{attempt:job.attemptCount,reasonCode:patch.routing?.reason}});
   if (patch.status === 'deferred' && patch.nextEligibleAt) {
     await agentInboxJobRef(job.orgId, job.id).update({attemptCount: Math.max(0,job.attemptCount-1)});
     await agentInboxIndexRef(job.orgId,job.id).set({orgId:job.orgId,jobId:job.id,availableAt:patch.nextEligibleAt,createdAt:job.createdAt});
@@ -2031,7 +2058,12 @@ export const nextDailyScheduleOccurrence = (after: number, localTime: string, ti
 };
 
 export const deleteTenantSchedule = async (orgId: string, scheduleId: string): Promise<void> => {
-  await scheduleRef(orgId, scheduleId).remove();
+  const reference=scheduleRef(orgId,scheduleId);const initial=(await reference.get()).val();let invocation=0;
+  await reference.transaction(current=>{
+    const persisted=seededScheduleTransactionValue(current,initial,++invocation);
+    if(persisted?.recoveryPendingId)throw new Error('Complete the pending recovery before deleting this schedule');
+    return null;
+  });
 };
 
 export const listDueSchedules = async (now = Date.now()): Promise<TenantSchedule[]> => {
@@ -2040,7 +2072,7 @@ export const listDueSchedules = async (now = Date.now()): Promise<TenantSchedule
   const due: TenantSchedule[] = [];
   for (const schedules of Object.values(snap.val() || {}) as any[]) {
     for (const schedule of Object.values(schedules || {}) as TenantSchedule[]) {
-      if (schedule.enabled && Number(schedule.nextRunAt) <= now) due.push(schedule);
+      if (schedule.enabled && !schedule.recoveryPendingId && Number(schedule.nextRunAt) <= now) due.push(schedule);
     }
   }
   return due.sort((a, b) => a.nextRunAt - b.nextRunAt);
@@ -2092,6 +2124,7 @@ export const readScheduleRun = async (schedule: TenantSchedule, scheduledFor = s
 
 /** Explicit operator review releases only the original occurrence, never its provider key. */
 export const releaseBlockedScheduleRun = async (schedule: TenantSchedule, scheduledFor: number, actor: string, reason: string): Promise<boolean> => {
+  if ((await readTenantSchedule(schedule.orgId,schedule.id))?.recoveryPendingId) return false;
   if (scheduledFor !== schedule.nextRunAt || !reason.trim()) return false;
   const reference = getDb().ref(`schedule_runs/${safeRtdbKey(schedule.orgId)}/${safeRtdbKey(schedule.id)}/${scheduledFor}`);
   const initial = (await reference.get()).val() as ScheduleRun | null;
@@ -2106,9 +2139,9 @@ export const releaseBlockedScheduleRun = async (schedule: TenantSchedule, schedu
   return result.committed;
 };
 
-export const scheduleRunCanBeClaimed = (current: Pick<ScheduleRun, 'status' | 'startedAt' | 'retryAfter' | 'manualReviewRequired' | 'recoveryReviewedAt'> | null, now: number): boolean => {
+export const scheduleRunCanBeClaimed = (current: Pick<ScheduleRun, 'status' | 'startedAt' | 'retryAfter' | 'manualReviewRequired' | 'recoveryReviewedAt' | 'recoveryResolution'> | null, now: number): boolean => {
   if (!current) return true;
-  if (current.manualReviewRequired || current.recoveryReviewedAt || Number(current.retryAfter || 0) > now) return false;
+  if (current.recoveryResolution || current.manualReviewRequired || current.recoveryReviewedAt || Number(current.retryAfter || 0) > now) return false;
   if (current.status === 'blocked') return !!current.retryAfter && current.retryAfter <= now;
   return ['failed', 'partial', 'waiting', 'recoverable'].includes(current.status) || scheduleRunIsStale(current, now);
 };
@@ -2156,6 +2189,7 @@ export const finishScheduleRun = async (
       : 'occurrence missing';
     throw new Error(`Schedule ${run.scheduleId} lost occurrence ${run.scheduledFor} before ${patch.status} completion (${state})`);
   }
+  await recordOperationalEvent({tenantId:run.orgId,type:'schedule.transition',projectId:run.projectId,occurrenceId:`${run.scheduleId}:${run.scheduledFor}`,status:patch.status,details:{scheduleId:run.scheduleId}});
 };
 
 export const seededScheduleTransactionValue = <T>(
@@ -2268,7 +2302,7 @@ export const advanceTenantSchedule = async (
       initial,
       transactionInvocation
     );
-    if (!persisted) return undefined;
+    if (!persisted || persisted.recoveryPendingId || persisted.nextRunAt !== schedule.nextRunAt) return undefined;
     return advancedTenantScheduleValue(persisted, schedule, from, now);
   });
   if (!result.committed) {

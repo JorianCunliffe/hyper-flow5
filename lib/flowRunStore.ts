@@ -3,6 +3,7 @@ import type { HumanAsk, Milestone } from '../types.js';
 import { normalizeNodeAsks } from './humanAsk.js';
 import { runtimeDatabase } from './runtimeDatabase.js';
 import type { FlowRun, NodeRun } from './flowRuntimeTypes.js';
+import { recordOperationalEvent } from './operationalLog.js';
 
 const safeKey = (value: string): string => encodeURIComponent(value).replace(/\./g, '%2E');
 const runPath = (orgId: string, projectId: string, runId: string): string =>
@@ -55,7 +56,9 @@ export const createFlowRunIfAbsent = async (run: FlowRun): Promise<FlowRun> => {
   const reference = db.ref(runPath(run.orgId, run.projectId, run.id));
   const result = await reference.transaction(current => current || encodeRtdbRecord(run), undefined, false);
   if (!result.committed || !result.snapshot.exists()) throw new Error('FlowRun creation was not committed');
-  return normalizeFlowRun(result.snapshot.val());
+  const saved = normalizeFlowRun(result.snapshot.val());
+  await recordRunEvents(saved);
+  return saved;
 };
 
 /**
@@ -66,6 +69,7 @@ export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
   const db = await runtimeDatabase();
   const reference = db.ref(runPath(run.orgId, run.projectId, run.id));
   let stale = false;
+  let previous: FlowRun | undefined;
   const expected = Number(run.revision || 0);
   const nextRevision = expected + 1;
   // Match creation serialization: Firebase rejects optional undefined fields.
@@ -86,14 +90,36 @@ export const saveFlowRun = async (run: FlowRun): Promise<FlowRun> => {
       }
       const currentRevision = Number(current.revision || 0);
       if (currentRevision !== expected) { stale = true; return undefined; }
+      previous = normalizeFlowRun(current);
       return persisted;
     }, undefined, false);
   } finally {
     reference.off('value', keepCurrent);
   }
-  if (!result.committed || stale) throw new Error('FlowRun changed concurrently; refusing stale write');
-  return normalizeFlowRun(result.snapshot.val());
+  if (!result.committed || stale) {
+    await recordOperationalEvent({tenantId:run.orgId,type:'run.revision_conflict',severity:'warning',projectId:run.projectId,runId:run.id,details:{expectedRevision:expected,storedRevision:Number(result.snapshot.val()?.revision || 0)}});
+    throw new Error('FlowRun changed concurrently; refusing stale write');
+  }
+  const saved = normalizeFlowRun(result.snapshot.val());
+  await recordRunEvents(saved, previous);
+  return saved;
 };
+
+async function recordRunEvents(run: FlowRun, previous?: FlowRun) {
+  await recordOperationalEvent({tenantId:run.orgId,type:'run.saved',projectId:run.projectId,runId:run.id,occurrenceId:run.occurrenceId,status:run.status,at:run.updatedAt,dedupeKey:`run:${run.id}:${run.revision}`,campaignId:run.state.projectData?.test_campaign_id,details:{revision:run.revision}});
+  // Node attempt timestamps provide stable identities across callback/reconciliation retries.
+  for (const attempts of Object.values(run.nodeRuns)) for (const node of attempts) {
+    if (previous?.nodeRuns[node.nodeId]?.some(old => old.id === node.id && old.status === node.status && old.updatedAt === node.updatedAt)) continue;
+    await recordOperationalEvent({tenantId:run.orgId,type:'node.transition',projectId:run.projectId,runId:run.id,nodeId:node.nodeId,operationId:node.actionRunId,status:node.status,at:node.updatedAt,dedupeKey:`node:${node.id}:${node.status}:${node.updatedAt}`,details:{attempt:node.attempt}});
+  }
+  for (const milestone of run.state.milestones) for (const ask of milestone.asks || []) {
+    // Only Asks actually bound to this occurrence are relevant; historic projected Asks are excluded.
+    if (ask.runId !== run.id && !String(ask.runId || '').startsWith(`op:${run.id}:`)) continue;
+    const old = previous?.state.milestones.find(m=>m.id===milestone.id)?.asks?.find(a=>a.id===ask.id);
+    if (old && old.status === ask.status && old.responses?.length === ask.responses?.length && old.revision === ask.revision) continue;
+    await recordOperationalEvent({tenantId:run.orgId,type:'ask.state',projectId:run.projectId,runId:run.id,nodeId:milestone.id,askId:ask.id,status:ask.status,at:ask.answeredAt || run.updatedAt,dedupeKey:`ask:${ask.id}:${ask.status}:${run.revision}`,details:{count:ask.responses?.length || 0}});
+  }
+}
 
 export const listFlowRuns = async (orgId: string, projectId: string, limit = 50): Promise<FlowRun[]> => {
   const db = await runtimeDatabase();

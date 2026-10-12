@@ -1,6 +1,7 @@
 import { runtimeDatabase } from "../runtimeDatabase.js";
 import { encodeRtdbRecord, decodeRtdbRecord } from "../rtdbJson.js";
 import { fail } from "./model.js";
+import { recordOperationalEvent } from '../operationalLog.js';
 const key = (v: string) => encodeURIComponent(v).replace(/\./g, "%2E");
 export const receptionStore = {
   async read<T = any>(
@@ -53,7 +54,9 @@ export const receptionStore = {
       );
       if (!r.committed)
         fail(409, "Reception record changed. Retry the same operation.");
-      return decodeRtdbRecord(r.snapshot.val());
+      const saved = decodeRtdbRecord(r.snapshot.val());
+      await recordOperationalEvent({tenantId:org,type:'reception.saved',sourceId:id,projectId:saved?.projectId,communicationId:saved?.callId,status:saved?.status,details:{revision:saved?.revision,reasonCode:collection}});
+      return saved;
     } finally {
       ref.off("value", listener);
     }

@@ -1,5 +1,12 @@
 [
   {
+    "path": "/api/schedules/recovery",
+    "method": "POST",
+    "description": "Preview and apply a reviewed held-schedule recovery decision; preserves original provider evidence",
+    "authorization": "Human tenant owner/admin only; separate retry approval",
+    "source": "api/schedules/index.ts; lib/scheduleRecovery.ts"
+  },
+  {
     "path": "/api/organizations/create",
     "method": "POST",
     "description": "Create organization and owner",
@@ -817,5 +824,19 @@
     "description": "Bounded session commands for trusted inbound reception calls",
     "authorization": "Communications HMAC V2 exact body",
     "source": "api/events.ts"
+  },
+  {
+    "path": "/api/operational-log",
+    "method": "GET",
+    "description": "Read or export tenant operational timeline and logging health",
+    "authorization": "Human tenant owner/admin",
+    "source": "lib/operationalLogApi.ts"
+  },
+  {
+    "path": "/api/operational-log",
+    "method": "POST",
+    "description": "Configure hot retention or archive an eligible bounded batch; no purge",
+    "authorization": "Human tenant owner/admin",
+    "source": "lib/operationalLogApi.ts"
   }
 ]

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "test:catalogue": "node --import tsx scripts/checkTestCatalogue.ts",
     "start": "node dist/server.cjs",
     "test:e2e": "node tests/e2e/inbound.e2e.mjs",
     "smoke:callbacks": "node tests/e2e/deployed-callback-smoke.mjs",

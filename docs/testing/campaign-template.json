@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "campaignId": "HF-ACCEPT-YYYYMMDD-NN",
+  "catalogueVersion": "2026-10-11.1",
+  "status": "NOT RUN",
+  "environment": null,
+  "hyperflowCommit": null,
+  "communicationsCommit": null,
+  "operator": null,
+  "privateManifestReference": null,
+  "authorization": {
+    "recipientRefs": [],
+    "resourceRefs": [],
+    "liveWindow": null,
+    "maxCalls": null,
+    "maxSms": null,
+    "maxCost": null,
+    "scheduleActivationApproved": false,
+    "emailSendApproved": false
+  },
+  "deadlines": {
+    "providerReconciliationMinutes": null,
+    "askExpiryMinutes": null,
+    "escalationMinutes": null,
+    "soakDays": 7
+  },
+  "mandatoryBaselineResults": {
+    "SH-01-through-SH-24": "NOT RUN"
+  },
+  "results": [],
+  "resultTemplate": {
+    "caseId": null,
+    "variant": null,
+    "mode": null,
+    "policyRevision": null,
+    "workflowRevision": null,
+    "startedAt": null,
+    "finishedAt": null,
+    "status": "NOT RUN",
+    "recoveryUsed": false,
+    "expected": [],
+    "observed": [],
+    "evidence": [],
+    "defects": [],
+    "cleanupStatus": "NOT RUN"
+  }
+}

@@ -2,6 +2,8 @@
 
 This is the release test program for the HyperFlow application and the Communications service. It complements `OMNICHANNEL_OPERATIONS.md` with repeatable test IDs, execution gates, and evidence requirements.
 
+**11 October 2026 catalogue:** use the [versioned 101-case catalogue and campaign instructions](testing/README.md) for expanded primitive, configuration, routing, policy, booking, recovery and soak coverage. SH-01–SH-24 remain mandatory. The dated versions and migration examples below are historical and must be replaced with pinned campaign evidence, not treated as current deployment facts.
+
 **27 September 2026 acceptance rule:** the [complete Sharehouse workflow test](SHAREHOUSE_ACCEPTANCE_TEST.md) is the mandatory business acceptance baseline. Every SH case must pass with its required evidence; no partial workflow, reduced-scope alternative or passing infrastructure checks replaces it. The channel tests below are supporting checks. Their historical values must be reconciled with the pinned builds before a new run.
 
 ## Safety and evidence rules

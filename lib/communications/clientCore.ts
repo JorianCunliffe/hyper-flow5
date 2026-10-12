@@ -96,6 +96,12 @@ export class HttpCommunicationsClient implements CommunicationsClient {
   async listReceptionLines(tenantId:string):Promise<Array<{identity:string;enabled:boolean}>> {
     this.requireTenant(tenantId); const result=await this.rawRequest('/v1/reception/lines',{method:'GET',tenantId}); return result.data;
   }
+  async getOperationalLog(tenantId:string, query:Record<string,string> = {}):Promise<any> {
+    this.requireTenant(tenantId);
+    const allowed=new Set(['before','projectId','runId','operationId','communicationId','type','from','to','archive','operation']);
+    const params=new URLSearchParams(Object.entries(query).filter(([k])=>allowed.has(k)));
+    return this.rawRequest(`/v1/operational-log?${params}`,{method:'GET',tenantId});
+  }
   async listMeetings(tenantId:string, offset=0): Promise<{data:MeetingRecord[];next:number|null}> {
     this.requireTenant(tenantId); return this.rawRequest(`/v1/meetings?offset=${offset}`,{method:'GET',tenantId});
   }

@@ -3,6 +3,7 @@ import { runtimeDatabase } from '../runtimeDatabase.js';
 import { encodeRtdbRecord, decodeRtdbRecord } from '../rtdbJson.js';
 import { fail } from './safety.js';
 import type { SetupSession } from './types.js';
+import { recordOperationalEvent } from '../operationalLog.js';
 const key = (v: string) => encodeURIComponent(v).replace(/\./g, '%2E');
 const path = (org: string, uid: string) => `setup_assistant_sessions/${key(org)}/${key(uid)}`;
 export const createSessionStore = (database = runtimeDatabase) => ({
@@ -42,7 +43,9 @@ export const createSessionStore = (database = runtimeDatabase) => ({
       return encodeRtdbRecord(next);
     }, undefined, false);
     if (!result.committed) fail(409, 'Setup session changed. Reload.');
-      return decodeRtdbRecord(result.snapshot.val()) as SetupSession;
+      const saved = decodeRtdbRecord(result.snapshot.val()) as SetupSession;
+      await recordOperationalEvent({tenantId:org,type:'setup.session_saved',actorId:uid,sourceId:id,projectId:saved.scope?.projectId,status:saved.proposal?.applied?'applied':'saved',at:saved.updatedAt,dedupeKey:`setup:${id}:${saved.revision}`,details:{revision:saved.revision}});
+      return saved;
     } finally {
       reference.off('value', keepCurrent);
     }

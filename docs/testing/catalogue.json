@@ -1,0 +1,3350 @@
+{
+  "schemaVersion": 1,
+  "catalogueVersion": "2026-10-11.1",
+  "createdOn": "2026-10-11",
+  "timezone": "Australia/Brisbane",
+  "scope": "Executable operator procedures, not an automatic provider runner. No live activation is authorized by this file.",
+  "mandatoryBaselines": [
+    "../SHAREHOUSE_ACCEPTANCE_TEST.md#morning-workflow-ordered-test",
+    "../COMPREHENSIVE_ACCEPTANCE_PROGRAM.md"
+  ],
+  "resultStates": [
+    "PASS",
+    "FAIL",
+    "BLOCKED",
+    "NOT RUN"
+  ],
+  "requiredRunFields": [
+    "campaignId",
+    "caseId",
+    "variant",
+    "catalogueVersion",
+    "environment",
+    "hyperflowCommit",
+    "communicationsCommit",
+    "policyRevision",
+    "workflowRevision",
+    "startedAt",
+    "finishedAt",
+    "operator",
+    "status",
+    "recoveryUsed",
+    "expected",
+    "observed",
+    "evidence",
+    "defects"
+  ],
+  "evidenceBundles": {
+    "common": [
+      "Pinned builds and configuration revisions",
+      "Expected versus observed assertions",
+      "Owning project/occurrence/run/node/Ask/operation identifiers as applicable",
+      "Final authoritative state and redacted logs",
+      "Recovery and unresolved defect details"
+    ],
+    "live": [
+      "Approved recipient/resource references in private manifest",
+      "Provider acceptance and terminal receipt identifiers/timestamps",
+      "External state readback for writes; original draft identity/version for updates",
+      "Browser evidence for user-visible status; cross-check against owning run"
+    ]
+  },
+  "profiles": {
+    "isolated": "Synthetic tenant/project; fault injection only in isolated environment. No production outages or state rewrites.",
+    "jorian": "Existing authorized Jorian-only controlled identity. Draft-only email and explicitly confirmed TEST ONLY diary entries. Schedules disabled unless separately reviewed.",
+    "mailboxes": "Controlled Outlook and Gmail connections; run each provider separately. Draft-only; no source mailbox mutation.",
+    "workspace": "Dedicated granted test documents, Sheets and diary, synthetic data and approved staff identity.",
+    "reception": "Controlled phone lines and public/private/disabled projects. Requires separately provisioned and approved second caller/line for unknown-caller variants; do not publish production reception.",
+    "multi-person": "Distinct approved primary, fallback and enquirer identities. BLOCKED until provisioned; Jorian alone does not prove multi-person isolation.",
+    "two-tenant": "Two deliberately provisioned isolated tenants with admin/operator/restricted users. Never probe unrelated real tenant data.",
+    "email-send": "Separate approved sending identity and exact controlled recipient. BLOCKED until approval; never enable sending on draft-only Sharehouse."
+  },
+  "variantRules": {
+    "mailboxes": [
+      "outlook",
+      "gmail"
+    ],
+    "negativeActions": [
+      "each-required-field-missing",
+      "malformed-input",
+      "grant-denied",
+      "provider-rejected",
+      "provider-timeout"
+    ],
+    "repeatability": "Each variant has its own ledger entry. All required variants/modes must pass; one provider or fixture pass cannot cover another."
+  },
+  "cases": [
+    {
+      "id": "BASE-01",
+      "area": "readiness",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Pin deployments and validate readiness",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest."
+      ],
+      "dependencies": [],
+      "steps": [
+        "Record deployed commits and compare discovery with this catalogue",
+        "Check scheduler, callback authentication, connections, Twilio account and configured model roles",
+        "Record check timestamps and freshness"
+      ],
+      "expected": [
+        "Expected builds and migrations are identified",
+        "Fresh readiness results distinguish unavailable, degraded and healthy",
+        "A missing dependency blocks its live cases"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BASE-02",
+      "area": "readiness",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Readiness failure before provider dispatch",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "In an isolated deployment, inject unavailable Twilio, expired OAuth and unavailable model responses separately",
+        "Attempt the dependent action"
+      ],
+      "expected": [
+        "No provider call occurs when preflight fails",
+        "Action has actionable failure/hold and bounded recovery; no runaway retries"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CFG-01",
+      "area": "configuration",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Manual configuration round trip",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Create a paused workflow with named resource bindings through the manual editor",
+        "Reload and read through API",
+        "Submit missing and ambiguous bindings"
+      ],
+      "expected": [
+        "Valid configuration survives reload",
+        "Invalid configuration gives actionable errors",
+        "Configuration does not grant new authority"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CFG-02",
+      "area": "configuration",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Plan, validate and exact apply",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Plan and validate changes; inspect prompts, inputs, outputs and dependencies",
+        "Apply reviewed planHash with expectedRevision and stable request ID",
+        "Repeat identical request after discarding its response"
+      ],
+      "expected": [
+        "Exact reviewed changes are saved once",
+        "Lost-response retry returns owning receipt without a second operation"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CFG-03",
+      "area": "configuration",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Stale revision and runtime projection conflict",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Read revision N in two clients",
+        "Commit a change from one, then apply the stale change from the other",
+        "Repeat while a callback updates a running workflow"
+      ],
+      "expected": [
+        "Stale write cannot overwrite newer state",
+        "Runtime receipts remain authoritative",
+        "UI refreshes or explains conflict; no repeated provider effect"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CFG-04",
+      "area": "configuration",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Frozen running definition",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Start a waiting occurrence",
+        "Edit future-run prompt and binding through approved configuration",
+        "Resume old occurrence and start a new one"
+      ],
+      "expected": [
+        "Old occurrence retains its frozen definition",
+        "New occurrence uses reviewed version",
+        "Active execution is protected from mutable configuration changes"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CFG-05",
+      "area": "configuration",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Invalid graph and unsupported capability",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Try missing dependency, cycle and invented primitive",
+        "Inspect validation and save/activation behavior"
+      ],
+      "expected": [
+        "Invalid graph or unsupported capability is rejected clearly",
+        "No invented executor or hidden live action"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-01",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "email-send",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "send_email",
+      "prerequisites": [
+        "Provision and review the email-send profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Deliver a labelled email through the configured sending identity",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Delivery/bounce receipt is tied to the owning operation; draft-only projects reject this action",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:send_email",
+        "node:email"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-01-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "email-send",
+      "modes": [
+        "fixture"
+      ],
+      "title": "send_email rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the email-send profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:send_email"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-02",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "send_sms",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Send a labelled SMS and inspect terminal delivery",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Accepted, sent and delivered remain distinct; exactly one recipient/operation",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:send_sms",
+        "node:sms"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-02-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture"
+      ],
+      "title": "send_sms rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:send_sms"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-03",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "outgoing_call",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Call the approved handset and complete the prompted question",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Human answers and call disposition are recorded; connected alone does not answer an Ask",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:outgoing_call",
+        "node:phone_call"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-03-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture"
+      ],
+      "title": "outgoing_call rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:outgoing_call"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-04",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "webhook",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Invoke a named controlled webhook with valid input",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Status and parsed output are saved; stale or failed availability is not presented as current",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:webhook",
+        "node:webhook"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-04-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "webhook rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:webhook"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-05",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "write_report",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Generate a report against a declared structured schema",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Validated fields and provenance are retained; unsupported facts are not invented",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:write_report",
+        "node:report"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-05-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "write_report rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:write_report"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-06",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "read_google_doc",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Read an allowlisted document containing a unique synthetic marker",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Only granted document content and source identity enter output",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:read_google_doc",
+        "node:google_doc"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-06-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture"
+      ],
+      "title": "read_google_doc rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:read_google_doc"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-07",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "read_google_sheet",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Read the granted range containing synthetic rows",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Exact range and read timestamp are retained; outside-range data is excluded",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:read_google_sheet",
+        "node:google_sheet_read"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-07-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture"
+      ],
+      "title": "read_google_sheet rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:read_google_sheet"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-08",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "append_google_sheet",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Append one labelled row with a stable operation key and read back",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Exactly one intended row is persisted with receipt and matching readback",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:append_google_sheet",
+        "node:google_sheet_append"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-08-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture"
+      ],
+      "title": "append_google_sheet rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:append_google_sheet"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-09",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "upsert_google_sheet",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Update an existing keyed row, then insert a missing key and read back",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Existing row is updated once; new key inserted once; unrelated columns/rows preserved",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:upsert_google_sheet",
+        "node:google_sheet_upsert"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-09-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture"
+      ],
+      "title": "upsert_google_sheet rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:upsert_google_sheet"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-10",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "extract_coaching_result",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Extract a confirmed answer and a deliberately ambiguous answer from controlled evidence",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Confirmed fields retain source; ambiguity stays unresolved; no invented commitment",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:extract_coaching_result",
+        "node:coaching_extract"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-10-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "extract_coaching_result rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:extract_coaching_result"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-11",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "run_email_triage",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Triage controlled actionable, automated and duplicate inputs",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Eligible work is classified once; exclusions auditable; cursor/batch completeness recorded",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:run_email_triage",
+        "node:email_triage"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-11-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture"
+      ],
+      "title": "run_email_triage rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:run_email_triage"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-12",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "create_mailbox_draft",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Create one native reply draft linked to a source email",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Native provider ID, thread identity and revision retained; no send",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:create_mailbox_draft",
+        "node:mailbox_draft"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-12-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture"
+      ],
+      "title": "create_mailbox_draft rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:create_mailbox_draft"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-13",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "update_mailbox_draft",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Reconcile and update the original draft using its current version",
+        "Verify owning run and provider/resource evidence"
+      ],
+      "expected": [
+        "Same provider draft ID with new revision; no replacement and no send",
+        "Owning node reaches its documented terminal state"
+      ],
+      "capabilities": [
+        "task:update_mailbox_draft",
+        "node:mailbox_draft_update"
+      ],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ACT-13-NEG",
+      "area": "primitive",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture"
+      ],
+      "title": "update_mailbox_draft rejects invalid or unavailable inputs",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Execute independently with each required contract field absent or malformed",
+        "Deny the resource/recipient grant",
+        "Inject provider rejection and timeout separately"
+      ],
+      "expected": [
+        "Invalid/unauthorized inputs produce zero effects",
+        "Failure is actionable and bounded",
+        "Uncertain effects retain operation identity for reconciliation"
+      ],
+      "capabilities": [
+        "task:update_mailbox_draft"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-01",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "milestone",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Complete a manual milestone and inspect dependent work",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Only configured completion releases dependencies"
+      ],
+      "capabilities": [
+        "node:milestone"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-02",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "decision",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Run true, false, missing and malformed values through ordered branches",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Only intended eligible branch runs; unresolved input is visible"
+      ],
+      "capabilities": [
+        "node:decision"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-03",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "loop",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Run zero, one and three items; fail item two; retry that item",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Empty loop completes correctly; successful items are not repeated"
+      ],
+      "capabilities": [
+        "node:loop"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-04",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "wait",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Exercise timed wait, event wait, timeout and cancellation",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Only eligible time/event releases the wait; expiry has a terminal or review outcome"
+      ],
+      "capabilities": [
+        "node:wait"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-05",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "end",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Reach the end through each valid branch",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Owning run terminates; inactive branches do not hold it indefinitely"
+      ],
+      "capabilities": [
+        "node:end"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-06",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "event_trigger",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Deliver matching, unrelated, duplicate and stale events",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Only matching authorized event creates/progresses the intended occurrence once"
+      ],
+      "capabilities": [
+        "node:event_trigger"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-07",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "capture_review",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Capture an external statement, review it, then approve or reject in separate cases",
+        "Reload UI and compare authoritative state"
+      ],
+      "expected": [
+        "Evidence alone creates no accepted obligation; human decision is recorded"
+      ],
+      "capabilities": [
+        "node:capture_review"
+      ],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "CTL-08",
+      "area": "control",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Parallel branches and join",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Run branches with different completion times; fail or cancel one branch in variants"
+      ],
+      "expected": [
+        "Join respects configured dependencies",
+        "No premature or duplicate downstream action"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-01",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Partial SMS answers",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Ask two typed questions",
+        "Reply with policy text only",
+        "Answer numeric follow-up with 22 minutes"
+      ],
+      "expected": [
+        "Same Ask retains partial answer, asks only missing question, then completes once",
+        "Numeric 22 stays test data, not business configuration"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-02",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "SMS correction and ambiguity",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Give ambiguous answer, then correct and confirm it"
+      ],
+      "expected": [
+        "Clarification is one question at a time",
+        "Only confirmed typed values progress the Ask"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-03",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live",
+        "browser"
+      ],
+      "title": "SMS form submission",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Open current SMS form; submit partial then complete valid values",
+        "Repeat submission"
+      ],
+      "expected": [
+        "Form and direct SMS share owning Ask",
+        "Valid completion updates status once; no duplicate effects"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-04",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Cancelled, expired and superseded forms",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Open a link for each non-current Ask/cycle",
+        "Attempt submit and inspect current question"
+      ],
+      "expected": [
+        "Explains exact unavailable state",
+        "Stale form cannot answer another or newer Ask"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-05",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Voice partial answer and correction",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Answer one field, leave another unanswered, then correct and confirm on continuation"
+      ],
+      "expected": [
+        "No fabricated missing answer",
+        "Same Ask retains progress and confirmed correction"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-06",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "No answer, voicemail and retry",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Exercise unanswered, voicemail and busy outcomes separately",
+        "Answer an allowed retry"
+      ],
+      "expected": [
+        "Failure disposition is explicit",
+        "Retry limit and deadline enforced",
+        "Same Ask continues without duplicate accepted answers"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-07",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "multi-person",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Escalation and terminal deadline",
+      "prerequisites": [
+        "Provision and review the multi-person profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Leave primary and retry unanswered",
+        "Accept fallback escalation in one variant; leave all unanswered in another"
+      ],
+      "expected": [
+        "Only authorized fallback contacted",
+        "Exhausted Ask fails or escalates visibly by deadline; never waits forever"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-08",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Return call resumes exact pending Ask",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Miss outbound question call then call the served line",
+        "Answer and confirm current questions"
+      ],
+      "expected": [
+        "Exact run/Ask/cycle selected after verification",
+        "Partial answers retained",
+        "Duplicate outbound retry suppressed"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-09",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Simultaneous form, SMS and voice answers",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Submit concurrent answers for same cycle, including one stale cycle"
+      ],
+      "expected": [
+        "Single accepted resolution; conflict is auditable",
+        "No second downstream execution"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ASK-10",
+      "area": "asks",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Comment versus answer and approval authority",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Comment without answering; then use answer action",
+        "Try approval with machine credentials and restricted user"
+      ],
+      "expected": [
+        "Comment does not silently answer",
+        "Valid answer updates status",
+        "Human-only approvals cannot be impersonated"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MAIL-01",
+      "area": "mail",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Full 24-hour intake and pagination",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Seed read/unread mail across multiple pages, boundary timestamps and duplicate source IDs",
+        "Run intake"
+      ],
+      "expected": [
+        "Read status does not suppress eligible recent mail",
+        "No page/cursor loss or duplicate source work"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MAIL-02",
+      "area": "mail",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Thread continuity and exclusions",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Reply within an existing thread; send unrelated new subject, automated reply and spam fixture"
+      ],
+      "expected": [
+        "Native and semantic threads preserved appropriately",
+        "Unrelated enquiry stays separate",
+        "Automatic/spam input cannot answer an Ask"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MAIL-03",
+      "area": "mail",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Draft concurrent user edit and deletion",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Create draft; edit it externally before workflow update",
+        "Repeat with deleted draft"
+      ],
+      "expected": [
+        "Stale change key holds for reconciliation",
+        "No overwrite, replacement draft or send without reviewed resolution"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MAIL-04",
+      "area": "mail",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Delayed arrivals and interrupted intake",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Add a new message while the run waits",
+        "Interrupt after one batch then resume"
+      ],
+      "expected": [
+        "Configured cutoff/next batch explained",
+        "Existing occurrence resumes without lost or duplicate triage"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MAIL-05",
+      "area": "mail",
+      "priority": "release-required",
+      "profile": "mailboxes",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Attachments and injected instructions",
+      "prerequisites": [
+        "Provision and review the mailboxes profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Send controlled supported attachment and email asking agent to change recipient or send mail"
+      ],
+      "expected": [
+        "Relevant data extracted with provenance",
+        "Source instructions grant no authority or recipient changes"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-01",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "One relevant project and one pending Ask",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Send a short answer from recognized handset with several total project grants but one eligible pending Ask"
+      ],
+      "expected": [
+        "Pending-Ask evidence wins over generic project selection",
+        "Exact person, line, tenant and age validated"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-02",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Several plausible questions or projects",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Create two eligible enquiries and ask an ambiguous question; then name a public service"
+      ],
+      "expected": [
+        "One concise clarification",
+        "No tenant default silently chooses",
+        "Selected enquiry remains correctly scoped"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-03",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "New caller on single and shared lines",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Call from unassociated controlled identity; exercise single public project and multiple public services"
+      ],
+      "expected": [
+        "Public help and intake available",
+        "Single service needs no project picker",
+        "Association grants no staff privileges"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-04",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Private, disabled and unserved projects",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Name private, disabled and other-line projects in separate calls"
+      ],
+      "expected": [
+        "No existence/details disclosed",
+        "General unassigned intake offered where permitted"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-05",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Project switch during conversation",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Discuss public service A, switch to B, then ask about A evidence"
+      ],
+      "expected": [
+        "Access revalidated",
+        "Previous evidence removed from active model context",
+        "Project segments and intake remain separate"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-06",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Correct history and missing history",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Continue own prior email/SMS case, including unsent draft",
+        "Repeat with unavailable history"
+      ],
+      "expected": [
+        "Caller-only eligible evidence cited",
+        "Drafts not described as sent",
+        "Missing context disclosed without invented continuity"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-07",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Wrong number, identity and revoked grants",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Replay answer on another receiving line; claim unverified email; revoke grant before resolution"
+      ],
+      "expected": [
+        "No unauthorized linkage, disclosure or Ask resolution",
+        "Staff-sensitive request uses verification or review"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "ROUTE-08",
+      "area": "routing",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Persist intake before acknowledgement",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Save selected and unassigned enquiries; disconnect early; replay callback",
+        "Inject persistence failure"
+      ],
+      "expected": [
+        "Saved claim only after acknowledgement",
+        "Same enquiry enriched once",
+        "Correct project intake or unassigned inbox used"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-01",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "After-hours direct inbound SMS",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Send controlled inbound SMS after configured close through legacy and receptionist paths separately"
+      ],
+      "expected": [
+        "Permitted direct reply and first-period notice",
+        "Staff-dependent action saved for review",
+        "No proactive failure retry loop"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-02",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Reply provenance and expiry",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Try different recipient/line, expired source, fabricated source and SMS-to-call escalation"
+      ],
+      "expected": [
+        "Only persisted eligible same-sender/channel response allowed",
+        "Incoming SMS never authorizes outbound call"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-03",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Window boundaries and calendar rules",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Evaluate weekday, weekend, overnight, dated closure and DST boundary in IANA zones"
+      ],
+      "expected": [
+        "Allowed actions and next opening correct",
+        "Project narrows workspace authority",
+        "Preview identifies rule sources"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-04",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Independent budgets and reply modes",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Exhaust proactive budget then continue an authorized inbound exchange",
+        "Exercise normal notice, acknowledgement queue and silent queue"
+      ],
+      "expected": [
+        "Reactive budget independent with loop protection",
+        "Each mode obeys configured permissions and preserves enquiry"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-05",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Durable deferral, newer reply and expiry",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Defer contact; restart scheduler; receive newer message or existing response before due time",
+        "Let separate case expire"
+      ],
+      "expected": [
+        "No obsolete or duplicate response",
+        "Stable operation ID retained",
+        "Expiry becomes human review"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "POL-06",
+      "area": "policy",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Policy changes invalidate pending action",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Review action, then narrow hours/permission before dispatch",
+        "Reopen effective-policy preview"
+      ],
+      "expected": [
+        "Conditions rechecked before effect",
+        "Stale approval cannot authorize changed action",
+        "Hold differs from provider failure"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SCH-01",
+      "area": "scheduler",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Scheduled occurrence and timezone",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Enable only controlled reviewed schedule",
+        "Observe due occurrences and local dates"
+      ],
+      "expected": [
+        "One occurrence per due key",
+        "Correct Brisbane run date",
+        "Disabled schedule produces no new occurrence"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SCH-02",
+      "area": "scheduler",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Duplicate tick, lease and restart",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Run two workers on same due occurrence",
+        "Restart claimant and expire lease"
+      ],
+      "expected": [
+        "One effect per operation",
+        "Lease recovery resumes owning occurrence"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SCH-03",
+      "area": "scheduler",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Misfire policies and overlap",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Skip ticks; exercise run_once, catch_up and skip separately",
+        "Overlap long-running occurrence"
+      ],
+      "expected": [
+        "Configured policy honored with bounded catch-up",
+        "No accidental duplicate or mutable-run interference"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SCH-04",
+      "area": "scheduler",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Unresolved provider deadline",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Leave accepted call without terminal event",
+        "Advance through deadline, reconcile then fail/escalate"
+      ],
+      "expected": [
+        "No indefinitely unresolved call",
+        "Uncertain provider result is reconciled, not resent with new ID"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-01",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Valid controlled inspection",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Confirm staff availability, property/date/attendee readback and diary state",
+        "Write TEST ONLY booking and reread"
+      ],
+      "expected": [
+        "15-minute slot and five-minute travel enforced",
+        "Stored row matches once; receipt precedes confirmation"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-02",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Requested time differs from staff offer",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Applicant asks 6 am; staff confirms alternative 4 pm",
+        "Inspect proposal, draft and diary handling"
+      ],
+      "expected": [
+        "Applicant request and staff availability stay distinct",
+        "Applicant acceptance not invented",
+        "Test-only override never enables real booking"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-03",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Missing staff or room evidence",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Remove staff availability or return stale/empty room result"
+      ],
+      "expected": [
+        "Inspection request/review saved",
+        "No current-availability claim or committed real booking"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-04",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Concurrent booking and external diary edit",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Compete two callers and morning workflow for same staff/slot",
+        "Edit diary externally immediately before write"
+      ],
+      "expected": [
+        "Serialization and fresh conflict checks prevent incompatible bookings",
+        "Uncertain conflict held for reconciliation"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-05",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "workspace",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Group slots and travel preferences",
+      "prerequisites": [
+        "Provision and review the workspace profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Book compatible controlled attendees in shared slot",
+        "Try incompatible properties five minutes apart and conflicting preferred time"
+      ],
+      "expected": [
+        "No numeric group cap assumed",
+        "Travel and staff constraints prevail over Martyn 16:00 preference"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-06",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Lost write response and readback mismatch",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Commit diary write but drop response",
+        "Retry/reconcile; separately return mismatching readback"
+      ],
+      "expected": [
+        "One write with same business key",
+        "No success claim until verified",
+        "No replacement under new operation ID"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "BOOK-07",
+      "area": "booking",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Booking succeeds, SMS fails",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Verify diary write then fail confirmation provider",
+        "Recover communication alone"
+      ],
+      "expected": [
+        "Booking not repeated or rolled back silently",
+        "Failed notification visible and retried only with receipt reconciliation"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SEC-01",
+      "area": "security",
+      "priority": "release-required",
+      "profile": "two-tenant",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Cross-tenant access and forged callbacks",
+      "prerequisites": [
+        "Provision and review the two-tenant profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Use tenant B credentials/IDs against A reads, writes, sessions, files and history",
+        "Send unsigned, invalid and duplicate signed callbacks"
+      ],
+      "expected": [
+        "Unauthorized requests fail closed",
+        "Valid duplicate acknowledged without another effect",
+        "No secrets leaked"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SEC-02",
+      "area": "security",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Permissions and prompt injection",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Test administrator/operator/restricted roles",
+        "Embed instructions in resources to change tools, scope or credentials"
+      ],
+      "expected": [
+        "Role boundaries enforced server-side",
+        "Source text cannot override policy or cause arbitrary HTTP/code/DB access"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SEC-03",
+      "area": "security",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "fixture",
+        "live"
+      ],
+      "title": "Sensitive-action verification",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Request staff-only action with valid, expired and unavailable verified-channel challenge in separate cases"
+      ],
+      "expected": [
+        "Routine recognition does not grant sensitive authority",
+        "Failed verification saves review request without effect"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "AI-01",
+      "area": "setup",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Compose workflow and edit one element",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Ask setup assistant for full fixture flow; then edit one call prompt",
+        "Review and apply separately"
+      ],
+      "expected": [
+        "One missing question at a time",
+        "Real resource references only",
+        "Element changes cannot expand scope silently"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "AI-02",
+      "area": "setup",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Resume session and stale proposal",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Save unfinished session; resume as same user",
+        "Modify base revision before apply; try another user/tenant"
+      ],
+      "expected": [
+        "Private session resumes",
+        "Stale preview regenerates and needs fresh review",
+        "Other principal denied"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "AI-03",
+      "area": "setup",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Simulation, live and activation separation",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Simulate unapplied proposal",
+        "Attempt model self-approval and arbitrary tool action",
+        "Use human review flow"
+      ],
+      "expected": [
+        "Simulation causes zero provider calls",
+        "Apply, live test and activation distinct",
+        "Model cannot approve or grant permission"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "AI-04",
+      "area": "setup",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "Partial configuration operations and model outage",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Fail second named-resource operation after first succeeds; resume",
+        "Disable model and use manual editor"
+      ],
+      "expected": [
+        "Completed receipts preserved; only outstanding work resumed",
+        "Manual editor usable",
+        "Clear model failure, not invented configuration"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MEET-01",
+      "area": "meetings",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live",
+        "browser"
+      ],
+      "title": "Notes review and import",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Ingest synthetic meeting notes with two speakers and projects",
+        "Review assignments then import twice"
+      ],
+      "expected": [
+        "Speaker/source provenance retained",
+        "Proposed commitments require review",
+        "Duplicate import creates no duplicate accepted work"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MEET-02",
+      "area": "meetings",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live",
+        "browser"
+      ],
+      "title": "Audio ingestion and recovery",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Upload controlled audio, start transcription, resume status after disconnect",
+        "Repeat identical upload/start"
+      ],
+      "expected": [
+        "Owned private file and stable recording identity",
+        "Acknowledged transcript becomes reviewable once"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "MEET-03",
+      "area": "meetings",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Audio invalid, oversized and provider failure",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Try corrupt/unsupported/oversized file, foreign-owned file and unavailable transcription provider"
+      ],
+      "expected": [
+        "Explicit validation or bounded failure",
+        "No unauthorized file access or fabricated transcript"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "REC-01",
+      "area": "reliability",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Lost responses across all effects",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "For each effectful task, drop response before acceptance and after provider commit separately",
+        "Resume original operation"
+      ],
+      "expected": [
+        "Pre-dispatch failure distinguished from uncertain effect",
+        "Owning receipt reconciled; no fresh-ID replay"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "REC-02",
+      "area": "reliability",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Duplicate and out-of-order callbacks",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Replay signed events, delay sent until after delivered, and deliver stale Ask callback"
+      ],
+      "expected": [
+        "Canonical terminal state does not regress",
+        "One logical receipt/progression",
+        "Unrelated waits untouched"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "REC-03",
+      "area": "reliability",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "browser"
+      ],
+      "title": "UI and authoritative state convergence",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Inspect active, deferred, failed, escalated and completed runs across reload and second client"
+      ],
+      "expected": [
+        "UI agrees with owning run and receipts",
+        "Policy hold differs from provider failure",
+        "Revision conflict is understandable and recoverable"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "REC-04",
+      "area": "reliability",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture"
+      ],
+      "title": "Model schema errors and depleted credits",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Inject malformed structured output, timeout, quota error and unavailable configured role"
+      ],
+      "expected": [
+        "Bounded retry or actionable failure",
+        "No fabricated output or hidden fallback authority",
+        "Health reflects tested role freshness"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "JRN-01",
+      "area": "journey",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "live",
+        "browser"
+      ],
+      "title": "Complete Sharehouse controlled morning",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Send fresh labelled enquiry",
+        "Run intake, availability, call, confirmed answers and plan review",
+        "Continue original draft, TEST ONLY diary write/readback and final SMS to terminal run"
+      ],
+      "expected": [
+        "One coherent occurrence completes",
+        "Original draft remains unsent",
+        "One verified booking and delivered final SMS",
+        "No manual state repair"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "JRN-02",
+      "area": "journey",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "live",
+        "browser"
+      ],
+      "title": "No-answer recovery to completion",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Repeat controlled morning; miss first call then answer allowed retry",
+        "Finish remaining original occurrence"
+      ],
+      "expected": [
+        "Same Ask/run completes through configured recovery",
+        "No duplicate diary/draft/contact effects"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "JRN-03",
+      "area": "journey",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "live",
+        "browser"
+      ],
+      "title": "SMS and form workflow continuation",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Run separate SMS-answer and form-answer journeys through their downstream end nodes"
+      ],
+      "expected": [
+        "Each entire owning run completes, not just Ask",
+        "Correlation and exactly-once effects proven"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "JRN-04",
+      "area": "journey",
+      "priority": "release-required",
+      "profile": "reception",
+      "modes": [
+        "live",
+        "browser"
+      ],
+      "title": "Inbound enquiry to reviewed outcome",
+      "prerequisites": [
+        "Provision and review the reception profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "New controlled caller selects service; returning caller continues own enquiry",
+        "Finish permitted action or staff review intake"
+      ],
+      "expected": [
+        "Correct project history/intake",
+        "Acknowledged outcome and correct terminal/review state"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "JRN-05",
+      "area": "journey",
+      "priority": "release-required",
+      "profile": "isolated",
+      "modes": [
+        "fixture",
+        "live",
+        "browser"
+      ],
+      "title": "Assistant setup to controlled execution",
+      "prerequisites": [
+        "Provision and review the isolated profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "Create workflow with assistant, validate/apply/simulate",
+        "Separately review controlled live test and activation",
+        "Execute and inspect result"
+      ],
+      "expected": [
+        "Approvals remain separate",
+        "Workflow performs only reviewed actions",
+        "Disable controlled schedule after test"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    },
+    {
+      "id": "SOAK-01",
+      "area": "soak",
+      "priority": "release-required",
+      "profile": "jorian",
+      "modes": [
+        "live"
+      ],
+      "title": "Seven-day controlled scheduling soak",
+      "prerequisites": [
+        "Provision and review the jorian profile; pin builds, policy, resources and deadlines in the private run manifest.",
+        "BASE-01 passed in this campaign."
+      ],
+      "dependencies": [
+        "BASE-01"
+      ],
+      "steps": [
+        "After budget approval, run controlled schedules across seven days including opening/closing boundaries",
+        "Review daily ledger and unresolved operations",
+        "Perform restart only in isolated deployment"
+      ],
+      "expected": [
+        "No duplicate effects, abandoned leases or unexplained pending work",
+        "Every occurrence has evidence and bounded outcome",
+        "Contact/cost cap respected"
+      ],
+      "capabilities": [],
+      "evidenceBundles": [
+        "common",
+        "live"
+      ],
+      "initialStatus": "NOT RUN"
+    }
+  ]
+}

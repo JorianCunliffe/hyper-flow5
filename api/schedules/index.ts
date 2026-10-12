@@ -6,6 +6,7 @@ import { deleteTenantSchedule, readScheduleRun, releaseBlockedScheduleRun, listT
 import { failedScheduleResults, runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
 import { listScheduleRuns } from '../../lib/serverStore.js';
 import { manualRecoveryOccurrence } from '../../lib/outboundScheduleRecovery.js';
+import { scheduleRecovery, RecoveryError, requireRecoveryAdministrator } from '../../lib/scheduleRecovery.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const action = typeof req.query.action === 'string' ? req.query.action : undefined;
@@ -49,6 +50,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const member = await requireAppMember(req);
+    if (action === 'recovery') {
+      if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});
+      requireRecoveryAdministrator(member);
+      res.setHeader('Cache-Control','no-store');
+      const b=req.body||{};
+      if(typeof b.id!=='string' || !/^schedule_[a-zA-Z0-9_-]+$/.test(b.id) || !Number.isSafeInteger(b.scheduledFor) || b.scheduledFor<=0)return res.status(422).json({error:'Schedule ID and occurrence timestamp required'});
+      if(b.operation==='preview')return res.status(200).json(await scheduleRecovery.preview(member.orgId,b.id,b.scheduledFor));
+      if(b.operation==='apply')return res.status(200).json(await scheduleRecovery.apply(member.orgId,member.uid,b));
+      return res.status(422).json({error:'Use preview or apply'});
+    }
     if (action === 'resume') {
       if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
       if (!['owner', 'admin'].includes(member.role)) return res.status(403).json({ error: 'Administrator review required' });
@@ -89,6 +100,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    return res.status(error instanceof ApiAuthError ? error.status : 500).json({ error: error?.message || String(error) });
+    return res.status(error instanceof ApiAuthError || error instanceof RecoveryError ? error.status : 500).json({ error: error?.message || String(error) });
   }
 }

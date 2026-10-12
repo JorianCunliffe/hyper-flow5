@@ -25,6 +25,8 @@ import { TenantControlError } from '../../lib/tenantControl/model.js';
 import { handleSetup } from '../../lib/setupAssistant/service.js';
 import { authenticatedApi } from '../../lib/setupAssistant/adapter.js';
 import { safeError } from '../../lib/setupAssistant/safety.js';
+import { recordOperationalEvent } from '../../lib/operationalLog.js';
+import operationalLog from '../../lib/operationalLogApi.js';
 
 const brainstormSubtasks = async (req: VercelRequest, res: VercelResponse) => {
   const { milestoneName, projectContext } = req.body || {};
@@ -91,10 +93,13 @@ const generateProjectStructure = async (req: VercelRequest, res: VercelResponse)
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const started=Date.now();let auditMember:Awaited<ReturnType<typeof requireAppMember>>|undefined;let auditStatus='completed';
   try {
     const action = typeof req.query.action === 'string' ? req.query.action : '';
+    if (action === 'operational_log') return await operationalLog(req, res);
     if (action === 'tenant' && req.query.view === 'lifecycle') return res.status(200).json(await handleLifecycle(req));
     const member = await requireAppMember(req);
+    auditMember=member;
     if (action === 'reception') { res.setHeader('Cache-Control','no-store'); return res.status(200).json(await handleReception(req,member)); }
     if (action === 'setup_assistant') {
       res.setHeader('Cache-Control', 'no-store');
@@ -117,8 +122,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'generateProjectStructure') return await generateProjectStructure(req, res);
     return res.status(404).json({ error: 'Unknown Gemini operation' });
   } catch (error: any) {
+    auditStatus='failed';
     if (req.query.action === 'setup_assistant') return res.status(error.status || 503).json({ error: safeError(error) });
     console.error(error);
     return res.status(error instanceof CaptureError || error instanceof FileError || error instanceof LifecycleError || error instanceof ApiAuthError || error instanceof TenantControlError || error instanceof FlowError || error instanceof CalendarError || error instanceof ArtifactError || error instanceof PublishingError ? error.status : 500).json({ error: error?.message || String(error) });
+  } finally {
+    if(auditMember)await recordOperationalEvent({tenantId:auditMember.orgId,type:'api.completed',actorId:auditMember.uid,status:auditStatus,projectId:typeof req.body?.projectId==='string'?req.body.projectId:undefined,details:{reasonCode:typeof req.query.action==='string'?req.query.action:'unknown',decision:typeof req.body?.operation==='string'?req.body.operation:undefined,latencyMs:Date.now()-started}});
   }
 }

@@ -4,6 +4,7 @@ import type { ActionExecutionContext, ActionExecutor, ActionOutcome } from './fl
 import { runtimeDatabase } from './runtimeDatabase.js';
 import { withActionExecutionScope } from './actionExecutionScope.js';
 import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
+import { recordOperationalEvent } from './operationalLog.js';
 
 /** Infrastructure uncertainty must never enter a graph's business retry branch. */
 export class ActionRecoveryRequired extends Error {
@@ -51,7 +52,9 @@ export const dispatchStore: DispatchStore = {
       });
       const result = await reference.transaction(current => encodeRtdbRecord(update(decodeRtdbRecord(current))), undefined, false);
       if (!result.committed) throw new ActionRecoveryRequired('Action dispatch transaction was not committed');
-      return decodeRtdbRecord(result.snapshot.val());
+      const saved: ActionDispatch = decodeRtdbRecord(result.snapshot.val());
+      await recordOperationalEvent({tenantId:orgId,type:'action.transition',projectId:saved.projectId,runId:saved.flowRunId,nodeId:saved.nodeId,operationId:id,occurrenceId:saved.occurrenceId,communicationId:saved.externalId,status:saved.terminal?.status || saved.outcome?.status || saved.state,at:saved.updatedAt,dedupeKey:`${id}:${saved.state}:${saved.updatedAt}:${saved.terminal?.status || saved.outcome?.status || ''}`,details:{attempt:saved.attempt,providerCode:saved.providerCode}});
+      return saved;
     } finally { reference.off('value', listener); }
   }
 };

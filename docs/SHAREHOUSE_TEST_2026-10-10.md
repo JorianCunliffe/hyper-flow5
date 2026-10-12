@@ -4,7 +4,22 @@
 
 Goal: complete the full Morning Run v2 and exercise approximately five calls and five SMS cases. Only Jorian's configured person identity may receive test communications. Emails remain unsent drafts. Diary writes require explicit TEST ONLY inspection confirmation. Automatic schedules remain disabled. Do not replay uncertain provider effects.
 
-Project: `1790716687348`. Current occurrence: `fr_a26a8fe0badb2b0b3f31be3fa395`.
+Project: `1790716687348`. Latest full-flow completed occurrence: `fr_eaf7cb1d73e44eda497ce32b630b`. Earlier recovered full occurrence: `fr_3351c1e354f8389059093108b9eb`. Isolated SMS occurrence: `fr_167224b61d2e0806e9f96fe28ecd` in communications-test project `1787628008985`.
+
+## Current acceptance checkpoint — 11 October
+
+The sections below are chronological evidence; older pending/failure statements are retained as history, not the current result.
+
+| Requirement | Current evidence | Result |
+| --- | --- | --- |
+| Full Morning Run v2 | Fresh 11 October run completed with all 20 node attempts completed, original draft updated, one TEST ONLY booking/readback and final delivered SMS | PASS; standard review/advance controls, no run-state repair |
+| Approximately five calls | C1–C6 handset calls recorded below; C6 answered automatically; earlier C1/C4 recovery limitations retained | Volume reached |
+| SMS-linked forms update Ask state | Three submitted forms saved values and released their Wait; latest used 19 as isolated test data | PASS |
+| Natural direct SMS binds to pending Ask | Post-fix handset policy reply matched the original Ask without project clarification | PASS after correction |
+| Partial answer followed by next SMS question | Policy saved separately; numeric follow-up delivered | PASS |
+| Final direct SMS answer completes Ask once | Handset "22 minutes" saved as numeric 22; Ask answered and owning Wait completed with two distinct source receipts | PASS |
+
+Correction `db4c201` is production READY. CI `38092087326` completed successfully; 35 targeted tests and TypeScript also passed locally. The post-fix direct SMS sequence and fresh full-flow occurrence now pass. The requested controlled volume covers six calls and at least five SMS cases (three form submissions, the direct two-answer sequence, and delivered final schedules). These are varied cases, not five consecutive defect-free full runs. Earlier failures and recoveries remain recorded. This acceptance does not activate the public receptionist or automated schedules, or claim the wider SH-01–SH-24 programme is complete.
 
 Inspection rules: 15 minutes, five-minute travel between properties, Australia/Brisbane dates, preferred Martyn Street 16:00 and other inspections around 15:30, subject to confirmed availability and diary conflicts.
 
@@ -112,3 +127,24 @@ Fresh natural-SMS retest is live: run `fr_a665e477859e64c8ce7d3942aba4`, Ask `as
 - FAIL: inbox job completed with routing kind `clarification`, reason `ambiguous`, six candidate projects, response `comm_248968ee69794820a8a8de250dac3902`. Pending Ask `ask_c957aca4cd304c07ba6b6a0f37e0c472` remained open with no saved response. Expected pending-Ask correlation and partial answer did not occur. Form success is unaffected; direct SMS acceptance failed.
 - Investigation: authoritative owning run/Ask IDs and accepted SMS delivery are consistent; matcher reads acknowledged provider receipt and requires exact tenant/person/receiving-line identity. Precise rejection reason not yet established. Local read-only Communications API diagnostic unavailable because local deployment environment lacks COMMUNICATIONS_API_KEY; no credentials printed, no response replayed or run state changed.
 - Root cause found in cross-service contract: Communications normaliseCorrelation returns `external_project_id` (converting legacy `project_id`); pendingSmsReply checked only `project_id`. Fixed canonical field matching, retained legacy-only compatibility, rejected contradictory fields. Regression now exercises the HTTP client with canonical v2 receipt, alongside wrong-project and conflicting-alias rejection. 35 targeted tests and TypeScript check pass. Live acceptance remains pending deployment/retest.
+
+### Post-fix live SMS correlation PASS — 11 October 08:49–08:50 Brisbane
+
+Handset message `comm_6035b536ad16482784fc5d93099496fa` ("They have to go through the sharehouse website") matched owning Ask `ask_c957aca4cd304c07ba6b6a0f37e0c472` in run `fr_167224b61d2e0806e9f96fe28ecd`. Persisted response is via SMS with the original communication ID and only `direct_booking_policy` populated. Canonical `ask.response.received` event processed. No general project-selection response was recorded for this inbox job. Ask correctly remains open and run waiting for numeric inspection duration. Follow-up SMS `comm_01f585202ada48cc906ea69c9371a887` accepted. This passes live matching and partial-answer persistence, not yet final sequential completion.
+- Sequential completion PASS: `comm_8c6621183adb415a9061d9e656a5f073`, handset text "22 minutes", persisted via SMS as numeric `inspection_minutes: 22`. Both source communication and Ask response events processed. Ask is answered, owning Wait attempt completed, isolated run changed waiting to running. Exactly two SMS response records retain their original distinct communication IDs. No form submission or manual answer recovery was needed for this post-fix sequence. 22 remains isolated fixture data; business default is 15 minutes.
+
+## Fresh full-flow retest — 11 October
+
+User requested continued complete end-to-end acceptance after the sequential SMS pass. New source `comm_89080a3ba88b414e8bdc364228ac1b27`, subject "80 Martyn st enquiry TEST ONLY", from Jorian, asks move-in tomorrow and inspection 6 am. Bound as sole effect-eligible source at setup revision 2003; existing completed run and provider effects preserved. Policy revision 5 adds bounded Jorian-only v2 exception until 10:59 Brisbane, per-recipient maximum 10; schedules stay disabled.
+
+New run `fr_eaf7cb1d73e44eda497ce32b630b` passed controlled setup gate. Intake includes full source and existing Outlook draft identity; diary and availability reads succeeded. Preparation preserves 6 am and reports no Martyn rooms in current webhook. Ask `ask_fc87a21c17f64bdeaf271731890cd5ed` separately requests room verification and staff attendance. Call `comm_7485c3d8907442669b7d147a3f19805a` started at 09:07 Brisbane. Awaiting call answer before downstream planning. Intermediate duplicate advance responses correctly held the still-running report operation; no replacement operation was created.
+
+### Fresh full-flow PASS — 11 October 09:16 Brisbane
+
+C6 call completed at 09:08. Its owning Ask automatically stored room `Unit 1, Room 6` and staff response rejecting 6 am in favour of tomorrow at 4 pm. The transcript includes correction from 3 pm to 4 pm and explicit readback confirmation. Tomorrow resolves to Monday 12 October in Brisbane. Planning preserves the applicant's requested time and treats 4 pm as staff-confirmed, with applicant acceptance pending.
+
+Plan approval `ask_cee8c5a6681b4be89ea73712c0f9acf6` was completed through the standard review UI under the user's controlled-test instructions. No run or node state was repaired directly. Existing provider draft receipt `45abe85d-d3cf-4f60-8ef5-4ef01c44ed33` was updated in place to revision 2, then finalized to revision 3, with distinct provider change keys and `draft_only:true`; its original provider draft identity was preserved. No new response draft was needed, and no email was sent.
+
+Diary append operation `op:fr_eaf7cb1d73e44eda497ce32b630b:m-1790717016907__item_0:1` wrote exactly six cells in `Inspections!A6:F6`: Monday 12 October, 16:00–16:15 Australia/Brisbane, The Martyn, TEST ONLY - Jorian, one attendee, TEST_ONLY_PENDING_EMAIL_REVIEW. Fresh readback at 09:14:46 showed that exact row once; verification reported `verified:true`, no discrepancies. The final draft explicitly identifies the entry as TEST ONLY, not a real applicant booking.
+
+Final schedule SMS `comm_082126941e9c4372a9761c3fd7c0ff32` targeted only configured Jorian. Provider delivery timestamp is 09:15:59 Brisbane. Owning `sms.delivered` receipt `evt_9e822f92faa440aea2f2c205988f9af4` resolved node16 successfully. Run status is `completed` at 09:16:17, with all 20 node records' latest attempts completed (including loop children). No duplicate call, draft replacement, diary row or SMS was required. Workflow progression used standard approval and Advance Flow controls; this verifies the manual controlled flow, not an unattended scheduled run. Automated schedules remain disabled.
