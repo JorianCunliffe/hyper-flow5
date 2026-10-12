@@ -64,3 +64,21 @@ test('policy restriction is branchable with zero provider calls and never report
   assert.equal(result.status,'success');assert.equal(result.output.provider_called,false);assert.equal(result.output.successful,false);assert.equal(result.output.contact_policy.nextEligibleAt,12345);assert.equal(calls,0);
   const held=await execute('send_sms','{"to":"+61400000000","body":"Hello"}',{},context);assert.equal(held.providerCode,'CONTACT_POLICY_HOLD');assert.equal(held.recoveryRequired,true);assert.equal(calls,0);
 });
+
+test('coaching and SMS destination bindings are resolved before policy evaluation without rerendering content',async()=>{
+ for(const type of ['outgoing_call','send_sms']) {
+  const f=fixture(); const template=JSON.stringify({to:'{{coaching_phone}}',body:'{{untrusted_text}}'});
+  await f.execute(type,template,{coaching_phone:'+61400000000',untrusted_text:'literal {{do_not_execute}}'},context);
+  assert.equal(f.claims[0].target,'+61400000000');
+  assert.equal(f.sends[0].template.body,'{{untrusted_text}}');
+ }
+ const f=fixture();await f.execute('outgoing_call','{}',{contact_phone:'+61400000000'},context);
+ assert.equal(f.claims[0].target,'+61400000000');
+});
+test('missing and invalid destination bindings fail before policy reservation or provider dispatch',async()=>{
+ for(const data of [{},{phone:'bad'},{phone:{value:'+61400000000'}}]){
+  const f=fixture();const r=await f.execute('outgoing_call','{"to":"{{phone}}"}',data,context);
+  assert.equal(r.providerCode,'ACTION_INPUT_INVALID');assert.equal(r.output?.provider_called,false);
+  assert.equal(f.claims.length,0);assert.equal(f.sends.length,0);
+ }
+});

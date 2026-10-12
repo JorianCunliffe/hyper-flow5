@@ -42,7 +42,12 @@ export const ServiceConfigurationPanel: React.FC<{ project: Project; onConfigure
         setNotice(schedule.enabled ? 'Schedule paused.' : 'Schedule resumed.');
       }
       await load();
-    } catch (e: any) { setError(e?.message || String(e)); }
+    } catch (e: any) {
+      if(kind==='run' && e instanceof TypeError) {
+        setError('The connection ended before the run result arrived. The run may have started; do not start another call while its status is being checked.');
+        try { await load(); } catch { /* Preserve the uncertain request warning. */ }
+      } else setError(e?.message || String(e));
+    }
     finally { setWorking(false); }
   };
   return <div className="mb-5 rounded-2xl border border-violet-200 bg-violet-50/60 p-4">

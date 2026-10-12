@@ -8,6 +8,7 @@ import { resolveGrantedPersonTarget } from './actionTarget.js';
 import { withActionExecutionScope } from './actionExecutionScope.js';
 import { ActionRecoveryRequired, durableActionExecutor } from './actionDispatch.js';
 import { normalizeTaskType } from './taskTypes.js';
+import { renderFlowValue } from './flowData.js';
 
 const communicationChannel = (taskType: string): 'email' | 'sms' | 'voice' | undefined => {
   if (taskType === 'send_email') return 'email';
@@ -115,9 +116,14 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
   }
 
   if(channel && channel!=='email' && !policyDecision && ctx.orgId && parsed) {
-    const target=typeof parsed.to==='string'?parsed.to:'';
-    if(!/^\+[1-9]\d{7,14}$/.test(target)) throw new Error('A verified destination is required for contact policy.');
-    const claim=await dependencies.claimContactDispatch(ctx.orgId,{operationId:ctx.runId,target,channel,coalesce:false,projectId:ctx.projectId});
+    let target: unknown;
+    try {
+      target=renderFlowValue(parsed.to || projectData?.contact_phone || projectData?.phone_number || '',projectData || {});
+      if(typeof target!=='string' || !/^\+[1-9]\d{7,14}$/.test(target))throw new Error('A verified destination is required for contact policy.');
+    } catch {
+      return {status:'error',providerCode:'ACTION_INPUT_INVALID',error:'The configured phone destination is missing or invalid. Check the node input binding.',output:{provider_called:false,provider_status:'not_called',successful:false}};
+    }
+    const claim=await dependencies.claimContactDispatch(ctx.orgId,{operationId:ctx.runId,target:target as string,channel,coalesce:false,projectId:ctx.projectId});
     policyDecision=claim;
     if(!claim.allowed&&claim.existingOperationId!==ctx.runId)return {status:parsed.contact_policy?.onRestriction==='branch'?'success':'error',recoveryRequired:parsed.contact_policy?.onRestriction!=='branch',providerCode:'CONTACT_POLICY_HOLD',error:claim.reason,output:{provider_called:false,successful:false,provider_status:'not_called',contact_policy:claim}};
   }

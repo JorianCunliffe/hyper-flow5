@@ -253,3 +253,11 @@ test('no-answer and busy retry only after delay and stop at attempt limit or win
     assert.equal(runtime.milestones.find(node => node.id === 'COACH_RETRY_LOOP')?.loopConfig?.exited, true);
   }
 });
+
+test('verified input validation failure is a durable no-dispatch result, never provider uncertainty',async()=>{
+ const {store,rows}=memoryStore();let attempts=0;
+ const execute=durableActionExecutor(async()=>{attempts++;return {status:'error',providerCode:'ACTION_INPUT_INVALID',error:'Missing destination',output:{provider_called:false}};},store);
+ const a=await execute('outgoing_call','{}',{},context);const b=await execute('outgoing_call','{}',{},context);
+ assert.equal(a.providerCode,'ACTION_INPUT_INVALID');assert.deepEqual(b,a);assert.equal(attempts,1);
+ assert.equal(rows.get('tenant/op:flow:CALL:1')?.state,'resolved');
+});
