@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { TenantControlError } from "../tenantControl/model.js";
 import { workspaceView } from "../tenantControl/workspace.js";
 import { ACTION_TASK_TYPE } from "../nodeTypes.js";
+import { normalizeProjectHours } from '../projectHours.js';
 import {
   checkSchema,
   configurationSchemas,
@@ -40,10 +41,17 @@ export const hash = (v: any) =>
 export function validateProject(project: any): Issue[] {
   const issues = checkSchema(configurationSchemas.Project, project);
   if (issues.length) return issues;
+  if (project.operatingHours !== undefined) {
+    try { normalizeProjectHours(project.operatingHours); }
+    catch (error: any) { issues.push({ path: 'operatingHours', message: error.message }); }
+  }
   const nodes = project.milestones || [];
   const ids = new Set<string>();
   const results = new Set<string>();
   for (const n of nodes) {
+    const wait = n.holdConfig || n.waitConfig;
+    if (wait?.resumeAtPath && (wait.kind && wait.kind !== 'timer' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(wait.resumeAtPath) || wait.resumeAtPath.split('.').some((part: string) => ['__proto__','prototype','constructor'].includes(part))))
+      issues.push({ path: n.id, message: 'Wait until result requires a timer and a valid data path.' });
     if (ids.has(n.id))
       issues.push({ path: n.id, message: "Duplicate node id" });
     ids.add(n.id);

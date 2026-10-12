@@ -1,5 +1,5 @@
 import {readContactPolicy,saveContactPolicy,readTenantAgentProfile,requireOrganizationMember} from '../serverStore.js';
-import {normalizeContactPolicy,policyDefaults,evaluateContactPolicy} from './businessHours.js';
+import {normalizeContactPolicy,policyDefaults,evaluateContactAuthority} from './businessHours.js';
 import {FlowError} from '../visibleFlows/model.js';
 const defaults={member:requireOrganizationMember,profile:readTenantAgentProfile,read:readContactPolicy,save:saveContactPolicy};
 export async function handleContactPolicy(request:{method?:string;body?:any;query?:any},member:{orgId:string;uid:string;apiClientId?:string},deps=defaults){
@@ -28,5 +28,5 @@ export async function handleContactPolicy(request:{method?:string;body?:any;quer
     }
     const {createHash}=await import('node:crypto');
     return {policy:proposal,planHash:createHash('sha256').update(JSON.stringify(proposal)).digest('hex'),expectedRevision:current.revision,
-      preview:evaluateContactPolicy(proposal,{orgId:member.orgId,target:'preview',channel:'sms',now:Date.now()}),note:'Inbound replies require a persisted matching source. Saving does not enable reception or grant action permissions.'};
+      preview:evaluateContactAuthority(proposal,{orgId:member.orgId,target:'preview',channel:'sms',now:Date.now()}),note:'Inbound replies require a persisted matching source. Saving does not enable reception or grant action permissions.'};
 }

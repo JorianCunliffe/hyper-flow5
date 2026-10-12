@@ -1698,6 +1698,10 @@ export interface components {
             revision: number;
             /** @description IANA timezone */
             timezone: string;
+            /**
+             * @deprecated
+             * @description Legacy configuration only; hours are checked by the project workflow primitive.
+             */
             outbound: {
                 days: number[];
                 /** @description HH:mm local time */
@@ -1707,7 +1711,11 @@ export interface components {
                 closures?: string[];
             };
             replies: {
-                /** @enum {string} */
+                /**
+                 * @deprecated
+                 * @description Legacy only; configure explicit workflow branches.
+                 * @enum {string}
+                 */
                 mode: "reply" | "acknowledge" | "queue";
                 /** @default 24 */
                 windowHours: number;
@@ -1723,6 +1731,10 @@ export interface components {
             revision?: number;
             projects: {
                 projectId: string;
+                /**
+                 * @deprecated
+                 * @description Legacy only. Use Project.operatingHours and check_hours.
+                 */
                 hours?: {
                     days: number[];
                     /** @description HH:mm local time */
@@ -1731,8 +1743,12 @@ export interface components {
                     end: string;
                     closures?: string[];
                 };
-                /** @enum {string} */
+                /**
+                 * @deprecated
+                 * @enum {string}
+                 */
                 afterHoursMode?: "reply" | "acknowledge" | "queue";
+                /** @deprecated */
                 afterHoursActions?: ("availability" | "booking" | "resume_ask")[];
                 enabled: boolean;
                 label: string;
@@ -1777,6 +1793,10 @@ export interface components {
                 timezone: string;
                 projectIds: string[];
                 inboxOwner: string;
+                /**
+                 * @deprecated
+                 * @description Legacy only. Use Project.operatingHours and check_hours.
+                 */
                 hours?: {
                     days: number[];
                     /** @description HH:mm local time */
@@ -1785,12 +1805,19 @@ export interface components {
                     end: string;
                     closures?: string[];
                 };
-                /** @enum {string} */
+                /**
+                 * @deprecated
+                 * @enum {string}
+                 */
                 afterHoursMode?: "reply" | "acknowledge" | "queue";
             }[];
         };
         ReceptionProject: {
             projectId: string;
+            /**
+             * @deprecated
+             * @description Legacy only. Use Project.operatingHours and check_hours.
+             */
             hours?: {
                 days: number[];
                 /** @description HH:mm local time */
@@ -1799,8 +1826,12 @@ export interface components {
                 end: string;
                 closures?: string[];
             };
-            /** @enum {string} */
+            /**
+             * @deprecated
+             * @enum {string}
+             */
             afterHoursMode?: "reply" | "acknowledge" | "queue";
+            /** @deprecated */
             afterHoursActions?: ("availability" | "booking" | "resume_ask")[];
             enabled: boolean;
             label: string;
@@ -1829,6 +1860,9 @@ export interface components {
                     status: number;
                 };
             };
+        };
+        check_project_hoursTemplate: {
+            [key: string]: unknown;
         };
         send_emailTemplate: {
             to: string | string[];
@@ -1982,7 +2016,7 @@ export interface components {
                 id: string;
                 name: string;
                 /** @enum {unknown} */
-                nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                 subtasks?: {
                     id: string;
                     name: string;
@@ -1998,7 +2032,7 @@ export interface components {
                     informed?: string[];
                     requiresApproval?: boolean;
                     /** @enum {unknown} */
-                    taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                    taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                     templateFile?: string;
                     dependsOn?: string[];
                     readyConditions?: {
@@ -2068,6 +2102,7 @@ export interface components {
                 waitConfig?: {
                     /** @constant */
                     kind?: "timer";
+                    resumeAtPath?: string;
                     durationMinutes?: number;
                     reason?: string;
                     maxResumes?: number;
@@ -2075,6 +2110,7 @@ export interface components {
                 holdConfig?: {
                     /** @enum {unknown} */
                     kind?: "timer" | "event" | "human" | "provider";
+                    resumeAtPath?: string;
                     durationMinutes?: number;
                     timeoutMinutes?: number;
                     reason?: string;
@@ -2154,6 +2190,18 @@ export interface components {
             }[];
             isArchived?: boolean;
             projectData?: Record<string, never>;
+            operatingHours?: {
+                timezone: string;
+                windows: {
+                    days: number[];
+                    /** @description HH:mm local time */
+                    start: string;
+                    /** @description HH:mm, including 24:00; earlier than start means overnight */
+                    end: string;
+                    closures?: string[];
+                }[];
+                closures?: string[];
+            };
             cashRequirement?: number;
             debtRequirement?: number;
             valueAtCompletion?: number;
@@ -2163,7 +2211,7 @@ export interface components {
             id: string;
             name: string;
             /** @enum {unknown} */
-            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
             subtasks?: {
                 id: string;
                 name: string;
@@ -2179,7 +2227,7 @@ export interface components {
                 informed?: string[];
                 requiresApproval?: boolean;
                 /** @enum {unknown} */
-                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                 templateFile?: string;
                 dependsOn?: string[];
                 readyConditions?: {
@@ -2249,6 +2297,7 @@ export interface components {
             waitConfig?: {
                 /** @constant */
                 kind?: "timer";
+                resumeAtPath?: string;
                 durationMinutes?: number;
                 reason?: string;
                 maxResumes?: number;
@@ -2256,6 +2305,7 @@ export interface components {
             holdConfig?: {
                 /** @enum {unknown} */
                 kind?: "timer" | "event" | "human" | "provider";
+                resumeAtPath?: string;
                 durationMinutes?: number;
                 timeoutMinutes?: number;
                 reason?: string;
@@ -2343,7 +2393,7 @@ export interface components {
             informed?: string[];
             requiresApproval?: boolean;
             /** @enum {unknown} */
-            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
             templateFile?: string;
             dependsOn?: string[];
             readyConditions?: {
@@ -2433,7 +2483,7 @@ export interface components {
                     id: string;
                     name: string;
                     /** @enum {unknown} */
-                    nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                    nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                     subtasks?: {
                         id: string;
                         name: string;
@@ -2449,7 +2499,7 @@ export interface components {
                         informed?: string[];
                         requiresApproval?: boolean;
                         /** @enum {unknown} */
-                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                         templateFile?: string;
                         dependsOn?: string[];
                         readyConditions?: {
@@ -2519,6 +2569,7 @@ export interface components {
                     waitConfig?: {
                         /** @constant */
                         kind?: "timer";
+                        resumeAtPath?: string;
                         durationMinutes?: number;
                         reason?: string;
                         maxResumes?: number;
@@ -2526,6 +2577,7 @@ export interface components {
                     holdConfig?: {
                         /** @enum {unknown} */
                         kind?: "timer" | "event" | "human" | "provider";
+                        resumeAtPath?: string;
                         durationMinutes?: number;
                         timeoutMinutes?: number;
                         reason?: string;
@@ -2605,6 +2657,18 @@ export interface components {
                 }[];
                 isArchived?: boolean;
                 projectData?: Record<string, never>;
+                operatingHours?: {
+                    timezone: string;
+                    windows: {
+                        days: number[];
+                        /** @description HH:mm local time */
+                        start: string;
+                        /** @description HH:mm, including 24:00; earlier than start means overnight */
+                        end: string;
+                        closures?: string[];
+                    }[];
+                    closures?: string[];
+                };
                 cashRequirement?: number;
                 debtRequirement?: number;
                 valueAtCompletion?: number;
@@ -2613,7 +2677,7 @@ export interface components {
                 id?: string;
                 name?: string;
                 /** @enum {unknown} */
-                nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                 subtasks?: {
                     id: string;
                     name: string;
@@ -2629,7 +2693,7 @@ export interface components {
                     informed?: string[];
                     requiresApproval?: boolean;
                     /** @enum {unknown} */
-                    taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                    taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                     templateFile?: string;
                     dependsOn?: string[];
                     readyConditions?: {
@@ -2699,6 +2763,7 @@ export interface components {
                 waitConfig?: {
                     /** @constant */
                     kind?: "timer";
+                    resumeAtPath?: string;
                     durationMinutes?: number;
                     reason?: string;
                     maxResumes?: number;
@@ -2706,6 +2771,7 @@ export interface components {
                 holdConfig?: {
                     /** @enum {unknown} */
                     kind?: "timer" | "event" | "human" | "provider";
+                    resumeAtPath?: string;
                     durationMinutes?: number;
                     timeoutMinutes?: number;
                     reason?: string;
@@ -2792,7 +2858,7 @@ export interface components {
                 informed?: string[];
                 requiresApproval?: boolean;
                 /** @enum {unknown} */
-                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                 templateFile?: string;
                 dependsOn?: string[];
                 readyConditions?: {
@@ -4310,7 +4376,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {unknown} */
-                    taskType: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                    taskType: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                     templateFile: string;
                     projectData?: {
                         [key: string]: unknown;
@@ -16339,7 +16405,7 @@ export interface operations {
                             id: string;
                             name: string;
                             /** @enum {unknown} */
-                            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                             subtasks?: {
                                 id: string;
                                 name: string;
@@ -16355,7 +16421,7 @@ export interface operations {
                                 informed?: string[];
                                 requiresApproval?: boolean;
                                 /** @enum {unknown} */
-                                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                                 templateFile?: string;
                                 dependsOn?: string[];
                                 readyConditions?: {
@@ -16425,6 +16491,7 @@ export interface operations {
                             waitConfig?: {
                                 /** @constant */
                                 kind?: "timer";
+                                resumeAtPath?: string;
                                 durationMinutes?: number;
                                 reason?: string;
                                 maxResumes?: number;
@@ -16432,6 +16499,7 @@ export interface operations {
                             holdConfig?: {
                                 /** @enum {unknown} */
                                 kind?: "timer" | "event" | "human" | "provider";
+                                resumeAtPath?: string;
                                 durationMinutes?: number;
                                 timeoutMinutes?: number;
                                 reason?: string;
@@ -16511,6 +16579,18 @@ export interface operations {
                         }[];
                         isArchived?: boolean;
                         projectData?: Record<string, never>;
+                        operatingHours?: {
+                            timezone: string;
+                            windows: {
+                                days: number[];
+                                /** @description HH:mm local time */
+                                start: string;
+                                /** @description HH:mm, including 24:00; earlier than start means overnight */
+                                end: string;
+                                closures?: string[];
+                            }[];
+                            closures?: string[];
+                        };
                         cashRequirement?: number;
                         debtRequirement?: number;
                         valueAtCompletion?: number;
@@ -16645,7 +16725,7 @@ export interface operations {
                             id: string;
                             name: string;
                             /** @enum {unknown} */
-                            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                            nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                             subtasks?: {
                                 id: string;
                                 name: string;
@@ -16661,7 +16741,7 @@ export interface operations {
                                 informed?: string[];
                                 requiresApproval?: boolean;
                                 /** @enum {unknown} */
-                                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                                taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                                 templateFile?: string;
                                 dependsOn?: string[];
                                 readyConditions?: {
@@ -16731,6 +16811,7 @@ export interface operations {
                             waitConfig?: {
                                 /** @constant */
                                 kind?: "timer";
+                                resumeAtPath?: string;
                                 durationMinutes?: number;
                                 reason?: string;
                                 maxResumes?: number;
@@ -16738,6 +16819,7 @@ export interface operations {
                             holdConfig?: {
                                 /** @enum {unknown} */
                                 kind?: "timer" | "event" | "human" | "provider";
+                                resumeAtPath?: string;
                                 durationMinutes?: number;
                                 timeoutMinutes?: number;
                                 reason?: string;
@@ -16817,6 +16899,18 @@ export interface operations {
                         }[];
                         isArchived?: boolean;
                         projectData?: Record<string, never>;
+                        operatingHours?: {
+                            timezone: string;
+                            windows: {
+                                days: number[];
+                                /** @description HH:mm local time */
+                                start: string;
+                                /** @description HH:mm, including 24:00; earlier than start means overnight */
+                                end: string;
+                                closures?: string[];
+                            }[];
+                            closures?: string[];
+                        };
                         cashRequirement?: number;
                         debtRequirement?: number;
                         valueAtCompletion?: number;
@@ -17191,7 +17285,7 @@ export interface operations {
                         id?: string;
                         name?: string;
                         /** @enum {unknown} */
-                        nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                        nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                         subtasks?: {
                             id: string;
                             name: string;
@@ -17207,7 +17301,7 @@ export interface operations {
                             informed?: string[];
                             requiresApproval?: boolean;
                             /** @enum {unknown} */
-                            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                             templateFile?: string;
                             dependsOn?: string[];
                             readyConditions?: {
@@ -17277,6 +17371,7 @@ export interface operations {
                         waitConfig?: {
                             /** @constant */
                             kind?: "timer";
+                            resumeAtPath?: string;
                             durationMinutes?: number;
                             reason?: string;
                             maxResumes?: number;
@@ -17284,6 +17379,7 @@ export interface operations {
                         holdConfig?: {
                             /** @enum {unknown} */
                             kind?: "timer" | "event" | "human" | "provider";
+                            resumeAtPath?: string;
                             durationMinutes?: number;
                             timeoutMinutes?: number;
                             reason?: string;
@@ -17475,7 +17571,7 @@ export interface operations {
                         id?: string;
                         name?: string;
                         /** @enum {unknown} */
-                        nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
+                        nodeType?: "milestone" | "decision" | "loop" | "wait" | "end" | "event_trigger" | "email" | "sms" | "phone_call" | "check_hours" | "webhook" | "report" | "google_doc" | "google_sheet_read" | "google_sheet_append" | "google_sheet_upsert" | "coaching_extract" | "mailbox_draft" | "mailbox_draft_update" | "capture_review" | "email_triage";
                         subtasks?: {
                             id: string;
                             name: string;
@@ -17491,7 +17587,7 @@ export interface operations {
                             informed?: string[];
                             requiresApproval?: boolean;
                             /** @enum {unknown} */
-                            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                            taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                             templateFile?: string;
                             dependsOn?: string[];
                             readyConditions?: {
@@ -17561,6 +17657,7 @@ export interface operations {
                         waitConfig?: {
                             /** @constant */
                             kind?: "timer";
+                            resumeAtPath?: string;
                             durationMinutes?: number;
                             reason?: string;
                             maxResumes?: number;
@@ -17568,6 +17665,7 @@ export interface operations {
                         holdConfig?: {
                             /** @enum {unknown} */
                             kind?: "timer" | "event" | "human" | "provider";
+                            resumeAtPath?: string;
                             durationMinutes?: number;
                             timeoutMinutes?: number;
                             reason?: string;
@@ -18020,7 +18118,7 @@ export interface operations {
                         informed?: string[];
                         requiresApproval?: boolean;
                         /** @enum {unknown} */
-                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                         templateFile?: string;
                         dependsOn?: string[];
                         readyConditions?: {
@@ -18175,7 +18273,7 @@ export interface operations {
                         informed?: string[];
                         requiresApproval?: boolean;
                         /** @enum {unknown} */
-                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
+                        taskType?: "send_email" | "send_sms" | "outgoing_call" | "webhook" | "write_report" | "check_project_hours" | "read_google_doc" | "read_google_sheet" | "append_google_sheet" | "upsert_google_sheet" | "extract_coaching_result" | "run_email_triage" | "create_mailbox_draft" | "update_mailbox_draft";
                         templateFile?: string;
                         dependsOn?: string[];
                         readyConditions?: {

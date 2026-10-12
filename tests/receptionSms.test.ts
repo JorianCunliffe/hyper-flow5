@@ -133,32 +133,27 @@ test('missing or ambiguous receiving number never falls back to a tenant default
   }
 });
 
-test('after-hours direct reply includes notice, saves intake and does not call restricted booking action',async()=>{
-  const f=await bookingFixture();
-  const at=Date.parse('2026-10-05T09:00:36Z');f.deps.now=()=>at;
-  f.config.lines[0].hours={days:[0,1,2,3,4,5,6],start:'09:00',end:'17:00'};
-  const {evaluateContactPolicy,policyDefaults}=await import('../lib/cockpit/businessHours.js');
-  const m=f.message('night','Book an inspection');m.occurredAt=new Date(at-1000).toISOString();
-  f.deps.claim=async(_o:string,i:any)=>evaluateContactPolicy(policyDefaults(),{orgId:'org',...i,source:m,now:at});
-  const r=await processReceptionSms('org',m,f.client,f.deps);
-  assert.equal(r.status,'needs_review');assert.equal(f.rows.length,0);assert.equal(f.sent.length,1);assert.match(f.sent[0].body,/outside business hours/);assert.match(f.sent[0].body,/staff review/);
+test('persisted legacy deferral requires review without generating or sending a reply',async()=>{
+  const f=fixture(),m=f.message('old');
+  f.records.set(`org/sms_receipts/${digest(['org',m.id])}`,{status:'deferred',result:{handled:true,status:'deferred'}});
+  f.deps.analyze=async()=>{throw Error('Must not generate a reply');};
+  const result=await processReceptionSms('org',m,f.client,f.deps);
+  assert.equal(result.status,'needs_review');assert.equal(f.sent.length,0);
+  assert.equal((await f.store.list('org','sms_receipts'))[0].status,'needs_review');
 });
-test('policy deferral remains resumable, saves one enquiry and never marks an uncalled provider uncertain',async()=>{
-  const f=fixture();let at=Date.parse('2026-10-05T09:00:36Z');f.deps.now=()=>at;
-  const {evaluateContactPolicy,policyDefaults}=await import('../lib/cockpit/businessHours.js');
-  const p=policyDefaults();p.replies.mode='queue';const m=f.message('night');m.occurredAt=new Date(at-1000).toISOString();
-  f.deps.claim=async(_o:string,i:any)=>evaluateContactPolicy(p,{orgId:'org',...i,source:m,now:at});
-  const first=await processReceptionSms('org',m,f.client,f.deps);assert.equal(first.status,'deferred');assert.equal(f.sent.length,0);
-  assert.equal((await f.store.list('org','sms_receipts'))[0].status,'deferred');
-  at=first.policyDecision!.nextEligibleAt!;const next=await processReceptionSms('org',m,f.client,f.deps);
-  assert.equal(next.status,'completed');assert.equal(f.sent.length,1);assert.equal((await f.store.list('org','enquiries')).length,1);
-});
-test('acknowledgement schedules a later substantive response without repeating the acknowledgement',async()=>{
-  const f=fixture();let at=Date.parse('2026-10-05T09:00:36Z');f.deps.now=()=>at;
-  const {evaluateContactPolicy,policyDefaults}=await import('../lib/cockpit/businessHours.js');const p=policyDefaults();p.replies.mode='acknowledge';
-  const m=f.message('night');m.occurredAt=new Date(at-1000).toISOString();
-  f.deps.claim=async(_o:string,i:any)=>evaluateContactPolicy(p,{orgId:'org',...i,source:m,now:at});
-  const first=await processReceptionSms('org',m,f.client,f.deps);assert.equal(first.status,'deferred');assert.equal(f.sent.length,1);assert.match(f.sent[0].body,/saved for staff review/);
-  at=first.policyDecision!.nextEligibleAt!;await processReceptionSms('org',m,f.client,f.deps);assert.equal(f.sent.length,2);assert.match(f.sent[1].body,/Hello/);
-  await processReceptionSms('org',m,f.client,f.deps);assert.equal(f.sent.length,2);
+
+test('7pm reply ignores retired queue and acknowledgement modes and never schedules a hidden second response',async()=>{
+  for (const mode of ['queue','acknowledge','reply'] as const) {
+    const f=fixture(); const at=Date.parse('2026-10-05T09:00:36Z'); f.deps.now=()=>at;
+    f.config.lines[0].hours={days:[1],start:'09:00',end:'17:00'};
+    const {evaluateContactAuthority,policyDefaults}=await import('../lib/cockpit/businessHours.js');
+    const p=policyDefaults();p.replies.mode=mode;
+    const m=f.message('night');m.occurredAt=new Date(at-1000).toISOString();
+    f.deps.claim=async(_o:string,i:any)=>evaluateContactAuthority(p,{orgId:'org',...i,source:m,now:at});
+    const result=await processReceptionSms('org',m,f.client,f.deps);
+    assert.equal(result.status,'completed');assert.equal(f.sent.length,1);
+    assert.match(f.sent[0].body,/Hello/);assert.doesNotMatch(f.sent[0].body,/outside business hours|during business hours/);
+    await processReceptionSms('org',m,f.client,f.deps);assert.equal(f.sent.length,1);
+    assert.equal((await f.store.list('org','enquiries')).length,1);
+  }
 });

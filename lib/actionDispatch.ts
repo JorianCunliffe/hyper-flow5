@@ -77,7 +77,7 @@ export const findDispatchByExternalId = async (orgId: string, projectId: string,
 
 /** Only adapters with a durable provider-side key can safely repeat an ambiguous POST. */
 const replaySafe = (taskType: string): boolean =>
-  ['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result', 'run_email_triage'].includes(taskType)
+  ['check_project_hours', 'read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result', 'run_email_triage'].includes(taskType)
   || ['outgoing_call', 'send_sms', 'send_email', 'create_mailbox_draft', 'update_mailbox_draft'].includes(taskType);
 
 export const durableActionExecutor = (
@@ -133,7 +133,7 @@ export const durableActionExecutor = (
         return saved.providerRequests![index];
       }
     }, () => execute(request.taskType, request.template, request.data, request.context));
-    if (outcome.status === 'error' && !(['CONTACT_POLICY_HOLD','ACTION_INPUT_INVALID'].includes(outcome.providerCode || '')&&outcome.output?.provider_called===false)) {
+    if (outcome.status === 'error' && taskType !== 'check_project_hours' && !(['CONTACT_POLICY_HOLD','ACTION_INPUT_INVALID'].includes(outcome.providerCode || '')&&outcome.output?.provider_called===false)) {
       // Network/HTTP errors cannot prove that the provider did not perform the effect.
       throw new ActionRecoveryRequired(outcome.error || 'Action outcome is uncertain', outcome.providerCode
         || (taskType === 'outgoing_call' ? 'IDEMPOTENCY_RECONCILIATION_REQUIRED' : undefined));

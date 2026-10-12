@@ -229,29 +229,7 @@ export default function ReceptionistsPanel({
                     />
                   </label>
                 ))}
-                <label className="block">
-                  Operating hours (optional JSON: days 0–6, start and end HH:mm)
-                  <input
-                    className={field}
-                    defaultValue={line.hours ? JSON.stringify(line.hours) : ""}
-                    onBlur={(e) => {
-                      try {
-                        const hours = e.target.value
-                          ? JSON.parse(e.target.value)
-                          : undefined;
-                        change({
-                          ...config,
-                          lines: config.lines.map((l, i) =>
-                            i === index ? { ...l, hours } : l,
-                          ),
-                        });
-                      } catch {
-                        setError("Operating hours must be valid JSON.");
-                      }
-                    }}
-                  />
-                </label>
-                <label className="block">After-hours replies<select value={line.afterHoursMode||'reply'} onChange={e=>change({...config,lines:config.lines.map((l,i)=>i===index?{...l,afterHoursMode:e.target.value as any}:l)})}><option value="reply">Inherit workspace reply permission</option><option value="acknowledge">Acknowledgement only</option><option value="queue">Queue silently</option></select></label>
+                <p>Hours belong to projects. Configure Check project hours in the workflow to control after-hours actions.</p>
                 <p>Services on this number</p>
                 {config.projects.map((p) => (
                   <label key={p.projectId} className="block">
@@ -353,9 +331,6 @@ export default function ReceptionistsPanel({
             )}
             {project && (
               <>
-                <label className="block">Project after-hours replies<select value={project.afterHoursMode||'reply'} onChange={e=>updateProject({afterHoursMode:e.target.value as any})}><option value="reply">Inherit number and workspace</option><option value="acknowledge">Acknowledgement only</option><option value="queue">Queue silently</option></select></label>
-                <label className="block">Additional project hours (JSON, optional)<input key={project.projectId} defaultValue={project.hours?JSON.stringify(project.hours):''} onBlur={e=>{try{updateProject({hours:e.target.value?JSON.parse(e.target.value):undefined});}catch{setError('Project hours must be valid JSON.');}}}/></label>
-                <fieldset><legend>Authorized actions available after hours</legend>{project.actions.map(a=><label key={a} className="block"><input type="checkbox" checked={project.afterHoursActions?.includes(a)||false} onChange={e=>updateProject({afterHoursActions:e.target.checked?[...(project.afterHoursActions||[]),a]:(project.afterHoursActions||[]).filter(v=>v!==a)})}/>{a}</label>)}</fieldset>
                 <label>
                   <input
                     type="checkbox"

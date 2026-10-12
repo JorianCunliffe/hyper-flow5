@@ -23,6 +23,8 @@ export interface FlowHoldMatch {
  */
 export interface FlowHoldConfig {
   kind: FlowHoldKind;
+  /** Project-data path containing an ISO timestamp, e.g. hours_next_open_at. */
+  resumeAtPath?: string;
   durationMinutes?: number;
   timeoutMinutes?: number;
   reason?: string;

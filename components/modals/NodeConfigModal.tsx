@@ -16,6 +16,7 @@ const TEMPLATE_PLACEHOLDERS: Partial<Record<NodeType, string>> = {
   [NodeType.SMS]: '{"to": "{{contact_phone}}", "body": "Your project {{project_name}} has an update."}',
   [NodeType.PHONE_CALL]: '{"to": "{{contact_phone}}", "prompt": "You are calling to confirm the proposal..."}',
   [NodeType.WEBHOOK]: '{"url": "https://example.com/hook", "method": "POST", "payload": {"project": "{{project_name}}"}}',
+  [NodeType.CHECK_HOURS]: '{}',
   [NodeType.REPORT]: '{"prompt": "Write a status report for {{project_name}}", "sop": "...", "template": "...", "eval_criteria": "..."}',
   [NodeType.GOOGLE_DOC]: '{"resource_name": "source_document"}',
   [NodeType.GOOGLE_SHEET_READ]: '{"resource_name": "tasks"}',
@@ -57,6 +58,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
   const [holdKind, setHoldKind] = useState<FlowHoldConfig['kind']>(initialHold.kind);
   const [waitMinutes, setWaitMinutes] = useState(initialHold.durationMinutes ?? 10);
+  const [resumeAtPath, setResumeAtPath] = useState(initialHold.resumeAtPath || milestone.waitConfig?.resumeAtPath || '');
   const [holdTimeoutMinutes, setHoldTimeoutMinutes] = useState<number | ''>(initialHold.timeoutMinutes ?? '');
   const [waitReason, setWaitReason] = useState(initialHold.reason || '');
   const [holdResultVariable, setHoldResultVariable] = useState(initialHold.resultVariable || '');
@@ -124,7 +126,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
   const actionConfig = () => ({
     ...(milestone.actionConfig || {}),
-    template,
+    template: nodeType === NodeType.CHECK_HOURS ? '{}' : template,
     requiredResults,
     forEach: eachSource.trim() ? { source: eachSource.trim(), key: eachKey.trim(), maxItems: eachLimit } : undefined,
     autoExecute,
@@ -198,9 +200,11 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
 
       if (holdKind === 'timer') {
         holdConfig.durationMinutes = Math.min(Math.max(Number(waitMinutes) || 1, 1), 10080);
+        holdConfig.resumeAtPath = resumeAtPath.trim() || undefined;
         updates.waitConfig = {
           kind: 'timer',
           durationMinutes: holdConfig.durationMinutes,
+          resumeAtPath: holdConfig.resumeAtPath,
           reason: holdConfig.reason
         };
       } else {
@@ -363,8 +367,9 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
             <p className="text-[11px] text-slate-500 mb-3">Pause this FlowRun until a timer, trusted event, human response, or provider callback resolves the hold. This is one primitive; the match fields define what may resume it.</p>
             <div className="grid grid-cols-2 gap-3">
               <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Hold kind</span><select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdKind} onChange={(e) => setHoldKind(e.target.value as FlowHoldConfig['kind'])}><option value="timer">Timer</option><option value="event">Event</option><option value="human">Human response</option><option value="provider">Provider callback</option></select></label>
-              {holdKind === 'timer' ? (
+              {holdKind === 'timer' ? (<>
                 <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Delay minutes</span><input type="number" min={1} max={10080} className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={waitMinutes} onChange={(e) => setWaitMinutes(Number(e.target.value) || 1)} /></label>
+                <label>Or wait until timestamp from result<input aria-label="Wait until result path" className="w-full border rounded p-2" placeholder="hours_next_open_at" value={resumeAtPath} onChange={e=>setResumeAtPath(e.target.value)} /></label></>
               ) : (
                 <label><span className="block text-[10px] font-black text-slate-400 uppercase mb-1">Timeout minutes</span><input type="number" min={1} max={10080} className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs" value={holdTimeoutMinutes} onChange={(e) => setHoldTimeoutMinutes(e.target.value === '' ? '' : Number(e.target.value) || 1)} placeholder="blank = no timeout" /></label>
               )}
@@ -447,10 +452,12 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         {isActionNode(draftNode) && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5">
             <div className="font-bold text-xs uppercase tracking-wider mb-1" style={{ color: NODE_TYPE_META[nodeType].color }}>{NODE_TYPE_META[nodeType].label} Action</div>
+            {nodeType === NodeType.CHECK_HOURS ? <p className="text-sm mb-3">Reads this project's saved hours using the server clock and project timezone. Returns hours_status (open, closed or not_configured), hours_open and hours_next_open_at. Connect a Decision to choose what happens next. This check sends nothing and does not pause the workflow.</p> : <>
             <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Templates support {'{{variable.path}}'} from Project Data. Whole placeholders preserve arrays and objects.</p>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Template (JSON supported)</label>
             <textarea placeholder={TEMPLATE_PLACEHOLDERS[nodeType] || ''} className="w-full h-32 bg-white border border-slate-200 rounded-lg px-3 py-2 text-[11px] font-mono resize-none" value={template} onChange={(e) => setTemplate(e.target.value)} />
             <FlowDataInspector data={projectData} milestones={milestones} template={template} />
+            </>}
             {nodeType === NodeType.EMAIL_TRIAGE && <div className="mt-3 text-xs text-slate-600">
               <button type="button" className="text-indigo-700 underline" onClick={() => {
                 try {

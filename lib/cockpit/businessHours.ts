@@ -71,6 +71,7 @@ export function nextOpening(hours:BusinessHours, timezone:string, now:number, de
 export function restrictReplyMode(...modes:Array<ReplyMode|undefined>):ReplyMode {
   return modes.includes('queue')?'queue':modes.includes('acknowledge')?'acknowledge':'reply';
 }
+/** Legacy evaluator retained for historical fixtures only. Runtime dispatch uses evaluateContactAuthority. */
 export function evaluateContactPolicy(policy:ContactPolicy,input:{orgId:string;target:string;projectId?:string;from?:string;channel:string;source?:CommunicationResult;now:number;mode?:ReplyMode;businessHours?:BusinessHours;businessTimezone?:string;projectHours?:BusinessHours}):PolicyDecision {
   const {now,source}=input;
   const open=hoursOpen(policy.outbound,policy.timezone,now);
@@ -99,6 +100,21 @@ export function evaluateContactPolicy(policy:ContactPolicy,input:{orgId:string;t
   return base;
 }
 export class ContactPolicyHold extends Error { constructor(public decision:PolicyDecision){super(decision.reason);this.name='ContactPolicyHold';} }
+
+/** Dispatch checks source evidence, not business hours. Hours are a workflow decision. */
+export function evaluateContactAuthority(policy: ContactPolicy, input: Parameters<typeof evaluateContactPolicy>[1]): PolicyDecision {
+  const { now, source } = input;
+  const decision: PolicyDecision = { status: 'allowed', allowed: true, source: 'contact authority', revision: policy.revision,
+    localTime: new Date(now).toLocaleString('en-AU', { timeZone: policy.timezone }), reactive: false, afterHours: false,
+    reason: 'Contact evidence accepted; hours are controlled by the workflow.' };
+  if (!source) return decision;
+  const at = Date.parse(source.occurredAt || '');
+  if (source.tenantId !== input.orgId || source.direction !== 'inbound' || source.channel !== input.channel || input.channel === 'voice' || !source.personId || source.sender !== input.target || !input.from || source.recipients?.length !== 1 || source.recipients[0] !== input.from || !Number.isFinite(at) || at > now || now-at > policy.replies.windowHours*3600000)
+    return { ...decision, status: 'needs_review', allowed: false, reason: 'Inbound reply evidence is missing, expired or does not match the recipient and receiving identity.' };
+  decision.reactive = true;
+  decision.expiresAt = at + policy.replies.expiryHours*3600000;
+  return now >= decision.expiresAt ? { ...decision, status: 'needs_review', allowed: false, reason: 'Deferred response expired; review the enquiry.' } : decision;
+}
 
 /** Pure CAS transform shared by persistence and replay fixtures. */
 export function applyContactPolicyRevision(current:any,raw:unknown,expectedRevision:number,requestId:string){

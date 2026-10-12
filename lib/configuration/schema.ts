@@ -1,5 +1,6 @@
 import { NodeType } from "../../types.js";
 import { TASK_TYPES } from "../taskTypes.js";
+import { businessHoursSchema } from '../cockpit/contactPolicySchema.js';
 export type Schema = Record<string, any>;
 const str: Schema = { type: "string", maxLength: 20000 };
 const id: Schema = { type: "string", pattern: "^[A-Za-z0-9_-]{1,128}$" };
@@ -139,12 +140,14 @@ export const nodeSchema = obj(
     }),
     waitConfig: obj({
       kind: { const: "timer" },
+      resumeAtPath: str,
       durationMinutes: { type: "number", minimum: 0 },
       reason: str,
       maxResumes: num,
     }),
     holdConfig: obj({
       kind: { enum: ["timer", "event", "human", "provider"] },
+      resumeAtPath: str,
       durationMinutes: num,
       timeoutMinutes: num,
       reason: str,
@@ -203,6 +206,7 @@ export const projectSchema = obj(
     markers: arr(obj({ id, name: str, x: num }, ["id", "name", "x"])),
     isArchived: bool,
     projectData: { type: "object" },
+    operatingHours: obj({ timezone: str, windows: arr(businessHoursSchema, 28), closures: strings }, ['timezone', 'windows']),
     cashRequirement: num,
     debtRequirement: num,
     valueAtCompletion: num,

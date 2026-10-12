@@ -12,6 +12,7 @@ export function discoveryResponse(format?: unknown) {
   if (format === "openapi") return buildOpenApi();
   return {
     version: "1.0.0",
+    projectHours: { configuration: 'Project.operatingHours', nodeType: 'check_hours', taskType: 'check_project_hours', endpoint: '/api/tasks/execute', template: {}, control: 'Explicit Decision branches; Wait.resumeAtPath can use hours_next_open_at. No implicit contact/reception hours gate.', documentation: 'docs/PROJECT_HOURS.md' },
     scheduleRecovery: {endpoint:'/api/schedules?action=recovery',operations:['preview','apply'],authority:'Human tenant owner/admin only',decisions:['resume_future','retry_original','keep_held'],review:'Fresh planHash, stable requestId; uncertain outcomes require acknowledgement; retry requires verified non-dispatch and separate call approval',documentation:'docs/SCHEDULE_RECOVERY.md'},
     operationalLog: { endpoint:'/api/operational-log', authority:'Tenant human administrator', filters:['projectId','runId','operationId','communicationId','campaignId','type','severity','from','to'], pagination:'before cursor; 200 scanned events per page; follow next even when items is empty', export:'format=ndjson; X-Next-Cursor', lifecycle:'configure hotRetentionDays; archive to retained internal archive; no purge', documentation:'docs/OPERATIONAL_LOG.md' },
     openapi: "/api/openapi.json",

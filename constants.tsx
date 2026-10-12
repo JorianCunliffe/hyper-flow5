@@ -12,6 +12,7 @@ export interface NodeTypeMeta {
 }
 
 export const NODE_TYPE_META: Record<NodeType, NodeTypeMeta> = {
+  [NodeType.CHECK_HOURS]: { label: 'Check project hours', icon: Clock3, color: '#0891b2', ringClass: 'ring-cyan-300', description: 'Checks project hours; use a Decision to continue, wait or stop' },
   [NodeType.CAPTURE_REVIEW]: { label: 'Review Unresolved Items', icon: Inbox, color: '#7c3aed', ringClass: 'ring-violet-300', description: 'Clarify captured side items one at a time; unfinished items remain available for later runs' },
   [NodeType.MILESTONE]: { label: 'Milestone', icon: Circle, color: '#6366f1', ringClass: 'ring-slate-100', description: 'Standard milestone with subtasks' },
   [NodeType.DECISION]: { label: 'Decision', icon: GitBranch, color: '#f59e0b', ringClass: 'ring-amber-200', description: 'Branches the flow based on project data conditions' },

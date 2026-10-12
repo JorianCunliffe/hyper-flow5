@@ -254,4 +254,4 @@ Administrators can configure number-to-project reception directories with separa
 
 Inbound SMS reception is opt-in per number (`smsEnabled`) and shares public services, scoped history and enquiry intake with voice. See [SMS reception and confirmation rules](docs/PROJECT_RECEPTION.md#inbound-sms).
 
-Contact and business-hours configuration, reviewed API operations and existing primitive setup patterns are documented in [Contact policy](docs/CONTACT_POLICY.md). Rollout defaults off (`CONTACT_POLICY_V2_ENABLED`).
+[Project hours](docs/PROJECT_HOURS.md) are checked by the visible **Check project hours** primitive. Workflows choose their own Decision/Wait/End/review branches; calls, SMS and reception have no hidden opening-hours gate. [Contact safeguards](docs/CONTACT_POLICY.md) continue to enforce permissions, evidence, budgets and duplicate protection. Review the migration checklist before deploying this behavior change.

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Settings, Banknote, RefreshCw, User, Briefcase, ChevronDown, ChevronUp } from 'lucide-react';
 import { Project, AppSettings } from '../../types';
+import { ProjectHoursEditor } from '../ProjectHoursEditor';
+import { normalizeProjectHours } from '../../lib/projectHours';
 
 interface EditProjectModalProps {
   project: Project;
@@ -17,6 +19,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
 }) => {
   const [editedProject, setEditedProject] = useState<Project>(project);
   const [showBulkOps, setShowBulkOps] = useState(false);
+  const [hoursError, setHoursError] = useState('');
   
   // Bulk Op Local State
   const [replaceOldName, setReplaceOldName] = useState('');
@@ -48,6 +51,8 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
             </span>
           )}
         </div>
+        <ProjectHoursEditor value={editedProject.operatingHours} onChange={operatingHours=>{setEditedProject({...editedProject,operatingHours});setHoursError('');}} />
+        {hoursError && <p role="alert" className="text-red-700">{hoursError}</p>}
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div className="col-span-2">
             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Project Name</label>
@@ -325,7 +330,7 @@ export const EditProjectModal: React.FC<EditProjectModalProps> = ({
           <div className="flex gap-4">
             <button onClick={onClose} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-4 rounded-2xl transition-all active:scale-95 shadow-sm">Cancel</button>
             <button 
-              onClick={() => onSave(editedProject)} 
+              onClick={() => { try { if (editedProject.operatingHours) normalizeProjectHours(editedProject.operatingHours); onSave(editedProject); } catch(e:any) { setHoursError(e.message); } }}
               className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95 flex items-center justify-center gap-2"
             >
               Save Changes

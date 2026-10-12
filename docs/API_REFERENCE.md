@@ -3,7 +3,7 @@
 
 `holdConfig.human.escalation.mode` accepts `morning` (default when omitted) or `incident`. Morning keeps the existing primary call, timed primary retry, fallback call, then SMS to both contacts. Incident calls primary, waits for verified no-answer, sends primary's callback SMS, then calls fallback without a timed primary retry. Pending/unknown call outcomes cannot advance either sequence. A policy hold retains the same step; it cannot skip the primary SMS to reach fallback.
 
-Both sequences retain the owning Ask and its validated answer requirements. A completed call alone does not answer it. After an unanswered sequence, the next cycle uses the configured weekday/time; contact hours, budgets, grants and capability checks still apply. Incident does not add a fallback SMS. `retryMinutes` remains part of the configuration but applies only to morning mode. The node editor exposes the same selector. No change to a mode grants contact authority.
+Both sequences retain the owning Ask and its validated answer requirements. A completed call alone does not answer it. After an unanswered sequence, the next cycle uses the configured weekday/time; explicit workflow hours checks, budgets, grants and capability checks apply. Incident does not add a fallback SMS. `retryMinutes` remains part of the configuration but applies only to morning mode. The node editor exposes the same selector. No change to a mode grants contact authority.
 
 ### Sheet upsert planning snapshots and retries
 
@@ -65,4 +65,4 @@ Lost responses reuse the same file/source identity and reconcile `/api/recording
 
 ## Contact and business-hours policy
 
-Use `GET /api/cockpit?operation=contact_policy`, then `contact_policy_preview` and human-approved `contact_policy_apply` POST operations. Revision/hash checks bind the exact proposal. Reception line and project hours use the existing reception review interface. See [contact policy API and task contracts](CONTACT_POLICY.md) for modes, evidence requirements, durable deferrals and rollout.
+Use `GET /api/cockpit?operation=contact_policy`, then `contact_policy_preview` and human-approved `contact_policy_apply` POST operations. Revision/hash checks bind the exact proposal. Project hours use `Project.operatingHours` through the revision-checked configuration API. Execute `check_project_hours` (node type `check_hours`, template `{}`) through the existing authenticated task API with project correlation. Outputs include `hours_status` (`open`, `closed`, `not_configured`), `hours_open`, `hours_checked_at`, `hours_timezone`, `hours_local_time`, `hours_next_open_at` and `hours_project_revision`. No providers are called. `Wait.resumeAtPath` can reference the next-opening output; branches are explicit. See [project hours and migration](PROJECT_HOURS.md) and [contact safeguards](CONTACT_POLICY.md).

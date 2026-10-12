@@ -22,7 +22,6 @@ import { advanceEventServerFlow } from './serverFlow.js';
 import {
   claimAgentInboxJobs,
   claimContactDispatch,
-  acknowledgeContactNotice,
   finishAgentInboxJob,
   listCoachingSessions,
   listTenantProjects,
@@ -294,20 +293,10 @@ const deliverAgentReply = async (
   const dispatch={operationId:`agent:${job.id}`,target:to,channel:'sms',coalesce:false,sourceCommunicationId:communication.id,from,projectId};
   const preview=await claimContactDispatch(job.orgId,{...dispatch,preview:true});
   if(!preview.allowed)throw new ContactPolicyHold(preview);
-  const acknowledgement=preview.reason==='After-hours acknowledgement only.';
-  if(acknowledgement)dispatch.operationId+=':ack';
   const claim=await claimContactDispatch(job.orgId,dispatch);
   if(!claim.allowed)throw new ContactPolicyHold(claim);
   if(claim.revision!==preview.revision)throw new ContactPolicyHold({...claim,status:"needs_review",allowed:false,reason:"Contact policy changed during preparation; review before sending."});
-  if(acknowledgement) body='Your message has been received. We will review it during business hours.';
-  if(claim.notice) body = `${claim.notice} ${body}`;
   const result = await client.sendSms({ to, from, body: body.slice(0, 1_500), thread_id: communication.threadId || job.threadId, correlation:{...correlation,run_id:`op:${dispatch.operationId}`}, purpose: communication.purpose || { type: 'triage' } });
-  if(claim.notice)await acknowledgeContactNotice(job.orgId,claim.noticeKey,result.id);
-  if(acknowledgement){
-    const decision={...claim,status:claim.nextEligibleAt?'deferred' as const:'needs_review' as const,allowed:false,reason:claim.nextEligibleAt?'Acknowledgement sent; waiting until contact hours open.':'Acknowledgement sent; staff review required before expiry.'};
-    await finishAgentInboxJob(job,{status:decision.status,nextEligibleAt:decision.nextEligibleAt,policyDecision:decision,responseCommunicationId:result.id});
-    throw new ContactPolicyHold(decision);
-  }
   return { kind: 'sent', id: result.id };
 };
 
@@ -357,6 +346,10 @@ export const processAgentInboxJob = async (
   client: CommunicationsClient = createCommunicationsClient()
 ): Promise<void> => {
   try {
+    if (job.policyDecision?.status === 'deferred') {
+      await finishAgentInboxJob(job, { status: 'needs_review', error: 'Legacy hours deferral: review the project hours workflow before resuming. No message was replayed.' });
+      return;
+    }
     const [communication, profile, projects] = await Promise.all([
       client.getCommunication(job.orgId, job.communicationId),
       readTenantAgentProfile(job.orgId),

@@ -155,6 +155,16 @@ export async function executeTask(
     : substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
+  if (taskType === 'check_project_hours') {
+    try {
+      const { checkProjectHoursTask } = await import('./checkProjectHoursTask.js');
+      const output = await checkProjectHoursTask(ctx?.correlation || {});
+      return { httpStatus: 200, body: { status: 'success', output, logs: [`Project hours: ${output.hours_status}`] } };
+    } catch (error: any) {
+      return { httpStatus: 422, body: { status: 'error', error: error.message, logs } };
+    }
+  }
+
   if (taskType === 'create_mailbox_draft' || taskType === 'update_mailbox_draft') {
     try {
       const output = await executeMailboxDraft(taskType, templateData, ctx?.correlation || {});

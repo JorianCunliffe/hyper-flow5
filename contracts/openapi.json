@@ -1952,6 +1952,7 @@
                       "outgoing_call",
                       "webhook",
                       "write_report",
+                      "check_project_hours",
                       "read_google_doc",
                       "read_google_sheet",
                       "append_google_sheet",
@@ -2110,6 +2111,24 @@
         "x-required-scope": "tasks:write",
         "parameters": [],
         "x-task-contracts": {
+          "check_project_hours": {
+            "inputSchema": {
+              "type": "object",
+              "properties": {},
+              "required": [],
+              "additionalProperties": true
+            },
+            "outputFields": [
+              "hours_status",
+              "hours_open",
+              "hours_checked_at",
+              "hours_timezone",
+              "hours_local_time",
+              "hours_next_open_at",
+              "hours_project_revision"
+            ],
+            "effect": "Reads the current authenticated project hours at server time; no provider calls. Branch explicitly on open, closed or not_configured."
+          },
           "send_email": {
             "inputSchema": {
               "type": "object",
@@ -23635,6 +23654,7 @@
                                 "email",
                                 "sms",
                                 "phone_call",
+                                "check_hours",
                                 "webhook",
                                 "report",
                                 "google_doc",
@@ -23719,6 +23739,7 @@
                                       "outgoing_call",
                                       "webhook",
                                       "write_report",
+                                      "check_project_hours",
                                       "read_google_doc",
                                       "read_google_sheet",
                                       "append_google_sheet",
@@ -24011,6 +24032,10 @@
                                 "kind": {
                                   "const": "timer"
                                 },
+                                "resumeAtPath": {
+                                  "type": "string",
+                                  "maxLength": 20000
+                                },
                                 "durationMinutes": {
                                   "type": "number",
                                   "minimum": 0
@@ -24036,6 +24061,10 @@
                                     "human",
                                     "provider"
                                   ]
+                                },
+                                "resumeAtPath": {
+                                  "type": "string",
+                                  "maxLength": 20000
                                 },
                                 "durationMinutes": {
                                   "type": "number"
@@ -24416,6 +24445,67 @@
                       },
                       "projectData": {
                         "type": "object"
+                      },
+                      "operatingHours": {
+                        "type": "object",
+                        "properties": {
+                          "timezone": {
+                            "type": "string",
+                            "maxLength": 20000
+                          },
+                          "windows": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "days",
+                                "start",
+                                "end"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "days": {
+                                  "type": "array",
+                                  "minItems": 1,
+                                  "items": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 6
+                                  }
+                                },
+                                "start": {
+                                  "type": "string",
+                                  "description": "HH:mm local time"
+                                },
+                                "end": {
+                                  "type": "string",
+                                  "description": "HH:mm, including 24:00; earlier than start means overnight"
+                                },
+                                "closures": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "format": "date"
+                                  }
+                                }
+                              }
+                            },
+                            "maxItems": 28
+                          },
+                          "closures": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
+                            "maxItems": 500
+                          }
+                        },
+                        "required": [
+                          "timezone",
+                          "windows"
+                        ],
+                        "additionalProperties": false
                       },
                       "cashRequirement": {
                         "type": "number"
@@ -24656,6 +24746,7 @@
                                 "email",
                                 "sms",
                                 "phone_call",
+                                "check_hours",
                                 "webhook",
                                 "report",
                                 "google_doc",
@@ -24740,6 +24831,7 @@
                                       "outgoing_call",
                                       "webhook",
                                       "write_report",
+                                      "check_project_hours",
                                       "read_google_doc",
                                       "read_google_sheet",
                                       "append_google_sheet",
@@ -25032,6 +25124,10 @@
                                 "kind": {
                                   "const": "timer"
                                 },
+                                "resumeAtPath": {
+                                  "type": "string",
+                                  "maxLength": 20000
+                                },
                                 "durationMinutes": {
                                   "type": "number",
                                   "minimum": 0
@@ -25057,6 +25153,10 @@
                                     "human",
                                     "provider"
                                   ]
+                                },
+                                "resumeAtPath": {
+                                  "type": "string",
+                                  "maxLength": 20000
                                 },
                                 "durationMinutes": {
                                   "type": "number"
@@ -25437,6 +25537,67 @@
                       },
                       "projectData": {
                         "type": "object"
+                      },
+                      "operatingHours": {
+                        "type": "object",
+                        "properties": {
+                          "timezone": {
+                            "type": "string",
+                            "maxLength": 20000
+                          },
+                          "windows": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "days",
+                                "start",
+                                "end"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "days": {
+                                  "type": "array",
+                                  "minItems": 1,
+                                  "items": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 6
+                                  }
+                                },
+                                "start": {
+                                  "type": "string",
+                                  "description": "HH:mm local time"
+                                },
+                                "end": {
+                                  "type": "string",
+                                  "description": "HH:mm, including 24:00; earlier than start means overnight"
+                                },
+                                "closures": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "format": "date"
+                                  }
+                                }
+                              }
+                            },
+                            "maxItems": 28
+                          },
+                          "closures": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
+                            "maxItems": 500
+                          }
+                        },
+                        "required": [
+                          "timezone",
+                          "windows"
+                        ],
+                        "additionalProperties": false
                       },
                       "cashRequirement": {
                         "type": "number"
@@ -26048,6 +26209,7 @@
                           "email",
                           "sms",
                           "phone_call",
+                          "check_hours",
                           "webhook",
                           "report",
                           "google_doc",
@@ -26132,6 +26294,7 @@
                                 "outgoing_call",
                                 "webhook",
                                 "write_report",
+                                "check_project_hours",
                                 "read_google_doc",
                                 "read_google_sheet",
                                 "append_google_sheet",
@@ -26424,6 +26587,10 @@
                           "kind": {
                             "const": "timer"
                           },
+                          "resumeAtPath": {
+                            "type": "string",
+                            "maxLength": 20000
+                          },
                           "durationMinutes": {
                             "type": "number",
                             "minimum": 0
@@ -26449,6 +26616,10 @@
                               "human",
                               "provider"
                             ]
+                          },
+                          "resumeAtPath": {
+                            "type": "string",
+                            "maxLength": 20000
                           },
                           "durationMinutes": {
                             "type": "number"
@@ -26978,6 +27149,7 @@
                           "email",
                           "sms",
                           "phone_call",
+                          "check_hours",
                           "webhook",
                           "report",
                           "google_doc",
@@ -27062,6 +27234,7 @@
                                 "outgoing_call",
                                 "webhook",
                                 "write_report",
+                                "check_project_hours",
                                 "read_google_doc",
                                 "read_google_sheet",
                                 "append_google_sheet",
@@ -27354,6 +27527,10 @@
                           "kind": {
                             "const": "timer"
                           },
+                          "resumeAtPath": {
+                            "type": "string",
+                            "maxLength": 20000
+                          },
                           "durationMinutes": {
                             "type": "number",
                             "minimum": 0
@@ -27379,6 +27556,10 @@
                               "human",
                               "provider"
                             ]
+                          },
+                          "resumeAtPath": {
+                            "type": "string",
+                            "maxLength": 20000
                           },
                           "durationMinutes": {
                             "type": "number"
@@ -28364,6 +28545,7 @@
                           "outgoing_call",
                           "webhook",
                           "write_report",
+                          "check_project_hours",
                           "read_google_doc",
                           "read_google_sheet",
                           "append_google_sheet",
@@ -28702,6 +28884,7 @@
                           "outgoing_call",
                           "webhook",
                           "write_report",
+                          "check_project_hours",
                           "read_google_doc",
                           "read_google_sheet",
                           "append_google_sheet",
@@ -34497,7 +34680,9 @@
                   "format": "date"
                 }
               }
-            }
+            },
+            "deprecated": true,
+            "description": "Legacy configuration only; hours are checked by the project workflow primitive."
           },
           "replies": {
             "type": "object",
@@ -34515,7 +34700,9 @@
                   "reply",
                   "acknowledge",
                   "queue"
-                ]
+                ],
+                "deprecated": true,
+                "description": "Legacy only; configure explicit workflow branches."
               },
               "windowHours": {
                 "type": "integer",
@@ -34607,7 +34794,9 @@
                         "format": "date"
                       }
                     }
-                  }
+                  },
+                  "deprecated": true,
+                  "description": "Legacy only. Use Project.operatingHours and check_hours."
                 },
                 "afterHoursMode": {
                   "type": "string",
@@ -34615,9 +34804,11 @@
                     "reply",
                     "acknowledge",
                     "queue"
-                  ]
+                  ],
+                  "deprecated": true
                 },
                 "afterHoursActions": {
+                  "deprecated": true,
                   "type": "array",
                   "items": {
                     "type": "string",
@@ -34845,7 +35036,9 @@
                         "format": "date"
                       }
                     }
-                  }
+                  },
+                  "deprecated": true,
+                  "description": "Legacy only. Use Project.operatingHours and check_hours."
                 },
                 "afterHoursMode": {
                   "type": "string",
@@ -34853,7 +35046,8 @@
                     "reply",
                     "acknowledge",
                     "queue"
-                  ]
+                  ],
+                  "deprecated": true
                 }
               }
             }
@@ -34908,7 +35102,9 @@
                   "format": "date"
                 }
               }
-            }
+            },
+            "deprecated": true,
+            "description": "Legacy only. Use Project.operatingHours and check_hours."
           },
           "afterHoursMode": {
             "type": "string",
@@ -34916,9 +35112,11 @@
               "reply",
               "acknowledge",
               "queue"
-            ]
+            ],
+            "deprecated": true
           },
           "afterHoursActions": {
+            "deprecated": true,
             "type": "array",
             "items": {
               "type": "string",
@@ -35060,6 +35258,12 @@
             }
           }
         }
+      },
+      "check_project_hoursTemplate": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": true
       },
       "send_emailTemplate": {
         "type": "object",
@@ -35553,6 +35757,7 @@
                     "email",
                     "sms",
                     "phone_call",
+                    "check_hours",
                     "webhook",
                     "report",
                     "google_doc",
@@ -35637,6 +35842,7 @@
                           "outgoing_call",
                           "webhook",
                           "write_report",
+                          "check_project_hours",
                           "read_google_doc",
                           "read_google_sheet",
                           "append_google_sheet",
@@ -35929,6 +36135,10 @@
                     "kind": {
                       "const": "timer"
                     },
+                    "resumeAtPath": {
+                      "type": "string",
+                      "maxLength": 20000
+                    },
                     "durationMinutes": {
                       "type": "number",
                       "minimum": 0
@@ -35954,6 +36164,10 @@
                         "human",
                         "provider"
                       ]
+                    },
+                    "resumeAtPath": {
+                      "type": "string",
+                      "maxLength": 20000
                     },
                     "durationMinutes": {
                       "type": "number"
@@ -36335,6 +36549,67 @@
           "projectData": {
             "type": "object"
           },
+          "operatingHours": {
+            "type": "object",
+            "properties": {
+              "timezone": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "windows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "days",
+                    "start",
+                    "end"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "days": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      }
+                    },
+                    "start": {
+                      "type": "string",
+                      "description": "HH:mm local time"
+                    },
+                    "end": {
+                      "type": "string",
+                      "description": "HH:mm, including 24:00; earlier than start means overnight"
+                    },
+                    "closures": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "date"
+                      }
+                    }
+                  }
+                },
+                "maxItems": 28
+              },
+              "closures": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 20000
+                },
+                "maxItems": 500
+              }
+            },
+            "required": [
+              "timezone",
+              "windows"
+            ],
+            "additionalProperties": false
+          },
           "cashRequirement": {
             "type": "number"
           },
@@ -36376,6 +36651,7 @@
               "email",
               "sms",
               "phone_call",
+              "check_hours",
               "webhook",
               "report",
               "google_doc",
@@ -36460,6 +36736,7 @@
                     "outgoing_call",
                     "webhook",
                     "write_report",
+                    "check_project_hours",
                     "read_google_doc",
                     "read_google_sheet",
                     "append_google_sheet",
@@ -36752,6 +37029,10 @@
               "kind": {
                 "const": "timer"
               },
+              "resumeAtPath": {
+                "type": "string",
+                "maxLength": 20000
+              },
               "durationMinutes": {
                 "type": "number",
                 "minimum": 0
@@ -36777,6 +37058,10 @@
                   "human",
                   "provider"
                 ]
+              },
+              "resumeAtPath": {
+                "type": "string",
+                "maxLength": 20000
               },
               "durationMinutes": {
                 "type": "number"
@@ -37193,6 +37478,7 @@
               "outgoing_call",
               "webhook",
               "write_report",
+              "check_project_hours",
               "read_google_doc",
               "read_google_sheet",
               "append_google_sheet",
@@ -37593,6 +37879,7 @@
                             "email",
                             "sms",
                             "phone_call",
+                            "check_hours",
                             "webhook",
                             "report",
                             "google_doc",
@@ -37677,6 +37964,7 @@
                                   "outgoing_call",
                                   "webhook",
                                   "write_report",
+                                  "check_project_hours",
                                   "read_google_doc",
                                   "read_google_sheet",
                                   "append_google_sheet",
@@ -37969,6 +38257,10 @@
                             "kind": {
                               "const": "timer"
                             },
+                            "resumeAtPath": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
                             "durationMinutes": {
                               "type": "number",
                               "minimum": 0
@@ -37994,6 +38286,10 @@
                                 "human",
                                 "provider"
                               ]
+                            },
+                            "resumeAtPath": {
+                              "type": "string",
+                              "maxLength": 20000
                             },
                             "durationMinutes": {
                               "type": "number"
@@ -38375,6 +38671,67 @@
                   "projectData": {
                     "type": "object"
                   },
+                  "operatingHours": {
+                    "type": "object",
+                    "properties": {
+                      "timezone": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "windows": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "days",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "days": {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 6
+                              }
+                            },
+                            "start": {
+                              "type": "string",
+                              "description": "HH:mm local time"
+                            },
+                            "end": {
+                              "type": "string",
+                              "description": "HH:mm, including 24:00; earlier than start means overnight"
+                            },
+                            "closures": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "format": "date"
+                              }
+                            }
+                          }
+                        },
+                        "maxItems": 28
+                      },
+                      "closures": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 20000
+                        },
+                        "maxItems": 500
+                      }
+                    },
+                    "required": [
+                      "timezone",
+                      "windows"
+                    ],
+                    "additionalProperties": false
+                  },
                   "cashRequirement": {
                     "type": "number"
                   },
@@ -38413,6 +38770,7 @@
                       "email",
                       "sms",
                       "phone_call",
+                      "check_hours",
                       "webhook",
                       "report",
                       "google_doc",
@@ -38497,6 +38855,7 @@
                             "outgoing_call",
                             "webhook",
                             "write_report",
+                            "check_project_hours",
                             "read_google_doc",
                             "read_google_sheet",
                             "append_google_sheet",
@@ -38789,6 +39148,10 @@
                       "kind": {
                         "const": "timer"
                       },
+                      "resumeAtPath": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
                       "durationMinutes": {
                         "type": "number",
                         "minimum": 0
@@ -38814,6 +39177,10 @@
                           "human",
                           "provider"
                         ]
+                      },
+                      "resumeAtPath": {
+                        "type": "string",
+                        "maxLength": 20000
                       },
                       "durationMinutes": {
                         "type": "number"
@@ -39227,6 +39594,7 @@
                       "outgoing_call",
                       "webhook",
                       "write_report",
+                      "check_project_hours",
                       "read_google_doc",
                       "read_google_sheet",
                       "append_google_sheet",

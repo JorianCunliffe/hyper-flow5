@@ -1,5 +1,6 @@
 import { Milestone, Project, NodeType, ActionRun } from '../types.js';
 import { checkReadyCondition } from './taskReadinessUtils.js';
+import { readFlowPath } from './flowData.js';
 import { isReviewSatisfied, needsApprovalAsk } from './humanAsk.js';
 import { isTaskComplete } from './taskStatus.js';
 import type { FlowHoldConfig, RuntimeMilestone } from './flowRuntimeTypes.js';
@@ -24,6 +25,7 @@ export const getHoldConfig = (m: Milestone): FlowHoldConfig | undefined => {
   return {
     kind: 'timer',
     durationMinutes: m.waitConfig.durationMinutes,
+    resumeAtPath: m.waitConfig.resumeAtPath,
     reason: m.waitConfig.reason,
     holdId: m.waitConfig.holdId,
     armedAt: m.waitConfig.armedAt,
@@ -43,6 +45,7 @@ const writeHoldConfig = (m: Milestone, cfg: FlowHoldConfig): Milestone => {
       ...m.waitConfig,
       kind: 'timer',
       durationMinutes: cfg.durationMinutes,
+      resumeAtPath: cfg.resumeAtPath,
       reason: cfg.reason,
       holdId: cfg.holdId,
       armedAt: cfg.armedAt,
@@ -367,6 +370,9 @@ export const advanceFlow = (project: Project): AdvanceResult => {
           log.push(`Wait "${m.name}": ${resolution === 'timer' ? 'timer completed' : 'timed out'}`);
           changed = true;
         } else if (!existing.armedAt || !sameOccurrence) {
+          const untilValue = existing.kind === 'timer' && existing.resumeAtPath ? readFlowPath(projectData, existing.resumeAtPath) : undefined;
+          const until = typeof untilValue === 'string' ? Date.parse(untilValue) : typeof untilValue === 'number' ? untilValue : NaN;
+          if (existing.resumeAtPath && !Number.isFinite(until)) throw Error(`Wait "${m.name}" requires a valid timestamp at ${existing.resumeAtPath}; route missing opening times to review.`);
           const delay = existing.kind === 'timer'
             ? boundedMinutes(existing.durationMinutes)
             : existing.timeoutMinutes ? boundedMinutes(existing.timeoutMinutes) : undefined;
@@ -377,7 +383,7 @@ export const advanceFlow = (project: Project): AdvanceResult => {
             ...(existing.kind === 'timer' ? { durationMinutes: delay } : {}),
             holdId,
             armedAt: now,
-            availableAt: delay ? now + delay * 60_000 : undefined,
+            availableAt: existing.resumeAtPath ? Math.max(now, until) : delay ? now + delay * 60_000 : undefined,
             resolvedAt: undefined,
             occurrenceId,
             resolution: undefined,

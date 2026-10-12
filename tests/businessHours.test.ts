@@ -36,11 +36,11 @@ test('expiry escalates, no opening never retries forever, end 24:00 preserves le
   assert.equal(evaluateContactPolicy(policy,{...input,now:now+24*3600000}).status,'needs_review');
   assert.equal(hoursOpen(policyDefaults('Australia/Brisbane',{startHour:0,endHour:24}).outbound,'Australia/Brisbane',Date.parse('2026-10-05T13:59:59Z')),true);
 });
-test('DST next opening searches real instants and restricted actions cannot inherit extra authority',()=>{
+test('legacy DST helper handles real instants; reception actions no longer infer hours',()=>{
   const h={days:[0],start:'03:00',end:'04:00'};
   assert.equal(nextOpening(h,'Australia/Sydney',Date.parse('2026-10-03T15:59:00Z')),Date.parse('2026-10-03T16:00:00Z'));
   const line:any={timezone:'Australia/Brisbane',hours:policy.outbound};const project:any={actions:['availability','booking'],afterHoursActions:['availability','resume_ask']};
-  assert.deepEqual(allowedReceptionActions(line,project,now),['availability']);
+  assert.deepEqual(allowedReceptionActions(line,project,now),['availability','booking']);
 });
 
 test('policy saves reject stale revisions and changed retries; exact lost-response replay is idempotent',async()=>{

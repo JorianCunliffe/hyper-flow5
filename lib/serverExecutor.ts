@@ -111,8 +111,7 @@ export const createServerActionExecutor = (dependencies = serverActionDependenci
       recoveryRequired:parsed.contact_policy?.onRestriction!=='branch',providerCode:'CONTACT_POLICY_HOLD',
       error:claim.reason,output:{provider_called:false,successful:false,provider_status:'not_called',contact_policy:claim},logs:[claim.reason]
     };
-    const acknowledgement = claim.reason === 'After-hours acknowledgement only.';
-    safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target, ...(sourceCommunicationId?{from:replyFrom}:{}), ...(channel==='sms' && (claim.notice || acknowledgement)?{body:[claim.notice, acknowledgement?'Your message has been received for review during business hours.':String(parsed.body||'')].filter(Boolean).join(' ')}: {}) });
+    safeTemplate = JSON.stringify({ ...parsed, to: channel === 'email' ? [target] : target, ...(sourceCommunicationId ? { from: replyFrom } : {}) });
   }
 
   if(channel && channel!=='email' && !policyDecision && ctx.orgId && parsed) {
@@ -152,7 +151,7 @@ const executeServerAction = createServerActionExecutor();
 const dispatchServerAction = durableActionExecutor(executeServerAction);
 export const serverExecutor: ActionExecutor = async (taskType, templateFile, projectData, ctx) => {
   if (ctx.flowRunId && projectData.flow_dispatch_version !== 1 &&
-      !['read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result'].includes(taskType)) {
+      !['check_project_hours', 'read_google_doc', 'read_google_sheet', 'write_report', 'extract_coaching_result'].includes(taskType)) {
     throw new ActionRecoveryRequired('Legacy occurrence requires provider reconciliation before new external effects');
   }
   return dispatchServerAction(taskType, templateFile, projectData, ctx);

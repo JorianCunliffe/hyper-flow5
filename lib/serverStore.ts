@@ -1,4 +1,4 @@
-import { applyContactPolicyRevision, normalizeContactPolicy, policyDefaults, evaluateContactPolicy, type ContactPolicy } from './cockpit/businessHours.js';
+import { applyContactPolicyRevision, normalizeContactPolicy, policyDefaults, evaluateContactAuthority, type ContactPolicy } from './cockpit/businessHours.js';
 import { recordOperationalEvent } from './operationalLog.js';
 import { encodeRtdbRecord, decodeRtdbRecord, encodeWorkspace, decodeWorkspace } from './rtdbJson.js';
 import { normalizeScheduleDays } from './scheduleDays.js';
@@ -41,7 +41,7 @@ import { normalizeNodeAsks } from './humanAsk.js';
 import { upgradeLegacyEmailTriageProject } from './projectTemplates.js';
 import type { ExternalEventProcessingStatus, ExternalEventRecord } from './externalEvents.js';
 import { normalizeFlow, type FlowRecord } from './visibleFlows/model.js';
-import { normalizeContactWindow,claimContactDay,contactWindowOpen,type ContactDay } from './cockpit/contactPolicy.js';
+import { normalizeContactWindow,claimContactDay,type ContactDay } from './cockpit/contactPolicy.js';
 
 /**
  * Server-side persistence via the Firebase Admin SDK.
@@ -140,17 +140,7 @@ export async function claimContactDispatch(orgId:string,input:{operationId:strin
   const policy=saved||policyDefaults(profile.timezone,legacy);
   // Only server-fetched persisted evidence can authorize a reactive dispatch.
   const source=input.sourceCommunicationId ? await (await import('./communications/client.js')).createCommunicationsClient().getCommunication(orgId,input.sourceCommunicationId):undefined;
-  const config=saved && input.from ? await (await import('./reception/store.js')).receptionStore.read<import('./reception/model.js').ReceptionConfig>(orgId,'config','current'):null;
-  const line=config?.lines.find(l=>l.identity===input.from && l.enabled && l.smsEnabled);
-  const project=line?.projectIds.includes(input.projectId||'') ? config?.projects.find(p=>p.projectId===input.projectId&&p.enabled):undefined;
-  const {restrictReplyMode}=await import('./cockpit/businessHours.js');
-  const decision=evaluateContactPolicy(policy,{orgId,target:input.target,projectId:input.projectId,from:input.from,channel:input.channel,source,now,mode:restrictReplyMode(line?.afterHoursMode,project?.afterHoursMode),businessHours:line?.hours,projectHours:project?.hours,businessTimezone:line?.timezone});
-  if(line) decision.source='workspace + receptionist'+(project?' + project':'');
-  if(decision.notice){
-    const date=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
-    decision.noticeKey=safeRtdbKey(`${input.from}:${input.target}:${date}`);
-    if((await getDb().ref(`contact_reply_notices/${safeRtdbKey(orgId)}/${decision.noticeKey}`).get()).exists())delete decision.notice;
-  }
+  const decision=evaluateContactAuthority(policy,{orgId,target:input.target,projectId:input.projectId,from:input.from,channel:input.channel,source,now});
   console.info('[contact-policy]',{operationId:input.operationId,status:decision.status,revision:decision.revision,source:decision.source,reactive:decision.reactive,nextEligibleAt:decision.nextEligibleAt});
   if (!input.preview) await recordOperationalEvent({tenantId:orgId,type:'policy.evaluated',projectId:input.projectId,operationId:input.operationId,communicationId:input.sourceCommunicationId,status:decision.status,details:{policyRevision:decision.revision,channel:input.channel}});
   if(input.preview) return {...decision,existingOperationId:undefined};
@@ -165,8 +155,6 @@ export async function claimContactDispatch(orgId:string,input:{operationId:strin
   const previousOperation=(await operationRef.get()).val();
   if(previousOperation) return {...decision,status:'needs_review' as const,allowed:false,reason:'Contact operation already reserved; reconcile its owning receipt.',existingOperationId:input.operationId};
   const budget=decision.reactive && saved ? {...legacy,maxPerDay:policy.replies.maxPerDay,maxPerContact:policy.replies.maxPerContact}:{...legacy};
-  const exception=policy.outboundExceptions?.find(e=>e.target===input.target&&e.projectId===input.projectId&&e.channels.some(c=>c===input.channel)&&now>=e.startsAt&&now<e.expiresAt);
-  if(!decision.reactive&&exception?.maxPerContact) budget.maxPerContact=Math.max(budget.maxPerContact,exception.maxPerContact);
   const day=new Intl.DateTimeFormat('en-CA',{timeZone:policy.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now));
   const bucket=decision.reactive && saved?'reactive':'proactive';
   const reference=getDb().ref(`contact_dispatch_days/${safeRtdbKey(orgId)}/${safeRtdbKey(day+(bucket==='reactive'?':reactive':''))}`);

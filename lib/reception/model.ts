@@ -362,5 +362,6 @@ export function routeReception(
 export function isOpen(line:ReceptionLine,now=Date.now()) {return hoursOpen(line.hours,line.timezone,now);}
 export function allowedReceptionActions(line:ReceptionLine,project:ReceptionProject|undefined,now:number):ReceptionAction[] {
   if(!project) return [];
-  return isOpen(line,now)&&hoursOpen(project.hours,line.timezone,now)?project.actions:project.actions.filter(a=>project.afterHoursActions?.includes(a));
+  // Hours are explicit workflow control, not an implicit action permission.
+  return project.actions;
 }

@@ -248,18 +248,6 @@ export async function handleCockpit(
       throw new FlowError(422, "Choose a valid local run time");
     const profile = await readTenantAgentProfile(member.orgId);
     const timezone = profile?.timezone || "Australia/Brisbane";
-    const window = normalizeContactWindow(profile?.contactWindow);
-    const hour = Number(body.localTime.split(":")[0]);
-    if (
-      version.plan.steps.some((step) =>
-        ["send_sms", "outgoing_call"].includes(step.action),
-      ) &&
-      (hour < window.startHour || hour >= window.endHour)
-    )
-      throw new FlowError(
-        422,
-        "Choose a routine time inside the configured contact window",
-      );
     const schedule = await saveTenantSchedule(member.orgId, {
       id: `visible_${record.id}`,
       activity: "flow_start",

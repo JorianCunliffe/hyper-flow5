@@ -489,6 +489,7 @@ export enum NodeType {
   EMAIL = 'email',
   SMS = 'sms',
   PHONE_CALL = 'phone_call',
+  CHECK_HOURS = 'check_hours',
   WEBHOOK = 'webhook',
   REPORT = 'report',
   GOOGLE_DOC = 'google_doc',
@@ -526,6 +527,7 @@ export interface LoopConfig {
 
 export interface WaitConfig {
   kind: 'timer';
+  resumeAtPath?: string;
   durationMinutes?: number;
   resumeAt?: number;
   reason?: string;
@@ -819,6 +821,7 @@ export interface TimelineMarker {
 }
 
 export interface Project {
+  operatingHours?: import('./lib/projectHours').ProjectOperatingHours;
   /** Outbound email master switch. Missing/false keeps email sending disabled. */
   emailSendingEnabled?: boolean;
   id: string;
