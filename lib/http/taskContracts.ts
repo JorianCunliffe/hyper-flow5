@@ -30,7 +30,7 @@ const draft = {
   references: s,
 };
 export const taskContracts = {
-  check_project_hours: contract({}, [], ['hours_status', 'hours_open', 'hours_checked_at', 'hours_timezone', 'hours_local_time', 'hours_next_open_at', 'hours_project_revision'], 'Reads the current authenticated project hours at server time; no provider calls. Branch explicitly on open, closed or not_configured.'),
+  check_project_hours: contract({}, [], ['hours_status', 'hours_open', 'hours_checked_at', 'hours_timezone', 'hours_local_time', 'hours_next_open_at', 'hours_project_revision'], 'Reads the current authenticated project hours at server time; no provider calls. Branch explicitly on open or closed. Undefined project hours default to open.'),
   send_email: contract(
     {
       to: recipient,

@@ -3,7 +3,7 @@ import { checkProjectHours, type ProjectOperatingHours } from '../lib/projectHou
 
 export function ProjectHoursEditor({ value, onChange }: { value?: ProjectOperatingHours; onChange: (value: ProjectOperatingHours) => void }) {
   const hours = value || { timezone: 'Australia/Brisbane', windows: [] };
-  const preview = useMemo(() => { let preview = 'Hours are not configured.';
+  const preview = useMemo(() => { let preview = 'Open — no opening hours configured.';
   try { if (value) { const result = checkProjectHours(value); preview = `${result.hours_status === 'open' ? 'Open' : 'Closed'} now (${result.hours_local_time}, ${hours.timezone}).${result.hours_next_open_at ? ` Next opening: ${new Date(result.hours_next_open_at).toLocaleString('en-AU', { timeZone: hours.timezone })}.` : ''}`; } }
   catch { preview = 'Complete the timezone and hours to see a preview.'; }
   return preview; }, [value]);

@@ -16,7 +16,7 @@ Edit project → Project hours of operation. Set an IANA timezone, weekly window
 }
 ```
 
-Sunday is 0. Opening is inclusive and closing exclusive. Multiple windows allow lunch breaks. An end earlier than the start crosses midnight. `00:00`–`24:00` is all day. A closure cancels that local date and the overnight spill from a closed start date. An empty window list is explicitly closed; absent configuration produces `not_configured`.
+Sunday is 0. Opening is inclusive and closing exclusive. Multiple windows allow lunch breaks. An end earlier than the start crosses midnight. `00:00`–`24:00` is all day. A closure cancels that local date and the overnight spill from a closed start date. An empty window list is explicitly closed; absent configuration defaults to `open` (`hours_open: true`) with no hours restriction.
 
 ## Compose
 
@@ -24,7 +24,7 @@ Add node type `check_hours`, task `check_project_hours`, template `{}`. Enable a
 
 Outputs: `hours_status`, `hours_open`, `hours_checked_at` (UTC ISO), `hours_timezone`, `hours_local_time`, `hours_next_open_at` (UTC ISO or null), `hours_project_revision`. Timezone/local time are absent when not configured. Next opening is null when currently open, permanently closed, or no opening exists within eight days. Never interpret null as an indefinite wait.
 
-Connect a Decision after the check. Branch on `hours_status` or `hours_open`. Choose the actual behavior for that workflow: continue, End, Human Ask, or Wait. For an explicit wait, set `resumeAtPath` to `hours_next_open_at` (or its configured result-variable path). Route missing settings and null next-opening results to a separate branch. Wait persists its deadline across restarts. Run another check after waiting, because project hours may have changed. An hours result is a point-in-time observation, not permission or a permanent guarantee; place a fresh check near effects where needed.
+Connect a Decision after the check. Branch on `hours_status` or `hours_open`. Choose the actual behavior for that workflow: continue, End, Human Ask, or Wait. For an explicit wait, set `resumeAtPath` to `hours_next_open_at` (or its configured result-variable path). Missing settings take the open branch. Route closed results with a null next opening to a separate branch. Wait persists its deadline across restarts. Run another check after waiting, because project hours may have changed. An hours result is a point-in-time observation, not permission or a permanent guarantee; place a fresh check near effects where needed.
 
 Schedules still define when a workflow starts. Project hours do not rewrite schedules. Resource/staff availability, diary conflicts, grants, budgets, verified reply evidence and provider health remain separate checks. Calls, SMS, reception and escalation dispatch do not silently apply workspace/line opening windows or add after-hours wording. Configure any notice or review branch visibly in the workflow.
 

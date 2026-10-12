@@ -33,8 +33,14 @@ test('DST gap and repeated hour are evaluated as real instants', () => {
   assert.equal(check('2026-04-04T15:30:00Z',repeated).hours_open,true);
   assert.equal(check('2026-04-04T16:30:00Z',repeated).hours_open,true);
 });
-test('unconfigured, permanently closed and invalid settings are distinguishable', () => {
-  assert.equal(check('2026-10-12T00:00:00Z',null).hours_status,'not_configured');
+test('undefined hours default to open; explicitly closed and invalid settings remain distinct', () => {
+  for (const value of [undefined, null]) {
+    const result=checkProjectHours(value,Date.parse('2026-10-12T09:00:00Z'));
+    assert.equal(result.hours_status,'open');
+    assert.equal(result.hours_open,true);
+    assert.equal(result.hours_next_open_at,null);
+  }
+  for (const invalid of [false, '', 0, {}]) assert.throws(()=>checkProjectHours(invalid));
   const closed=check('2026-10-12T00:00:00Z',{...hours,windows:[]});
   assert.equal(closed.hours_status,'closed'); assert.equal(closed.hours_next_open_at,null);
   assert.throws(()=>normalizeProjectHours({...hours,timezone:'invalid'}));

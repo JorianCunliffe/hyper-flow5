@@ -2127,7 +2127,7 @@
               "hours_next_open_at",
               "hours_project_revision"
             ],
-            "effect": "Reads the current authenticated project hours at server time; no provider calls. Branch explicitly on open, closed or not_configured."
+            "effect": "Reads the current authenticated project hours at server time; no provider calls. Branch explicitly on open or closed. Undefined project hours default to open."
           },
           "send_email": {
             "inputSchema": {

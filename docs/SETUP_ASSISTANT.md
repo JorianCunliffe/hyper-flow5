@@ -1,6 +1,6 @@
 # AI workflow setup assistant
 
-The setup assistant configures existing HyperFlow primitives through authenticated APIs. It does not edit code, provide shell access, access database tools, or execute model-generated HTTP requests. Manual workflow editors remain available. The versioned `setup-v4-project-hours` prompt configures `Project.operatingHours` and the `check_hours` primitive, followed by explicitly chosen Decision/Wait/End/review branches. It does not configure hidden workspace or receptionist opening-hours restrictions. See [Project hours](PROJECT_HOURS.md).
+The setup assistant configures existing HyperFlow primitives through authenticated APIs. It does not edit code, provide shell access, access database tools, or execute model-generated HTTP requests. Manual workflow editors remain available. The versioned `setup-v5-project-hours-default-open` prompt configures `Project.operatingHours` and the `check_hours` primitive, followed by explicitly chosen Decision/Wait/End/review branches. It does not configure hidden workspace or receptionist opening-hours restrictions. See [Project hours](PROJECT_HOURS.md).
 
 ## Rollout
 

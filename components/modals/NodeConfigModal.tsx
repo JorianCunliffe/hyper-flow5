@@ -452,7 +452,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
         {isActionNode(draftNode) && (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-5">
             <div className="font-bold text-xs uppercase tracking-wider mb-1" style={{ color: NODE_TYPE_META[nodeType].color }}>{NODE_TYPE_META[nodeType].label} Action</div>
-            {nodeType === NodeType.CHECK_HOURS ? <p className="text-sm mb-3">Reads this project's saved hours using the server clock and project timezone. Returns hours_status (open, closed or not_configured), hours_open and hours_next_open_at. Connect a Decision to choose what happens next. This check sends nothing and does not pause the workflow.</p> : <>
+            {nodeType === NodeType.CHECK_HOURS ? <p className="text-sm mb-3">Reads this project's saved hours using the server clock and project timezone. Returns hours_status (open or closed), hours_open and hours_next_open_at. Without configured hours, the project is open. Connect a Decision to choose what happens next. This check sends nothing and does not pause the workflow.</p> : <>
             <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Templates support {'{{variable.path}}'} from Project Data. Whole placeholders preserve arrays and objects.</p>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Template (JSON supported)</label>
             <textarea placeholder={TEMPLATE_PLACEHOLDERS[nodeType] || ''} className="w-full h-32 bg-white border border-slate-200 rounded-lg px-3 py-2 text-[11px] font-mono resize-none" value={template} onChange={(e) => setTemplate(e.target.value)} />

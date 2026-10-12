@@ -19,7 +19,7 @@ export function normalizeProjectHours(raw: unknown): ProjectOperatingHours {
 export function checkProjectHours(raw: unknown, now = Date.now()) {
   if (!Number.isSafeInteger(now)) throw Error('A valid check time is required.');
   const checkedAt = new Date(now).toISOString();
-  if (!raw) return { hours_status: 'not_configured', hours_open: false, hours_checked_at: checkedAt, hours_next_open_at: null };
+  if (raw == null) return { hours_status: 'open', hours_open: true, hours_checked_at: checkedAt, hours_next_open_at: null };
   const hours = normalizeProjectHours(raw);
   const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: hours.timezone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const openAt = (at: number) => {
