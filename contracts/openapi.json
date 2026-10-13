@@ -2265,6 +2265,22 @@
                 "greeting": {
                   "type": "string"
                 },
+                "contact_context": {
+                  "type": "boolean",
+                  "description": "Resolve permitted recipient fields (id, name, email, phone) for greeting/instruction templates"
+                },
+                "history_scope": {
+                  "enum": [
+                    "none",
+                    "project",
+                    "thread"
+                  ],
+                  "description": "Optional conversation evidence scope; omitted preserves legacy automatic selection"
+                },
+                "history_thread_id": {
+                  "type": "string",
+                  "description": "Required for thread scope; constrained to recipient and current project"
+                },
                 "purpose_type": {
                   "type": "string"
                 }
@@ -35384,6 +35400,22 @@
           },
           "greeting": {
             "type": "string"
+          },
+          "contact_context": {
+            "type": "boolean",
+            "description": "Resolve permitted recipient fields (id, name, email, phone) for greeting/instruction templates"
+          },
+          "history_scope": {
+            "enum": [
+              "none",
+              "project",
+              "thread"
+            ],
+            "description": "Optional conversation evidence scope; omitted preserves legacy automatic selection"
+          },
+          "history_thread_id": {
+            "type": "string",
+            "description": "Required for thread scope; constrained to recipient and current project"
           },
           "purpose_type": {
             "type": "string"

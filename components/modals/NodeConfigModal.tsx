@@ -5,6 +5,7 @@ import { isActionNode, getNodeType } from '../../lib/flowEngine';
 import type { FlowHoldConfig, RuntimeMilestone } from '../../lib/flowRuntimeTypes';
 import { X, Play, Loader2, RotateCcw, UserCheck } from 'lucide-react';
 import { actionRunStatusClasses, actionRunStatusLabel, communicationOutcomeFromOutput, formatCommunicationDisposition } from '../../lib/actionRunPresentation';
+import { CallContextSettings } from '../CallContextSettings';
 import { FlowDataInspector } from '../FlowDataInspector';
 import { validateOutputSchema } from '../../lib/flowData';
 import { buildReviewPolicy } from '../../lib/reviewPolicy';
@@ -456,6 +457,7 @@ export const NodeConfigModal: React.FC<NodeConfigModalProps> = ({ milestone, mil
             <p className="text-[11px] text-slate-500 mb-3">{NODE_TYPE_META[nodeType].description}. Templates support {'{{variable.path}}'} from Project Data. Whole placeholders preserve arrays and objects.</p>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Template (JSON supported)</label>
             <textarea placeholder={TEMPLATE_PLACEHOLDERS[nodeType] || ''} className="w-full h-32 bg-white border border-slate-200 rounded-lg px-3 py-2 text-[11px] font-mono resize-none" value={template} onChange={(e) => setTemplate(e.target.value)} />
+            {nodeType === NodeType.PHONE_CALL && <CallContextSettings template={template} onChange={setTemplate} />}
             <FlowDataInspector data={projectData} milestones={milestones} template={template} />
             </>}
             {nodeType === NodeType.EMAIL_TRIAGE && <div className="mt-3 text-xs text-slate-600">

@@ -17,6 +17,15 @@ export function resolveCallTemplate(template: string, data: Record<string, any> 
   return renderActionTemplate(template, data).templateData;
 }
 
+/** Resolve routing first; spoken fields are rendered once after authorized contact lookup. */
+export function resolveCallRouting(template: string, data: Record<string, any> = {}): Record<string, any> {
+  let parsed: any;
+  try { parsed = JSON.parse(template); } catch { parsed = { body: template }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Action template must be a JSON object');
+  const routing = Object.fromEntries(Object.entries(parsed).filter(([key]) => !['prompt', 'instruction', 'body', 'greeting'].includes(key)));
+  return resolveCallTemplate(JSON.stringify(routing), data);
+}
+
 export function buildCallOverrides(instruction: string, purpose: string, greeting?: string): HyperFlowCallOverrides {
   const test = purpose === 'test_call';
   const coaching = purpose === 'coaching_session';

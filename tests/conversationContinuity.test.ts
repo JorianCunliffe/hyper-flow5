@@ -163,3 +163,15 @@ test("long history retains source IDs and explicit incompleteness without leakin
   assert.ok(!JSON.stringify(result).includes("secret"));
   assert.equal(result.truncated, true);
 });
+
+test('a selected thread cannot include evidence from a different thread', async () => {
+  const { conversationEvidence } = await import('../lib/conversationContinuity.js');
+  const result = await conversationEvidence({ orgId: 'tenant', projectId: 'project', personId: 'person', threadId: 'wanted', strictThread: true,
+    profile: { primaryPersonId: 'person', allowedProjectIds: ['project'] } as any }, async () => ({
+      memory_status: { state: 'current' }, data: { communications: ['wanted', 'other'].map(thread_id => ({
+        communication_id: thread_id, thread_id, person_id: 'person', correlation: { external_project_id: 'project' },
+        memory_eligible: true, body: thread_id, occurred_at: '2026-10-13T00:00:00Z'
+      })) }
+    }) as any);
+  assert.deepEqual(result.sources.map(source => source.id), ['wanted']);
+});

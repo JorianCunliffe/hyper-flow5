@@ -23,3 +23,32 @@ test('duplicate phone identities never select a contact by array order',async()=
  const client:any={listPeople:async()=>[{id:'ceo',phone:input.to},{id:'other',phone:input.to}]};
  assert.deepEqual((await outboundConversationContext(input,client,async()=>profile)).sources,[]);
 });
+
+test('contact fields remain available with history disabled and provider metadata is excluded', async () => {
+  const client: any = { listPeople: async () => [{ id: 'ceo', name: 'Jorian', phone: input.to, email: 'name@example.com', secret: 'hidden' }],
+    listCommunications: async () => { throw new Error('History must not be read'); } };
+  const result = await outboundConversationContext({ ...input, contactContext: true, historyScope: 'project' }, client,
+    async () => ({ ...profile, conversation: { historyEnabled: false } }));
+  assert.deepEqual(result.recipient, { id: 'ceo', name: 'Jorian', phone: input.to, email: 'name@example.com' });
+  assert.equal(result.status, 'disabled');
+  assert.ok(!result.instructions.includes('hidden'));
+});
+
+test('explicit thread and project scope use only the authorized recipient; no-history avoids evidence reads', async () => {
+  const client: any = { listPeople: async () => [{ id: 'ceo', name: 'Jorian', phone: input.to }] };
+  const reads: any[] = [];
+  const evidence: any = async (request: any) => { reads.push(request); return { status: 'current', sources: [], truncated: false }; };
+  const readProfile = async () => profile;
+  await outboundConversationContext({ ...input, contactContext: true, historyScope: 'none' }, client, readProfile, evidence);
+  assert.equal(reads.length, 0);
+  await outboundConversationContext({ ...input, historyScope: 'thread', threadId: 'thread-1' }, client, readProfile, evidence);
+  assert.equal(reads[0].threadId, 'thread-1');
+  assert.equal(reads[0].strictThread, true);
+  assert.equal(reads[0].personId, 'ceo');
+  assert.equal(reads[0].projectId, 'alpha');
+  await outboundConversationContext({ ...input, historyScope: 'project' }, client, readProfile, evidence);
+  assert.equal(reads[1].threadId, undefined);
+  const denied = await outboundConversationContext({ ...input, projectId: 'beta', contactContext: true, historyScope: 'thread', threadId: 'thread-1' }, client, readProfile, evidence);
+  assert.equal(denied.recipient, undefined);
+  assert.equal(reads.length, 2);
+});

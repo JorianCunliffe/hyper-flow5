@@ -1897,6 +1897,15 @@ export interface components {
             prompt?: string;
             body?: string;
             greeting?: string;
+            /** @description Resolve permitted recipient fields (id, name, email, phone) for greeting/instruction templates */
+            contact_context?: boolean;
+            /**
+             * @description Optional conversation evidence scope; omitted preserves legacy automatic selection
+             * @enum {unknown}
+             */
+            history_scope?: "none" | "project" | "thread";
+            /** @description Required for thread scope; constrained to recipient and current project */
+            history_thread_id?: string;
             purpose_type?: string;
         } & {
             [key: string]: unknown;

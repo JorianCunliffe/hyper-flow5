@@ -48,6 +48,7 @@ export async function conversationEvidence(
     projectId: string;
     profile: TenantAgentProfile;
     threadId?: string;
+    strictThread?: boolean;
   },
   reader: Reader = (org, request) =>
     new HttpCommunicationsClient({ timeoutMs: 2000 }).getMemoryContext(
@@ -84,6 +85,7 @@ export async function conversationEvidence(
     const valid = rows.filter(
       (row) =>
         row &&
+        (!input.strictThread || (!!input.threadId && row.thread_id === input.threadId)) &&
         (row.correlation?.external_project_id === input.projectId ||
           (!row.project_id && !row.correlation?.external_project_id && !!input.threadId && row.thread_id === input.threadId)) &&
         (row.person_id || row.contact_id) === input.personId &&

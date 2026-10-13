@@ -3,7 +3,7 @@ import { ActionRecoveryRequired } from './actionDispatch.js';
 import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 import { executeMailboxDraft } from './mailboxDraftAction.js';
 import { renderActionTemplate, validateOutputSchema, validateFlowOutput } from './flowData.js';
-import { buildCallOverrides, resolveCallTemplate } from './callPrompts.js';
+import { buildCallOverrides, resolveCallTemplate, resolveCallRouting } from './callPrompts.js';
 import { outboundConversationContext } from './outboundConversationContext.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createCommunicationsClient } from './communications/client.js';
@@ -137,7 +137,7 @@ export async function executeTask(
   templateFile: string | undefined,
   projectData: Record<string, any> | undefined,
   ctx?: ExecuteContext,
-  dependencies: { emailClient?: Pick<CommunicationsClient, 'sendEmail'> } = {}
+  dependencies: { emailClient?: Pick<CommunicationsClient, 'sendEmail'>; callClient?: Pick<CommunicationsClient, 'startCall' | 'listPeople' | 'listCommunications'>; callContext?: typeof outboundConversationContext } = {}
 ): Promise<TaskExecutionResult> {
   const taskType = normalizeTaskType(rawTaskType);
   if (!taskType) {
@@ -151,7 +151,7 @@ export async function executeTask(
     };
   }
   const { parsedContent, templateData } = taskType === 'outgoing_call'
-    ? { parsedContent: templateFile || '', templateData: resolveCallTemplate(templateFile || '', projectData) }
+    ? { parsedContent: templateFile || '', templateData: resolveCallRouting(templateFile || '', projectData) }
     : substituteTemplate(templateFile, projectData);
   const logs: string[] = [];
 
@@ -526,16 +526,25 @@ export async function executeTask(
         const profile = await readTenantAgentProfile(orgId);
         if (!profile?.automaticActions?.includes('call')) throw new Error('Calls are disabled by the tenant agent policy');
       }
-      const instruction = templateData.instruction || templateData.prompt || templateData.body || parsedContent;
-      if (!instruction) throw new Error('Outgoing call requires an instruction, prompt or body');
-
-      const client = createCommunicationsClient();
+      const client = dependencies.callClient || createCommunicationsClient();
       const correlation = communicationCorrelation(ctx);
       const purpose = String(templateData.purpose_type || 'workflow_action');
-      const history = purpose === 'test_call'
-        ? { status: 'not_requested', sources: [] as string[], instructions: '' }
-        : await outboundConversationContext({orgId:correlation.tenant_id,projectId:correlation.external_project_id!,to:String(toPhone)},client);
-      const overrides = buildCallOverrides(String(instruction), purpose, templateData.greeting);
+      if (templateData.contact_context !== undefined && typeof templateData.contact_context !== 'boolean') throw new Error('contact_context must be a boolean');
+      if (templateData.history_scope !== undefined && !['none', 'project', 'thread'].includes(templateData.history_scope)) throw new Error('Unknown history_scope');
+      if (templateData.history_scope === 'thread' && (typeof templateData.history_thread_id !== 'string' || !templateData.history_thread_id.trim())) throw new Error('Thread history requires history_thread_id');
+      if (templateData.history_thread_id !== undefined && templateData.history_scope !== 'thread') throw new Error('history_thread_id requires thread history scope');
+      const history = purpose === 'test_call' && !templateData.contact_context && !templateData.history_scope
+        ? { status: 'not_requested', sources: [] as string[], instructions: '', recipient: undefined }
+        : await (dependencies.callContext || outboundConversationContext)({ orgId: correlation.tenant_id, projectId: correlation.external_project_id!, to: String(toPhone),
+          contactContext: templateData.contact_context === true,
+          historyScope: purpose === 'test_call' ? 'none' : templateData.history_scope,
+          threadId: templateData.history_thread_id }, client);
+      if (templateData.contact_context && !history.recipient) throw new Error('Recipient contact is missing, ambiguous or not authorized for this project');
+      // Reserve recipient for the verified lookup; project data cannot impersonate it.
+      const resolvedCall = resolveCallTemplate(templateFile || '', { ...projectData, recipient: history.recipient });
+      const instruction = resolvedCall.instruction || resolvedCall.prompt || resolvedCall.body;
+      if (!instruction) throw new Error('Outgoing call requires an instruction, prompt or body');
+      const overrides = buildCallOverrides(String(instruction), purpose, resolvedCall.greeting);
       overrides.systemMessage += `\n\n${history.instructions}`;
       logs.push(`Conversation context: ${history.status}; ${history.sources.length} authorized sources`);
       const result = await client.startCall({
@@ -546,7 +555,7 @@ export async function executeTask(
         purpose: { type: purpose },
         callback_url: communicationCallbackUrl(ctx)
       });
-      return communicationResponse(result, logs, { call_data: templateData, conversation_context: {status:history.status,sourceIds:history.sources} });
+      return communicationResponse(result, logs, { call_data: resolvedCall, conversation_context: {status:history.status,sourceIds:history.sources} });
     } catch (callError: any) {
       logs.push(`Communications Error: ${callError.message}`);
       return { httpStatus: callError.status || 500, body: { status: 'error', error: callError.message, code: callError.responseBody?.code, logs } };

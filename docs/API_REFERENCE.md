@@ -66,3 +66,22 @@ Lost responses reuse the same file/source identity and reconcile `/api/recording
 ## Contact and business-hours policy
 
 Use `GET /api/cockpit?operation=contact_policy`, then `contact_policy_preview` and human-approved `contact_policy_apply` POST operations. Revision/hash checks bind the exact proposal. Project hours use `Project.operatingHours` through the revision-checked configuration API. Execute `check_project_hours` (node type `check_hours`, template `{}`) through the existing authenticated task API with project correlation. Outputs include `hours_status` (`open`, `closed`), `hours_open`, `hours_checked_at`, `hours_timezone`, `hours_local_time`, `hours_next_open_at` and `hours_project_revision`. Undefined hours default to open. No providers are called. `Wait.resumeAtPath` can reference the next-opening output; branches are explicit. See [project hours and migration](PROJECT_HOURS.md) and [contact safeguards](CONTACT_POLICY.md).
+
+### Configurable outbound call context
+
+The existing Phone Call primitive accepts `contact_context: true`. Before rendering the greeting and instructions, it resolves the destination number to exactly one Communications contact permitted for the current project. This exposes `recipient.id`, `recipient.name`, `recipient.email` and `recipient.phone` as runtime template fields; absent optional fields are not invented. Contact details are also supplied as labelled data to the agent. The contact remains owned by Communications, and saved project values cannot override this runtime identity. A missing/ambiguous/unauthorized contact or a missing referenced field blocks dispatch.
+
+`history_scope` selects `none`, `project`, or `thread`. Thread scope requires `history_thread_id` (which may reference a project-data field). Returned evidence is constrained to the selected person, current project and, when selected, exact thread. History remains bounded, non-exhaustive and subject to tenant history settings and existing visibility rules. Missing history is reported to the agent; it is never treated as remembered fact. Omitting the scope preserves existing automatic selection. Test calls do not receive history.
+
+```json
+{
+  "to": "{{contact_phone}}",
+  "contact_context": true,
+  "greeting": "Hi {{recipient.name}}, it’s your HyperFlow assistant. Is now a good time?",
+  "prompt": "Speak with {{recipient.name}}. Review the requested conversation using the supplied evidence, then ask one question at a time.",
+  "history_scope": "thread",
+  "history_thread_id": "{{conversation_thread_id}}"
+}
+```
+
+The node editor exposes these settings and lists the contact fields. Contact values resolve at dispatch; the saved-data preview does not perform a live lookup. Routing (`to`, history scope and thread ID) must resolve from ordinary configuration/project data before the recipient is looked up. For a simulated configuration test, supply a `recipient` input fixture; simulation does not fetch live contacts. In live execution, only the authorized lookup supplies `recipient`.
