@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: JorianCunliffe/communications-service
-          ref: a952fc0b8f30db1f8834ac556be862941c636542
+          ref: fa4461f458417f99348e56d8417750aab642cb2a
       - uses: actions/setup-node@v4
         with:
           node-version: 22
