@@ -92,3 +92,11 @@ test('the automatic timer cannot overlap a pending or unknown manual session', a
   f.deps.readScheduleRun=async()=>null;
   assert.equal(await pendingManualScheduleOccurrence(s,tomorrow,f.deps),now,'An unconfirmed reservation never permits a second call');
 });
+
+test('pre-upgrade coaching sessions without a reservation also protect the future timer', async () => {
+  const f=fixture([{scheduledFor:now,status:'waiting'}],false);
+  assert.equal(await pendingManualScheduleOccurrence(schedule(),tomorrow,f.deps),now);
+  assert.equal(await pendingManualScheduleOccurrence(schedule(),now,f.deps),null);
+  f.deps.readServiceRunProgress=async()=>({canStartNewRun:true});
+  assert.equal(await pendingManualScheduleOccurrence(schedule(),tomorrow,f.deps),null);
+});
