@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { firebaseService } from '../services/firebaseService';
 import type { TenantSchedule } from '../types';
 
-export function ScheduleRecoveryPanel({schedule, onClose, onApplied, transport}: {schedule: TenantSchedule; onClose:()=>void; onApplied:()=>Promise<void>; transport?:(body:any)=>Promise<any>}) {
+export function ScheduleRecoveryPanel({schedule, scheduledFor = schedule.nextRunAt, onClose, onApplied, transport}: {schedule: TenantSchedule; scheduledFor?:number; onClose:()=>void; onApplied:()=>Promise<void>; transport?:(body:any)=>Promise<any>}) {
   const [preview,setPreview]=useState<any>();
   const [choice,setChoice]=useState('resume_future');
   const [note,setNote]=useState('');
@@ -14,9 +14,9 @@ export function ScheduleRecoveryPanel({schedule, onClose, onApplied, transport}:
   const [requestId,setRequestId]=useState(()=>crypto.randomUUID());
   const time=(v:number)=>new Date(v).toLocaleString('en-AU',{timeZone:preview?.timezone || schedule.timezone});
   async function command(body:any) {
-    if(transport)return transport({id:schedule.id,scheduledFor:schedule.nextRunAt,...body});
+    if(transport)return transport({id:schedule.id,scheduledFor,...body});
     const response=await firebaseService.authorizedFetch('/api/schedules/recovery',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:schedule.id,scheduledFor:schedule.nextRunAt,...body})
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:schedule.id,scheduledFor,...body})
     });
     const result=await response.json();
     if(!response.ok)throw new Error(result.error || 'Recovery could not be saved');
@@ -27,7 +27,7 @@ export function ScheduleRecoveryPanel({schedule, onClose, onApplied, transport}:
     try {setPreview(await command({operation:'preview'}));setAck(false);setConfirmCall(false);setRequestId(crypto.randomUUID());}
     catch(e:any){setError(e.message);}finally{setBusy(false);}
   }
-  useEffect(()=>{if(!receipt)void review();},[schedule.id,schedule.nextRunAt]);
+  useEffect(()=>{if(!receipt)void review();},[schedule.id,scheduledFor]);
   async function apply() {
     setBusy(true);setError('');
     try {
@@ -41,7 +41,7 @@ export function ScheduleRecoveryPanel({schedule, onClose, onApplied, transport}:
   return <div role="dialog" aria-modal="true" aria-label="Resolve held run" className="fixed inset-0 z-[120] bg-slate-900/60 flex items-center justify-center p-4">
     <div className="bg-white rounded-2xl p-6 max-w-xl w-full max-h-[90vh] overflow-y-auto text-slate-900">
       <h2 className="text-xl font-bold">Resolve held run</h2>
-      <p className="text-sm my-2">{schedule.name} · original occurrence {time(receipt?.originalScheduledFor || schedule.nextRunAt)} · {schedule.timezone}</p>
+      <p className="text-sm my-2">{schedule.name} · original occurrence {time(receipt?.originalScheduledFor || scheduledFor)} · {schedule.timezone}</p>
       {error && <p role="alert" className="text-red-700 my-3">{error}</p>}
       {receipt ? <div role="status" className="space-y-2 my-4">
         <p>Recovery decision saved: {receipt.decision.replaceAll('_',' ')}.</p>

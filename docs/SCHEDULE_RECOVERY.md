@@ -4,6 +4,8 @@ In a service project's **Service Configuration**, **Resolve held run** opens a h
 
 The panel reads the original frozen Communications operation key. It distinguishes completed, failed, in-progress, not-dispatched and unknown evidence. Missing receipts alone never prove non-dispatch. Raw provider failures, credentials and call prompts are not returned to the panel.
 
+For a held manual **Start now** attempt, recovery targets that attempt's timestamp rather than the next daily timer. Future-only resumption releases its manual reservation and retains its failed provider evidence. A separately confirmed safe retry queues the original timestamp and operation for the scheduler; it does not create a replacement call identity.
+
 Choose one action:
 
 - **Close this occurrence and resume future calls:** retains the failed occurrence, its frozen flow and provider receipts; moves the schedule to the next future configured time and enables it. Missed days are skipped even for catch-up schedules. Unknown/in-progress provider outcomes require explicit acknowledgement and remain uncertain. This does not cancel a provider call or claim it never happened.

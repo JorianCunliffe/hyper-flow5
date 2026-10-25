@@ -44,6 +44,26 @@ test('closed review can resume tomorrow without replaying missed days or rewriti
  assert.deepEqual(await f.service.apply('org','human',f.body(preview)),receipt);
  await assert.rejects(f.service.apply('org','another_human',f.body(preview)),/another review/);
 });
+test('held manual Start now occurrences recover independently of the future daily timer',async()=>{
+ const f=fixture();
+ const future=Date.parse('2026-10-12T23:00:00Z');
+ f.rows[f.sp].nextRunAt=future; f.rows[f.sp].manualStartAt=f.at;
+ const preview=await f.service.preview('org','schedule_test',f.at);
+ const receipt=await f.service.apply('org','human',f.body(preview));
+ assert.equal(receipt.nextRunAt,future);
+ assert.equal(f.rows[f.sp].manualStartAt,null);
+ assert.equal(f.rows[f.op].recoveryResolution.decision,'resume_future');
+ assert.equal(receipt.callDispatched,false);
+ const detached=fixture();detached.rows[detached.sp].nextRunAt=future;
+ await assert.rejects(detached.service.preview('org','schedule_test',detached.at),/schedule head/);
+ const retry=fixture('not_dispatched');retry.rows[retry.sp].nextRunAt=future;retry.rows[retry.sp].manualStartAt=retry.at;
+ const reviewed=await retry.service.preview('org','schedule_test',retry.at);
+ await retry.service.apply('org','human',retry.body(reviewed,'retry_original'));
+ assert.equal(retry.rows[retry.sp].nextRunAt,retry.at);
+ assert.equal(retry.rows[retry.sp].manualStartAt,retry.at);
+ assert.equal(retry.rows[retry.op].status,'recoverable');
+});
+
 test('stale configuration, changed evidence, expired previews and uncertain retries are denied',async()=>{
  for(const kind of ['configuration','provider','expired','retry','ack'] as const){
   const f=fixture(); const p=await f.service.preview('org','schedule_test',f.at);const b=f.body(p);

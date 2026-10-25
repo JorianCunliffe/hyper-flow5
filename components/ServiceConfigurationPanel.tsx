@@ -74,7 +74,7 @@ export const ServiceConfigurationPanel: React.FC<{ project: Project; onConfigure
     </div>
     {onShowStep && tracking.progress?.nodes.some(n=>n.status!=='failed') && <button type="button" className="mt-2 text-xs underline text-indigo-700" onClick={()=>onShowStep(tracking.progress!.nodes.find(n=>n.status!=='failed')!.id)}>Show current step</button>}
     {recoveryHeld && schedule && <button type="button" className="mt-3 rounded-lg bg-amber-700 px-3 py-2 text-white font-bold" onClick={()=>setRecoveryOpen(true)}>Resolve held run</button>}
-    {recoveryOpen && schedule && <ScheduleRecoveryPanel schedule={schedule} onClose={()=>setRecoveryOpen(false)} onApplied={load} />}
+    {recoveryOpen && schedule && <ScheduleRecoveryPanel schedule={schedule} scheduledFor={status?.lastRun?.scheduledFor ?? schedule.nextRunAt} onClose={()=>setRecoveryOpen(false)} onApplied={load} />}
     <ServiceStatusNotices status={status} />
     {isCoaching && firebaseService.getCurrentOrgId() && <div className="mt-4"><BriefingPanel orgId={firebaseService.getCurrentOrgId()!} projectId={String(project.id)}/></div>}
   </div>;

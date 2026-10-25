@@ -96,7 +96,7 @@ export function createScheduleRecovery(deps = { database: runtimeDatabase, provi
     return { db, p, schedule, occurrence, run, dispatch, flowPath, dispatchPath };
   }
   function checkHeld(s: any) {
-    if (s.schedule.nextRunAt !== s.occurrence.scheduledFor || s.occurrence.recoveryResolution || !['failed','blocked'].includes(s.occurrence.status)
+    if ((s.schedule.nextRunAt !== s.occurrence.scheduledFor && s.schedule.manualStartAt !== s.occurrence.scheduledFor) || s.occurrence.recoveryResolution || !['failed','blocked'].includes(s.occurrence.status)
       || (!s.occurrence.manualReviewRequired && !s.occurrence.recoveryReviewedAt && s.occurrence.status !== 'blocked')) fail('This occurrence is no longer held at the schedule head');
     if (s.dispatch.leaseUntil > deps.now()) fail('The original dispatch still has an active worker');
   }
@@ -192,13 +192,14 @@ export function createScheduleRecovery(deps = { database: runtimeDatabase, provi
         });
       }
       const receipt = {requestId,decision:command.decision,at:command.at,originalScheduledFor:scheduledFor,
-        nextRunAt:command.decision==='resume_future'?command.nextRunAt:s.schedule.nextRunAt,timezone:s.schedule.timezone,
+        nextRunAt:command.decision==='resume_future'?command.nextRunAt:command.decision==='retry_original'?scheduledFor:s.schedule.nextRunAt,timezone:s.schedule.timezone,
         originalOutcome:command.evidence.outcome,callDispatched:false};
       const saved=await transact(ref,current=>{
         if(current?.recoveryCommands?.[requestId]?.phase==='completed')return current;
         if(current?.recoveryPendingId!==requestId)fail('Recovery ownership changed');
         if(command.decision==='resume_future' && command.nextRunAt<=deps.now())fail('The approved next call time has passed. Refresh and confirm a new time.');
-        return {...current,...(command.decision==='keep_held'?{}:{enabled:true,nextRunAt:receipt.nextRunAt}),updatedAt:deps.now(),recoveryPendingId:null,
+        return {...current,...(command.decision==='keep_held'?{}:{enabled:true,nextRunAt:receipt.nextRunAt}),
+          ...(command.decision==='resume_future' && current.manualStartAt===scheduledFor?{manualStartAt:null}:{}),updatedAt:deps.now(),recoveryPendingId:null,
           recoveryCommands:{...current.recoveryCommands,[requestId]:{...command,phase:'completed',receipt}}};
       });
       await recordOperationalEvent({tenantId:org,type:'schedule.recovery_resolved',actorId:actor,operationId:requestId,status:command.decision,details:{scheduleId:id}});
