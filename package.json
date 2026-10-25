@@ -53,6 +53,9 @@
     "vite": "^6.2.0"
   },
   "overrides": {
+    "@vercel/cli-config": {
+      "zod": "4.6.6"
+    },
     "jwks-rsa": {
       "jose": "4.15.9"
     },
