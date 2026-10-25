@@ -143,13 +143,14 @@ export async function handleBriefings(
       const ready =
         response.ok &&
         health.liveBriefing === true &&
-        health.briefingProtocol === "briefing-tool.v1";
+        health.briefingProtocol === "briefing-tool.v1" &&
+        health.briefingPromptVersion === "briefing-first.v2";
       checks.push({
         name: "Live tools",
         ready,
         detail: ready
-          ? "Communications supports the briefing protocol"
-          : "The deployed Communications service does not advertise briefing support",
+          ? "Communications supports live tools and the verification-first briefing prompt"
+          : "The deployed Communications service needs live tools and the verification-first briefing prompt",
       });
     } catch {
       checks.push({

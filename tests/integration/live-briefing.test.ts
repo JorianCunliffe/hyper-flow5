@@ -35,6 +35,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
   });
   const { getApps, deleteApp } = await import("firebase-admin/app");
   const app = express();
+  let promptVersion = "briefing-first.v2";
+  app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
     sms = 0;
   app.get("/v1/contacts", (_req, res) =>
@@ -197,6 +199,11 @@ test("signed live briefing tools verify a call, save one task change and one dom
       member,
     );
     await assert.rejects(invoke({ operation: "list_tasks" }), /Verify the SMS/);
+    const readiness = async ():Promise<any> => handleBriefings({method:"GET",query:{operation:"readiness"}},member);
+    assert.equal((await readiness()).ready,true);
+    promptVersion = "legacy-coaching";
+    assert.equal((await readiness()).ready,false);
+    promptVersion = "briefing-first.v2";
     assert.equal(
       (await invoke({ operation: "request_code" })).status,
       "code_sent",
