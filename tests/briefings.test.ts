@@ -78,13 +78,99 @@ test("version and idempotency hashes do not depend on JSON field order", () => {
     fingerprint({ a: { x: 1, y: 2 }, b: 2 }),
   );
 });
-test('legacy memberships use the current verified email and configured task statuses remain available',async()=>{
-  const d=empty();d.members.alice={role:'owner'};d.workspace.settings.statuses=['Waiting for materials'];
-  const snapshot=buildSnapshot(d,member);assert.equal(snapshot.items[0].assigneeUid,'alice');
-  const f=changeFixture();f.setSnapshot(snapshot);
-  const result=await prepareChange(member,{...f.input,status:'Waiting for materials'},undefined,undefined,f.deps);
-  assert.match(result.readback,/Waiting for materials/);
-  await assert.rejects(prepareChange(member,{...f.input,status:'Invented status',requestId:'other_request_id'},undefined,undefined,f.deps),/Choose one of/);
+test("reports preserve workspace staff choices without granting those labels approval authority", async () => {
+  const d = empty();
+  d.workspace.settings.people = ["Alice", "Contractor"];
+  d.workspace.projects[0].milestones[0].subtasks[1].assignedTo = "Contractor";
+  d.flows = [
+    {
+      id: "flow",
+      projectId: "p",
+      revision: 1,
+      versions: [
+        {
+          version: 1,
+          hash: "h",
+          missing: [],
+          ask: {
+            status: "open",
+            kind: "approval",
+            prompt: "Contractor decision",
+            assignees: ["Contractor"],
+          },
+        },
+      ],
+    },
+  ];
+  const snapshot = buildSnapshot(d, member);
+  const staff = snapshot.subjects.find((s) => s.name === "Contractor")!;
+  assert.match(staff.id, /^assignee:/);
+  assert.equal(staff.kind, "assignee");
+  assert.equal(
+    briefingReport(snapshot, member, {
+      subject: staff.id,
+      reportType: "approvals",
+    }).total,
+    1,
+  );
+  assert.equal(
+    briefingReport(snapshot, member, { subject: staff.id }).total,
+    1,
+  );
+  assert.throws(
+    () =>
+      briefingReport(
+        snapshot,
+        { ...member, role: "member" },
+        { subject: staff.id },
+      ),
+    /administrator/,
+  );
+  const f = changeFixture();
+  f.setSnapshot(snapshot);
+  const approval = snapshot.items.find((i) => i.source === "flow_approval")!;
+  await assert.rejects(
+    prepareChange(
+      member,
+      {
+        itemId: approval.id,
+        version: approval.version,
+        action: "approve",
+        requestId: "not_my_approval",
+      },
+      undefined,
+      undefined,
+      f.deps,
+    ),
+    /not available to you/,
+  );
+});
+test("legacy memberships use the current verified email and configured task statuses remain available", async () => {
+  const d = empty();
+  d.members.alice = { role: "owner" };
+  d.workspace.settings.statuses = ["Waiting for materials"];
+  const snapshot = buildSnapshot(d, member);
+  assert.equal(snapshot.items[0].assigneeUid, "alice");
+  const f = changeFixture();
+  f.setSnapshot(snapshot);
+  const result = await prepareChange(
+    member,
+    { ...f.input, status: "Waiting for materials" },
+    undefined,
+    undefined,
+    f.deps,
+  );
+  assert.match(result.readback, /Waiting for materials/);
+  await assert.rejects(
+    prepareChange(
+      member,
+      { ...f.input, status: "Invented status", requestId: "other_request_id" },
+      undefined,
+      undefined,
+      f.deps,
+    ),
+    /Choose one of/,
+  );
 });
 test("commitment transitions use PATCH and reject successful responses for a different record", async () => {
   const d = empty();

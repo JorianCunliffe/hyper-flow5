@@ -149,6 +149,33 @@ test("signed live briefing tools verify a call, save one task change and one dom
         ],
       });
     });
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const history: any = Object.fromEntries(
+        Array.from({ length: 501 }, (_, n) => [
+          `resolved_${n}`,
+          {
+            id: `resolved_${n}`,
+            updatedAt: Date.now() + n,
+            agentProposal: { status: "applied" },
+          },
+        ]),
+      );
+      history.triage_old_pending = {
+        id: "triage_old_pending",
+        projectId: "p",
+        updatedAt: 1,
+        agentProposal: {
+          projectId: "p",
+          kind: "coaching_commitment",
+          summary: "Older pending fixture",
+          value: "Review this fixture only",
+          status: "pending",
+          requestedAt: 1,
+          confidence: 1,
+        },
+      };
+      await set(ref(ctx.database(), `triage_items/${member.orgId}`), history);
+    });
     await handleBriefings(
       {
         method: "PUT",
@@ -171,6 +198,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal(sms, 1);
     await invoke({ operation: "verify_code", code });
     const tasks = await invoke({ operation: "list_tasks" });
+    assert.equal(tasks.incomplete, false, JSON.stringify(tasks.notices));
     assert.equal(tasks.items.length, 1);
     const task = tasks.items[0];
     const prepared = await invoke({
@@ -220,6 +248,10 @@ test("signed live briefing tools verify a call, save one task change and one dom
       member,
     );
     const queue = await invoke({ operation: "list_approvals" });
+    assert.ok(
+      queue.items.some((i: any) => i.sourceId === "triage_old_pending"),
+      "An old pending proposal must survive a large resolved-history backlog",
+    );
     const approval = queue.items.find(
       (i: any) => i.sourceId === created.item.id,
     );

@@ -25,7 +25,9 @@ export function BriefingPanel({
   request?: typeof firebaseService.authorizedFetch;
 }) {
   const [settings, setSettings] = useState<Settings | null>(null),
-    [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
+    [subjects, setSubjects] = useState<
+      Array<{ id: string; name: string; kind?: string }>
+    >([]);
   const [subject, setSubject] = useState("me"),
     [view, setView] = useState("list_tasks"),
     [reportType, setReportType] = useState("workload");
@@ -123,7 +125,10 @@ export function BriefingPanel({
       operation: "read_item",
       itemId: item.id,
     });
-    if(current.item.version!==item.version)throw new Error('This item changed. Load / refresh and review it again before preparing a change.');
+    if (current.item.version !== item.version)
+      throw new Error(
+        "This item changed. Load / refresh and review it again before preparing a change.",
+      );
     const result = await call("POST", {
       operation: "prepare_change",
       itemId: item.id,
@@ -457,9 +462,11 @@ export function BriefingPanel({
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                   >
-                    {(data.statusOptions||Object.values(SubtaskStatus)).map((s:string) => (
-                      <option key={s}>{s}</option>
-                    ))}
+                    {(data.statusOptions || Object.values(SubtaskStatus)).map(
+                      (s: string) => (
+                        <option key={s}>{s}</option>
+                      ),
+                    )}
                   </select>
                 </label>
               )}
@@ -482,6 +489,9 @@ export function BriefingPanel({
                 <p className="text-xs text-slate-600">
                   {item.projectName || "Personal work"} ·{" "}
                   {item.source.replaceAll("_", " ")} · {item.status}
+                  {item.assigneeLabel
+                    ? " · assigned to " + item.assigneeLabel
+                    : ""}
                   {item.dueAt
                     ? " · due " + new Date(item.dueAt).toLocaleString()
                     : ""}
@@ -660,11 +670,13 @@ export function BriefingPanel({
               onChange={(e) => setMappingUid(e.target.value)}
             >
               <option value="">Choose a user</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
+              {subjects
+                .filter((s) => s.kind !== "assignee")
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
             </select>
           </label>
           <button

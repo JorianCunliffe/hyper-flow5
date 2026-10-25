@@ -12,6 +12,8 @@ The daily coaching call can query assigned work, approval queues and user report
 
 Sources include project subtasks, scratch tasks, review-created work, operational commitments, current workflow Asks, visible-flow approvals, artifact reviews, calendar proposals, publishing approvals and coaching triage proposals. Domain-specific prerequisites remain mandatory. Generated-file approval requires the person's visual/content inspection attestations; public-content approval requires a public-use attestation. Approving a proposal does not fabricate a provider execution or publication receipt.
 
+Report subjects include verified organisation members and the existing workspace staff/assignee choices. Namespaced assignee-label IDs support reports for staff without sign-in accounts; they never authenticate a caller or confer approval authority. An administrator can link a legacy assignee to a verified member explicitly. Triage approval reads query pending/failed proposals directly using the `agentProposal/status` index, so a large resolved-message backlog cannot hide an older pending proposal.
+
 Workload and approval reports use current records. Progress uses recorded task status activity and current commitment/review-work update observations, not a reconstruction of unavailable historical events. Date filters use the tenant's timezone. Responses carry observation time, source identity, revisions, pagination or truncation indicators, and incomplete-source notices. Reaching a source cap is not an empty queue.
 
 ## Voice boundary

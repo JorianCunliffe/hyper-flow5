@@ -64,7 +64,7 @@
       ".read": false,
       ".write": false,
       "$orgId": {
-        ".indexOn": "updatedAt",
+        ".indexOn": ["updatedAt","agentProposal/status"],
         ".write": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')",
         ".read": "(auth != null && auth.uid === 'hyperflow-runtime-v1' && auth.token.hyperflow_runtime === true) && (!root.child('tenant_lifecycle').child($orgId).child('state').exists() || root.child('tenant_lifecycle').child($orgId).child('state').val() === 'active')"
       }

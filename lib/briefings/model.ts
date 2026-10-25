@@ -14,6 +14,7 @@ export type Subject = {
   name: string;
   email?: string;
   aliases: string[];
+  kind?: "member" | "assignee";
 };
 export type BriefingItem = {
   id: string;
@@ -24,8 +25,9 @@ export type BriefingItem = {
   projectId?: string;
   projectName?: string;
   assigneeUid?: string;
+  assigneeLabel?: string;
   reviewerUid?: string;
-  reviewerUids?:string[];
+  reviewerUids?: string[];
   status: string;
   version: string;
   dueAt?: string;
@@ -41,7 +43,7 @@ export type BriefingItem = {
 export type BriefingSnapshot = {
   asOf: string;
   timezone?: string;
-  statusOptions?:string[];
+  statusOptions?: string[];
   items: BriefingItem[];
   progress?: BriefingItem[];
   subjects: Subject[];
@@ -55,7 +57,10 @@ export const fail = (status: number, message: string): never => {
 export const rows = <T = any>(value: any): T[] =>
   Array.isArray(value) ? value.filter(Boolean) : Object.values(value || {});
 export const publicItem = ({ commands, ...item }: BriefingItem) => item;
-export const assignedToSubject=(item:BriefingItem,subject:string)=>item.kind==='approval'?(item.reviewerUids||[item.reviewerUid]).includes(subject):item.assigneeUid===subject;
+export const assignedToSubject = (item: BriefingItem, subject: string) =>
+  item.kind === "approval"
+    ? (item.reviewerUids || [item.reviewerUid]).includes(subject)
+    : item.assigneeUid === subject;
 export const closed = (status: string) =>
   [
     "completed",
@@ -123,9 +128,7 @@ export function queryBriefing(
       (!input.projectId || i.projectId === input.projectId),
   );
   items = items.filter(
-    (i) =>
-      subject === "all" ||
-      assignedToSubject(i,subject),
+    (i) => subject === "all" || assignedToSubject(i, subject),
   );
   if (input.status) items = items.filter((i) => i.status === input.status);
   else if (!input.includeClosed) items = items.filter((i) => !closed(i.status));
@@ -149,7 +152,7 @@ export function queryBriefing(
     next: items.length > limit ? page.at(-1)!.id : null,
     incomplete: snapshot.incomplete,
     notices: snapshot.notices,
-    statusOptions:snapshot.statusOptions,
+    statusOptions: snapshot.statusOptions,
   };
 }
 export function briefingReport(
@@ -190,8 +193,7 @@ export function briefingReport(
         (reportType === "approvals"
           ? i.kind === "approval"
           : i.kind === "task") &&
-        (subject === "all" ||
-          assignedToSubject(i,subject)) &&
+        (subject === "all" || assignedToSubject(i, subject)) &&
         (!input.projectId || input.projectId === i.projectId),
     )
     .filter((i) => {
@@ -211,9 +213,7 @@ export function briefingReport(
       ? snapshot.subjects
       : snapshot.subjects.filter((s) => s.id === subject)
   ).map((s) => {
-    const items = selected.filter(
-      (i) => assignedToSubject(i,s.id),
-    );
+    const items = selected.filter((i) => assignedToSubject(i, s.id));
     return {
       userId: s.id,
       name: s.name,
@@ -221,9 +221,7 @@ export function briefingReport(
       open: items.filter((i) => !closed(i.status)).length,
       closed: items.filter((i) => closed(i.status)).length,
       completed: items.filter((i) =>
-        ["completed", "complete", "fulfilled"].includes(
-          i.status.toLowerCase(),
-        ),
+        ["completed", "complete", "fulfilled"].includes(i.status.toLowerCase()),
       ).length,
       overdue: items.filter(
         (i) =>
@@ -247,9 +245,10 @@ export function briefingReport(
     incomplete: snapshot.incomplete,
     notices: snapshot.notices,
     text: byUser
-      .map(
-        (r) =>
-          reportType==='progress'?`${r.name}: ${r.total} recorded updates, ${r.completed} completion records.`:`${r.name}: ${r.open} open, ${r.completed} completed, ${r.closed - r.completed} otherwise closed, ${r.overdue} overdue.`,
+      .map((r) =>
+        reportType === "progress"
+          ? `${r.name}: ${r.total} recorded updates, ${r.completed} completion records.`
+          : `${r.name}: ${r.open} open, ${r.completed} completed, ${r.closed - r.completed} otherwise closed, ${r.overdue} overdue.`,
       )
       .join(" "),
   };

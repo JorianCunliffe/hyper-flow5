@@ -1,11 +1,10 @@
 import {
   readTenantWorkspace,
   listOperationalCommitments,
-  listTenantTriageItems,
   readTenantAgentProfile,
 } from "../serverStore.js";
 import { runtimeDatabase } from "../runtimeDatabase.js";
-import {SubtaskStatus} from '../../types.js';
+import { SubtaskStatus } from "../../types.js";
 import { workspaceView } from "../tenantControl/workspace.js";
 import { flowStore } from "../visibleFlows/store.js";
 import { artifactStore } from "../artifacts/store.js";
@@ -24,7 +23,10 @@ import {
 } from "./model.js";
 
 const key = (s: string) => encodeURIComponent(s).replace(/\./g, "%2E");
-const instant=(value:any):number|undefined=>{const n=typeof value==='number'?value:Date.parse(value);return Number.isFinite(n)?n:undefined;};
+const instant = (value: any): number | undefined => {
+  const n = typeof value === "number" ? value : Date.parse(value);
+  return Number.isFinite(n) ? n : undefined;
+};
 export const sourceDependencies = {
   profile: readTenantAgentProfile,
   workspace: readTenantWorkspace,
@@ -36,7 +38,22 @@ export const sourceDependencies = {
   publishing: publishingStore.read,
   runs: async (org: string, project: string, _limit: number) =>
     listActiveReceptionRuns(org, project),
-  triage: listTenantTriageItems,
+  triage: async (org: string, limit = 1000) => {
+    const root = (await runtimeDatabase()).ref(`triage_items/${key(org)}`);
+    const pages = await Promise.all(
+      ["pending", "failed"].map((status) =>
+        root
+          .orderByChild("agentProposal/status")
+          .equalTo(status)
+          .limitToFirst(limit + 1)
+          .get(),
+      ),
+    );
+    return pages
+      .flatMap((page) => rows(page.val()))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, limit + 1);
+  },
   members: async (org: string) =>
     (
       await (await runtimeDatabase())
@@ -173,11 +190,13 @@ export async function loadBriefing(
     ),
     read(
       "Triage",
-      () => deps.triage(member.orgId, 500),
+      () => deps.triage(member.orgId, 1000),
       (v) => {
-        data.triage = v;
-        if (v.length >= 500)
-          data.notices.push("Triage coverage reached its limit.");
+        data.triage = v.slice(0, 1000);
+        if (v.length > 1000)
+          data.notices.push(
+            "Pending triage proposals reached the 1,000 record limit; narrow the scope before treating this as a complete approval queue.",
+          );
       },
     ),
   ]);
@@ -230,6 +249,7 @@ export function buildSnapshot(
       name: m.name || m.email || id,
       email: m.email,
       aliases: [],
+      kind: "member",
     }),
   );
   if (!subjects.some((s) => s.id === member.uid))
@@ -238,9 +258,10 @@ export function buildSnapshot(
       name: member.email || "Me",
       email: member.email,
       aliases: [],
+      kind: "member",
     });
   for (const s of subjects) {
-    if(s.id===member.uid&&!s.email)s.email=member.email;
+    if (s.id === member.uid && !s.email) s.email = member.email;
     for (const [name, details] of Object.entries<any>(
       w.settings.teamMemberDetails || {},
     )) {
@@ -251,7 +272,34 @@ export function buildSnapshot(
     }
   }
   const bindings = w.settings.briefingAssignees || {};
+  // Workspace assignees are report subjects, not authenticated principals.
+  for (const label of rows<string>(w.settings.people)) {
+    if (
+      typeof label !== "string" ||
+      !label.trim() ||
+      resolveAssignee(label, subjects, bindings)
+    )
+      continue;
+    const memberMatches = subjects.filter(
+      (s) =>
+        s.kind !== "assignee" &&
+        s.aliases.some((a) => a.toLowerCase() === label.toLowerCase()),
+    );
+    if (memberMatches.length > 1) continue;
+    subjects.push({
+      id: `assignee:${fingerprint(label.trim().toLowerCase()).slice(0, 24)}`,
+      name: label.trim(),
+      aliases: [label.trim()],
+      kind: "assignee",
+    });
+  }
   const resolve = (value: any) => resolveAssignee(value, subjects, bindings);
+  const reviewerIds = (ask: any): string[] =>
+    rows<string>(ask?.assignees)
+      .map(resolve)
+      .filter((id): id is string => Boolean(id));
+  const reviewerFor = (ask: any) =>
+    reviewerIds(ask).find((id) => id === member.uid) || reviewerIds(ask)[0];
   const items: BriefingItem[] = [];
   const add = (item: BriefingItem) => {
     if (!item.projectId || allowed.has(item.projectId))
@@ -283,7 +331,9 @@ export function buildSnapshot(
   for (const p of projects)
     for (const node of rows(p.milestones))
       for (const task of rows(node.subtasks)) {
-        const uid = resolve(task.assigneeUid || task.assignedTo);
+        const uid = resolve(
+          task.assigneeUid || task.assignedTo || "Unassigned",
+        );
         if (task.assignedTo && !uid) unresolved++;
         const row = {
           ...base(
@@ -295,6 +345,7 @@ export function buildSnapshot(
           ),
           id: `subtask:${p.id}:${node.id}:${task.id}`,
           assigneeUid: uid,
+          assigneeLabel: task.assignedTo,
           dueAt: task.dueDate
             ? new Date(task.dueDate).toISOString()
             : undefined,
@@ -442,9 +493,7 @@ export function buildSnapshot(
   for (const flow of data.flows)
     for (const version of rows(flow.versions))
       if (version.ask?.status === "open") {
-        const reviewer =
-          version.ask.assignees?.find((u: string) => u === member.uid) ||
-          version.ask.assignees?.[0];
+        const reviewer = reviewerFor(version.ask);
         add({
           ...base(
             "flow_approval",
@@ -454,12 +503,12 @@ export function buildSnapshot(
             `${flow.revision}:${version.hash}`,
           ),
           reviewerUid: reviewer,
-          reviewerUids:version.ask.assignees||[],
+          reviewerUids: reviewerIds(version.ask),
           status: "open",
           actions:
             version.ask.kind === "approval" &&
             !version.missing?.length &&
-            reviewer === member.uid
+            version.ask.assignees?.includes(member.uid)
               ? ["approve", "reject"]
               : [],
           commands: Object.fromEntries(
@@ -524,9 +573,7 @@ export function buildSnapshot(
   for (const ledger of data.calendars)
     for (const p of rows(ledger.proposals))
       if (p.status === "review") {
-        const reviewer =
-          p.ask?.assignees?.find((u: string) => u === member.uid) ||
-          p.ask?.assignees?.[0];
+        const reviewer = reviewerFor(p.ask);
         add({
           ...base(
             "calendar_approval",
@@ -538,8 +585,10 @@ export function buildSnapshot(
           id: `calendar_approval:${ledger.id}:${p.id}`,
           details: JSON.stringify(p.change || {}),
           reviewerUid: reviewer,
-          reviewerUids:p.ask?.assignees||[],
-          actions: reviewer === member.uid ? ["approve", "reject"] : [],
+          reviewerUids: reviewerIds(p.ask),
+          actions: p.ask?.assignees?.includes(member.uid)
+            ? ["approve", "reject"]
+            : [],
           commands: Object.fromEntries(
             ["approve", "reject"].map((op) => [
               op,
@@ -558,9 +607,7 @@ export function buildSnapshot(
       }
   for (const p of data.publications)
     if (p.state === "awaiting_approval") {
-      const reviewer =
-        p.ask?.assignees?.find((u: string) => u === member.uid) ||
-        p.ask?.assignees?.[0];
+      const reviewer = reviewerFor(p.ask);
       add({
         ...base(
           "publication_approval",
@@ -571,7 +618,7 @@ export function buildSnapshot(
         ),
         reviewerUid: reviewer,
         actions:
-          reviewer === member.uid &&
+          p.ask?.assignees?.includes(member.uid) &&
           ["owner", "admin"].includes(member.role || "")
             ? ["approve", "reject"]
             : [],
@@ -615,7 +662,7 @@ export function buildSnapshot(
               askVersion(ask, run.id),
             ),
             reviewerUid: reviewer,
-            reviewerUids:ask.assignees?.map(resolve).filter(Boolean)||[],
+            reviewerUids: ask.assignees?.map(resolve).filter(Boolean) || [],
             status: "open",
             actions:
               ask.kind === "approval" && reviewer === member.uid
@@ -718,7 +765,14 @@ export function buildSnapshot(
   return {
     asOf: new Date(now).toISOString(),
     timezone: data.timezone || "UTC",
-    statusOptions:[...new Set([...Object.values(SubtaskStatus),...rows<string>(w.settings.statuses).filter(s=>typeof s==='string')])],
+    statusOptions: [
+      ...new Set([
+        ...Object.values(SubtaskStatus),
+        ...rows<string>(w.settings.statuses).filter(
+          (s) => typeof s === "string",
+        ),
+      ]),
+    ],
     subjects,
     items,
     progress,
