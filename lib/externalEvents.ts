@@ -224,7 +224,7 @@ export const terminalExternalEventResult = (event: ExternalEventEnvelope): {
   // A contradictory producer payload must fail closed even if its event name
   // says completed. Provider completion is not verified human success.
   const completedConversation = event.payload.conversation_completed === true ||
-    (event.payload.conversation_completed !== false && successful === true);
+    (event.payload.conversation_completed !== false && successful === true && (!disposition || disposition === 'human_completed'));
   if (event.type.toLowerCase().startsWith('call.') && completedConversation) status = 'success';
   else if (event.type.toLowerCase() === 'call.completed' && (
     successful === false || (disposition && disposition !== 'human_completed')

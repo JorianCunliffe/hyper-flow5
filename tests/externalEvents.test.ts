@@ -13,6 +13,7 @@ describe('external event inbox envelope', () => {
     assert.equal(terminalExternalEventResult(event)?.status,'success');
     assert.equal(event.payload.memory_eligible,false);
     assert.equal(terminalExternalEventResult({...event,payload:{...event.payload,successful:false}})?.status,'error');
+    assert.equal(terminalExternalEventResult({...event,payload:{...event.payload,disposition:'wrong_number'}})?.status,'error');
     assert.equal(terminalExternalEventResult({...event,payload:{memory_eligible:false,disposition:'voicemail'}})?.status,'error');
   });
   test('Ask notification receipts do not resolve the waiting workflow action', () => {
