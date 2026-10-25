@@ -123,10 +123,11 @@ export function BriefingPanel({
       operation: "read_item",
       itemId: item.id,
     });
+    if(current.item.version!==item.version)throw new Error('This item changed. Load / refresh and review it again before preparing a change.');
     const result = await call("POST", {
       operation: "prepare_change",
       itemId: item.id,
-      version: current.item.version,
+      version: item.version,
       action,
       status,
       note,

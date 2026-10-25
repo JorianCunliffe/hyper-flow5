@@ -111,6 +111,7 @@ createRoot(document.getElementById("root")!).render(
     <h1 className="mb-4 text-xl font-bold">
       Isolated briefing UI acceptance — no calls, SMS or provider writes
     </h1>
+    <button type="button" onClick={()=>{status='Held';}}>Simulate another edit</button>
     <BriefingPanel orgId="fixture" projectId="p" request={request} />
   </main>,
 );
