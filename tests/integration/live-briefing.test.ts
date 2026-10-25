@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -38,6 +38,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   const app = express();
   let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
   let interruptNextRequest=false;
+  const modelContract:any={};
   let promptVersion = "briefing-first.v2";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
@@ -215,13 +216,15 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal(sms, 1);
     interruptNextRequest=true;
     const beforeVerification=media.continuations;
-    await invoke({ operation: "verify_code", code });
+    modelContract.verification=await invoke({ operation: "verify_code", code });
     await media.assertVerificationHandoff(beforeVerification);
     assert.ok((await invoke({operation:'subjects'})).subjects.length>=2);
     const tasks = await invoke({ operation: "list_tasks" });
     assert.equal(tasks.incomplete, false, JSON.stringify(tasks.notices));
     assert.equal(tasks.items.length, 1);
     const task = tasks.items[0];
+    modelContract.tasks=tasks;
+    modelContract.taskDetail=await invoke({operation:'read_item',itemId:task.id});
     assert.equal((await invoke({operation:'read_item',itemId:task.id})).item.id,task.id);
     const prepared = await invoke({
       operation: "prepare_change",
@@ -231,6 +234,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       status: "Completed",
       requestId: "fixture_task_change",
     });
+    modelContract.taskPreparation=prepared;
     await assert.rejects(invoke({operation:'confirm_change',id:prepared.id}),/Read the exact proposal/);
     const confirm = async (proposal: any) => {
       const now = Date.now();
@@ -288,6 +292,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       member,
     );
     const queue = await invoke({ operation: "list_approvals" });
+    modelContract.approvals=queue;
     assert.ok(
       queue.items.some((i: any) => i.sourceId === "triage_old_pending"),
       "An old pending proposal must survive a large resolved-history backlog",
@@ -296,6 +301,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       (i: any) => i.sourceId === created.item.id,
     );
     assert.ok(approval);
+    modelContract.approvalDetail=await invoke({operation:'read_item',itemId:approval.id});
     const proposed = await invoke({
       operation: "prepare_change",
       itemId: approval.id,
@@ -304,6 +310,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       note: "Accept the isolated fixture obligation",
       requestId: "fixture_approval_change",
     });
+    modelContract.approvalPreparation=proposed;
     const decisions = await Promise.all([confirm(proposed), confirm(proposed)]);
     assert.ok(decisions.some((r) => r.status === "completed"));
     const obligation = await store.readOperationalCommitment(
@@ -328,7 +335,10 @@ test("signed live briefing tools verify a call, save one task change and one dom
       reportType: "workload",
     });
     assert.equal(report.byUser.length, 2);
+    modelContract.reportAll=report;
     const personalReport=await invoke({operation:'report',subject:'me',reportType:'workload'});
+    modelContract.reportMe=personalReport;
+    modelContract.subjects=await invoke({operation:'subjects'});
     assert.equal(personalReport.byUser.length,1);
     assert.equal(
       report.byUser.find((u: any) => u.userId === "alice").completed,
@@ -342,6 +352,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       member,
     );
     assert.deepEqual(web.byUser, report.byUser);
+    if(process.env.BRIEFING_MODEL_CONTRACT_OUTPUT) writeFileSync(process.env.BRIEFING_MODEL_CONTRACT_OUTPUT,JSON.stringify(modelContract,null,2)+'\n');
     await handleBriefings(
       {
         method: "PUT",
