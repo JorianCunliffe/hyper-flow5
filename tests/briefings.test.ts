@@ -773,6 +773,7 @@ test("task execution saves the original record, activity, revision and an atomic
   const f = changeFixture();
   const p = await prepareChange(member, f.input, undefined, undefined, f.deps);
   let workspace = empty().workspace;
+  workspace.projects[0].projectData = {flow_run_id:'run'};
   const change = f.records.get(p.id);
   const deps = {
     ...executionDependencies,
@@ -793,6 +794,14 @@ test("task execution saves the original record, activity, revision and an atomic
   await executeChange(member, change, deps);
   assert.equal(workspace.dataRevision, 2);
   assert.equal(workspace.activityLogs.length, 1);
+  const savedTask = workspace.projects[0].milestones[0].subtasks[0];
+  const approval: any = {...change, id:'approval_change', action:'approve', requestHash:'approval_hash',
+    item:{...change.item, version:fingerprint(savedTask), commands:{approve:{domain:'task_approval',projectId:'p',nodeId:'n',id:'t'}}}};
+  await executeChange(member, approval, deps);
+  const edit = workspace.projects[0].milestones[0].subtasks[0].briefingEdit;
+  assert.equal(edit.status, 'Completed');
+  assert.equal(edit.approvalStatus, 'approved');
+  assert.equal(edit.id, 'approval_change');
 });
 test("domain approval executes the exact prepared operation with a server-owned recovery marker", async () => {
   const d = empty();

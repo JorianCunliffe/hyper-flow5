@@ -14,7 +14,7 @@ describe('Firebase production rules configuration', () => {
   });
 
   test('indexes the tenant triage query used by the server', () => {
-    assert.equal(rules.triage_items.$orgId['.indexOn'], 'updatedAt');
+    assert.deepEqual(rules.triage_items.$orgId['.indexOn'], ['updatedAt', 'agentProposal/status']);
     assert.equal(rules.triage_digests.$orgId['.indexOn'], 'scheduledFor');
     assert.equal(rules.triage_digests['.read'], false);
     assert.equal(rules.triage_digests['.write'], false);

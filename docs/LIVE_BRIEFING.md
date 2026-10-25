@@ -32,6 +32,8 @@ Briefing-capable calls are excluded from general conversation memory, since a br
 
 Change states are prepared, processing, completed, failed and uncertain. Repeated confirmations never dispatch a second effect. Read-only reconciliation marks completion only when the source contains the exact operation marker or receipt; matching the desired status alone is insufficient. Unknown outcomes remain held for reconciliation. The web action history can inspect voice changes but cannot confirm a proposal belonging to another call.
 
+Confirmed project-task edits carry an occurrence-bound projection marker. Materializing a pinned workflow and saving a later callback preserve those edits and their comments instead of restoring the pre-call task state. Tasks added after execution began remain visible in the saved project but are not inserted into that run's pinned execution graph. Markers from a previous occurrence do not override a new run.
+
 ## Deployment and acceptance
 
 Deploy both repositories and the Firebase rules before enabling the pilot. Existing Communications URL and signing-secret configuration is reused; no new provider credential or Communications database migration is required. Check that Communications health advertises `liveBriefing: true` and `briefingProtocol: briefing-tool.v1`, then use Check call readiness in coaching setup. Preserve existing Pause, Resume and Start now scheduling semantics.

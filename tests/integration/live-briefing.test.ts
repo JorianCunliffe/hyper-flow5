@@ -94,6 +94,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
   const { handleBriefings } = await import("../../lib/briefings/api.js");
   const { handleCommitments } = await import("../../lib/commitments/api.js");
   const store = await import("../../lib/serverStore.js");
+  const {createFlowRun, materializeFlowRunProject, updateFlowRunFromProject} = await import("../../lib/flowRun.js");
+  const {createFlowRunIfAbsent, saveFlowRun} = await import("../../lib/flowRunStore.js");
   const member = {
     orgId: "briefing_fixture",
     uid: "alice",
@@ -176,6 +178,11 @@ test("signed live briefing tools verify a call, save one task change and one dom
       };
       await set(ref(ctx.database(), `triage_items/${member.orgId}`), history);
     });
+    const initial: any = await store.readTenantWorkspace(member.orgId);
+    const pinnedRun = await createFlowRunIfAbsent(createFlowRun({
+      orgId: member.orgId, project: initial.projects[0], occurrenceId: "briefing-fixture", trigger: "manual",
+    }));
+    await store.writeProject(member.orgId, 0, materializeFlowRunProject(initial.projects[0], pinnedRun));
     await handleBriefings(
       {
         method: "PUT",
@@ -229,6 +236,21 @@ test("signed live briefing tools verify a call, save one task change and one dom
     );
     assert.equal(workspace.activityLogs.length, 1);
     assert.ok(workspace.briefingReceipts.fixture_task_change);
+    // A callback still holds the pre-call run snapshot. It must not undo the confirmed edit.
+    const projected = materializeFlowRunProject(workspace.projects[0], pinnedRun);
+    assert.equal(projected.milestones[0].subtasks[0].status, "Completed");
+    await saveFlowRun(updateFlowRunFromProject(pinnedRun, projected));
+    await store.writeProject(member.orgId, 0, projected);
+    const afterCallback: any = await store.readTenantWorkspace(member.orgId);
+    assert.equal(afterCallback.projects[0].milestones[0].subtasks[0].status, "Completed");
+    // Also cover a worker that constructed its stale projection before the live edit.
+    const stale = materializeFlowRunProject(initial.projects[0], pinnedRun);
+    stale.revision = afterCallback.projects[0].revision;
+    await store.writeProject(member.orgId, 0, stale);
+    const afterStaleSave: any = await store.readTenantWorkspace(member.orgId);
+    assert.equal(afterStaleSave.projects[0].milestones[0].subtasks[0].status, "Completed");
+    assert.equal(afterStaleSave.activityLogs.length, 1);
+    assert.ok(afterStaleSave.briefingReceipts.fixture_task_change);
     const created: any = await handleCommitments(
       {
         method: "POST",

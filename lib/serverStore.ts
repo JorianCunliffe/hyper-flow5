@@ -8,6 +8,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'node:crypto';
 import {canonicalHash} from './canonicalHash.js';
+import {preserveBriefingTaskEdits} from './briefings/taskProjection.js';
 import { crc32cUpdate, crc32cBase64 } from './files/crc32c.js';
 import { FILE_CHUNK_BYTES } from './files/model.js';
 import { CommitmentError, normalizeCommitment } from './commitments/model.js';
@@ -720,7 +721,7 @@ export const writeProject = async (orgId: string, index: number, project: Projec
       conflictReason = `revision_mismatch:stored=${Number(stored.revision || 0)},expected=${expectedRevision}`;
       return undefined;
     }
-    return clean;
+    return encodeRtdbRecord(preserveBriefingTaskEdits(decodeRtdbRecord(stored),decodeRtdbRecord(clean)));
   });
   if (!result.committed) {
     await recordOperationalEvent({tenantId:orgId,type:'project.revision_conflict',projectId:project.id,severity:'warning',details:{expectedRevision,storedRevision:Number(result.snapshot.val()?.revision || 0)}});

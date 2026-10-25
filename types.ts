@@ -756,6 +756,8 @@ export interface HumanAsk {
 }
 
 export interface Subtask {
+  /** Server-owned manual edit evidence, scoped to the projected flow occurrence. */
+  briefingEdit?: {id:string;flowRunId:string;at:number;status?:string;completedAt?:number|null;approvalStatus?:'pending'|'approved'|'rejected'};
   id: string;
   displayId?: string;
   name: string;

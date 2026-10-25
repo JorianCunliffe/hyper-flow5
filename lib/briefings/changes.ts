@@ -369,6 +369,16 @@ export async function executeChange(
         { text: note, status: task.status || "Not started", timestamp: now },
       ];
       if (project) {
+        if (project.projectData?.flow_run_id) {
+          const flowRunId = String(project.projectData.flow_run_id);
+          const previous = task.briefingEdit?.flowRunId === flowRunId ? task.briefingEdit : {};
+          task.briefingEdit = {
+            ...previous, id: change.id, flowRunId, at: now,
+            ...(domain === 'task_approval'
+              ? { approvalStatus: task.approvalStatus }
+              : { status: task.status, completedAt: task.completedAt ?? null }),
+          };
+        }
         project.revision = Number(project.revision || 0) + 1;
         project.updatedAt = now;
       }
