@@ -459,7 +459,12 @@ export function buildOpenApi() {
     if(row.path==='/api/service-projects/status') {
       for(const name of ['progress','scheduleId','scheduledFor'])op.parameters.push({name,in:'query',schema:string,description:'Read-only exact-occurrence progress; progress=true avoids provider health lookups. scheduledFor is epoch milliseconds.'});
     }
-    if(row.path==='/api/schedules/run')op.requestBody=body({type:'object',required:['id'],properties:{id:string,scheduledFor:{type:'integer',description:'Optional stable manual occurrence timestamp, created once at click time and retained for progress/reconciliation.'}}});
+    if(row.path==='/api/schedules/run') {
+      op.requestBody=body({type:'object',required:['id'],properties:{id:string,scheduledFor:{type:'integer',description:'Optional stable manual occurrence timestamp, created once at click time and retained for progress/reconciliation.'}}});
+      op.description+='\nDaily coaching Start now enables the recurring schedule and moves its next occurrence to the next future configured local time. Active or uncertain sessions are continued, never duplicated; a completed session awaiting web review may remain open while a new session starts.';
+      op.responses['200']={description:'Original or reserved occurrence identity, future schedule, and execution result; acceptance does not prove a connected call.',...json({type:'object',required:['scheduledFor','result'],properties:{scheduledFor:integer,nextRunAt:integer,scheduleEnabled:{type:'boolean'},result:object}})};
+    }
+    if(row.path==='/api/schedules' && method==='patch')op.description+='\nResuming a paused schedule recalculates the next future occurrence in its timezone. An unresolved current occurrence is retained for reconciliation; resume never silently abandons a provider hold.';
     if (row.path === '/api/schedules/recovery') {
       op.requestBody=body({type:'object',required:['operation','id','scheduledFor'],additionalProperties:false,properties:{orgId:string,operation:{enum:['preview','apply']},id:string,scheduledFor:{type:'integer',minimum:1},requestId:string,decision:{enum:['resume_future','retry_original','keep_held']},note:{type:'string',maxLength:1000},planHash:string,reviewedAt:integer,acceptUncertainty:{type:'boolean'},confirmCall:{type:'boolean'},nextRunAt:integer}});
       op.responses['200']={description:'Human-admin recovery preview or durable decision receipt. No call is dispatched by this endpoint. See SCHEDULE_RECOVERY.md.',...json(object)};

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {readServiceRunProgress} from '../lib/serviceRunProgress.js';
 import {NodeType} from '../types.js';
 import {serviceProjectRequest,serviceProjectDependencies} from '../lib/serviceProjectApi.js';
+import {dailyCoachingTemplate} from '../lib/projectTemplates.js';
+import {progressBusy} from '../lib/serviceProgressState.js';
 const schedule:any={id:'s',orgId:'org',projectId:'p',activity:'flow_start'};
 const occurrence:any={id:'s:123',scheduledFor:123,status:'running'};
 const project:any={id:'p',milestones:[],projectData:{}};
@@ -31,5 +33,21 @@ test('progress lookup reads the exact occurrence, stays scoped, and never calls 
  assert.equal((await serviceProjectRequest('service_setup_status',req,{orgId:'org'} as any,deps)).status,200);assert.equal(at,123);
  req.query.projectId='other';assert.equal((await serviceProjectRequest('service_setup_status',req,{orgId:'org'} as any,deps)).status,404);
  const f=fixture();f.run.projectId='other';await assert.rejects(readServiceRunProgress(schedule,occurrence,project,123,f.deps),/scope/);
+});
+
+test('a coaching review releases Start now while an active phone call keeps it disabled',async()=>{
+ const f=fixture();const template=dailyCoachingTemplate({reviewer:'human',email:'human@example.invalid'});
+ f.run.status='waiting';f.run.nodeRuns={};f.run.state.milestones=template.milestones;
+ f.run.state.projectData={...template.projectData,coaching_requires_review:true,coaching_call_result_success:true};
+ for(const id of ['COACH_DOC','COACH_TRACKER','COACH_CALL','COACH_EXTRACT']){
+  f.run.state.milestones.find((n:any)=>n.id===id).actionConfig.lastRun={id,status:'success',at:1};
+ }
+ const route=f.run.state.milestones.find((n:any)=>n.id==='COACH_CALL_ROUTE');route.decisionConfig.selectedTargetId='COACH_EXTRACT';route.decisionConfig.decidedAt=1;
+ f.run.state.milestones.find((n:any)=>n.id==='COACH_EXTRACT').asks=[{id:'approval',kind:'approval',status:'open',runId:'COACH_EXTRACT',channels:['web'],assignees:['human']}];
+ let p=await readServiceRunProgress(schedule,occurrence,project,123,f.deps);
+ assert.equal(p.awaitingReview,true);assert.equal(p.canStartNewRun,true);assert.equal(progressBusy(p),false);
+ f.run.state.milestones.find((n:any)=>n.id==='COACH_CALL').actionConfig.lastRun.status='pending';
+ p=await readServiceRunProgress(schedule,occurrence,project,123,f.deps);
+ assert.equal(p.canStartNewRun,false);assert.equal(progressBusy(p),true);
 });
 

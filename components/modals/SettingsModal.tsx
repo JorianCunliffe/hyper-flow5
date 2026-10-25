@@ -253,6 +253,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
   const [googleResources, setGoogleResources] = useState<Array<{ id: string; name: string; kind: 'document' | 'spreadsheet' }>>([]);
   const [automationStatus, setAutomationStatus] = useState<{ working?: boolean; message?: string; error?: string }>({});
+  const manualStarts = useRef<Record<string, number>>({});
+  const scheduleIsCoaching = (schedule: TenantSchedule) => projects.some(project => String(project.id) === schedule.projectId && project.projectData?.project_template === 'daily_coaching');
   const [serviceWizard, setServiceWizard] = useState<{ template: 'email_triage' | 'daily_coaching'; project?: Project } | null>(null);
   const handledConfigureProject = useRef<string>();
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, any>>({});
@@ -493,14 +495,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const runScheduleNow = async (id: string) => {
+    if (automationStatus.working) return;
+    const storageKey = `schedule-start:${currentOrgId}:${firebaseService.getCurrentUser()?.uid}:${id}`;
+    let saved: number | undefined;
+    try { const value = Number(sessionStorage.getItem(storageKey)); if (Number.isSafeInteger(value) && value > 0) saved = value; } catch {}
+    const scheduledFor = manualStarts.current[id] || saved || Date.now();
+    manualStarts.current[id] = scheduledFor;
+    try { sessionStorage.setItem(storageKey, String(scheduledFor)); } catch {}
     setAutomationStatus({ working: true });
     try {
       const response = await firebaseService.authorizedFetch('/api/schedules/run', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id })
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, scheduledFor })
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Schedule run failed (${response.status})`);
-      setAutomationStatus({ message: `Run ${body.result?.status || 'submitted'}.` });
+      delete manualStarts.current[id];
+      try { sessionStorage.removeItem(storageKey); } catch {}
+      if (body.result?.status === 'blocked' || body.result?.status === 'failed') throw new Error(body.result.error || 'The session is held. Review its status before starting another.');
+      setScheduleStatus(current => ({ ...current, items: current.items.map(schedule => schedule.id === id && body.nextRunAt
+        ? { ...schedule, nextRunAt: body.nextRunAt, enabled: body.scheduleEnabled ?? schedule.enabled } : schedule) }));
+      setAutomationStatus({ message: `Run ${body.result?.status || 'submitted'}.${body.nextRunAt ? ` Next scheduled run: ${new Date(body.nextRunAt).toLocaleString('en-AU', { timeZone: scheduleStatus.items.find(s => s.id === id)?.timezone || 'Australia/Brisbane' })}.` : ''}` });
+      await refreshServiceStatuses();
     } catch (error: any) {
       setAutomationStatus({ error: error?.message || String(error) });
     }
@@ -551,6 +566,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const toggleServiceSchedule = async (schedule: TenantSchedule) => {
+    if (automationStatus.working) return;
     setAutomationStatus({ working: true });
     try {
       const response = await firebaseService.authorizedFetch('/api/schedules', {
@@ -561,7 +577,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (!response.ok) throw new Error(body.error || 'Schedule could not be updated');
       setScheduleStatus(current => ({ ...current, items: current.items.map(item => item.id === schedule.id ? body.schedule : item) }));
       await refreshServiceStatuses();
-      setAutomationStatus({ message: body.schedule.enabled ? 'Service resumed.' : 'Service paused.' });
+      setAutomationStatus({ message: body.schedule.enabled ? `Service resumed. Next: ${new Date(body.schedule.nextRunAt).toLocaleString('en-AU', { timeZone: body.schedule.timezone })} (${body.schedule.timezone}).${body.schedule.nextRunAt <= Date.now() ? ' The unfinished occurrence remains attached to its original attempt.' : ''}` : 'Service paused.' });
     } catch (error: any) { setAutomationStatus({ error: error?.message || String(error) }); }
     finally { setAutomationStatus(current => ({ ...current, working: false })); }
   };
@@ -651,7 +667,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {status.error ? <p className="mt-3 text-sm text-red-600">{status.error}</p> : <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 md:grid-cols-3"><div><b>Previous run:</b> {status.lastRun ? `${status.lastRun.status} · ${status.lastRun.processedCount ?? 0} processed` : 'none'}</div><div><b>Next run:</b> {schedule ? new Date(schedule.nextRunAt).toLocaleString() : 'not scheduled'}</div><div><b>Scheduler:</b> {status.scheduler?.lastTickAt ? new Date(status.scheduler.lastTickAt).toLocaleString() : 'no tick recorded'}{status.scheduler?.overdue ? ' · OVERDUE' : ''}</div></div>}
                   {status.lastDigest?.summary && <p className="mt-3 line-clamp-2 rounded-lg bg-white p-2 text-xs text-slate-600"><b>Last digest:</b> {status.lastDigest.summary}</p>}
                   {status.scheduler?.warning && <p className="mt-3 text-xs font-bold text-amber-700">{status.scheduler.warning}</p>}
-                  <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setServiceWizard({ template: project.projectData?.project_template === 'daily_coaching' ? 'daily_coaching' : 'email_triage', project })} className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-bold text-indigo-700">Edit / reconnect / validate</button>{schedule && <><button type="button" onClick={() => void runScheduleNow(schedule.id)} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700">Run now</button><button type="button" onClick={() => void toggleServiceSchedule(schedule)} className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">{schedule.enabled ? 'Pause' : 'Resume'}</button></>}</div>
+                  <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setServiceWizard({ template: project.projectData?.project_template === 'daily_coaching' ? 'daily_coaching' : 'email_triage', project })} className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-bold text-indigo-700">Edit / reconnect / validate</button>{schedule && <><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-emerald-700">{project.projectData?.project_template === "daily_coaching" ? "Start now" : "Run now"}</button><button type="button" onClick={() => void toggleServiceSchedule(schedule)} className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-bold text-amber-700">{schedule.enabled ? 'Pause' : 'Resume'}</button></>}</div>
                 </div>;
               })}
             </div>
@@ -685,7 +701,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div>
                 <h5 className="font-black text-slate-800 mb-3">Active schedules</h5>
-                {scheduleStatus.loading ? <p className="text-sm text-slate-500">Loading schedules…</p> : scheduleStatus.error ? <p className="text-sm text-red-600">{scheduleStatus.error}</p> : scheduleStatus.items.length === 0 ? <p className="text-sm text-slate-500">No schedules configured.</p> : <div className="space-y-2">{scheduleStatus.items.map(schedule => <div key={schedule.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-bold text-slate-800">{schedule.name}</div><div className="text-xs text-slate-500">{schedule.activity.replaceAll('_', ' ')} · {schedule.recurrence?.kind === 'daily' ? `${scheduleDaysLabel(schedule.recurrence.daysOfWeek)} ${schedule.recurrence.localTime} ${schedule.timezone}` : `every ${schedule.intervalMinutes} minutes`} · next {new Date(schedule.nextRunAt).toLocaleString()}{schedule.activity === 'communications_triage' ? ` · digest ${schedule.digestChannel || 'web'}` : ''}</div></div><div className="flex gap-2"><button type="button" disabled={automationStatus.working} onClick={() => void toggleServiceSchedule(schedule)}>{schedule.enabled ? 'Pause' : 'Enable'}</button><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">Run now</button><button type="button" onClick={() => void deleteSchedule(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700">Delete</button></div></div>)}</div>}
+                {scheduleStatus.loading ? <p className="text-sm text-slate-500">Loading schedules…</p> : scheduleStatus.error ? <p className="text-sm text-red-600">{scheduleStatus.error}</p> : scheduleStatus.items.length === 0 ? <p className="text-sm text-slate-500">No schedules configured.</p> : <div className="space-y-2">{scheduleStatus.items.map(schedule => <div key={schedule.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-bold text-slate-800">{schedule.name}</div><div className="text-xs text-slate-500">{schedule.activity.replaceAll('_', ' ')} · {schedule.recurrence?.kind === 'daily' ? `${scheduleDaysLabel(schedule.recurrence.daysOfWeek)} ${schedule.recurrence.localTime} ${schedule.timezone}` : `every ${schedule.intervalMinutes} minutes`} · next {new Date(schedule.nextRunAt).toLocaleString()}{schedule.activity === 'communications_triage' ? ` · digest ${schedule.digestChannel || 'web'}` : ''}</div></div><div className="flex gap-2"><button type="button" disabled={automationStatus.working} onClick={() => void toggleServiceSchedule(schedule)}>{schedule.enabled ? 'Pause' : 'Enable'}</button><button type="button" onClick={() => void runScheduleNow(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-bold text-indigo-700">{scheduleIsCoaching(schedule) ? "Start now" : "Run now"}</button><button type="button" onClick={() => void deleteSchedule(schedule.id)} disabled={automationStatus.working} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-700">Delete</button></div></div>)}</div>}
               </div>
 
               <div className="border-t border-slate-200 pt-6">

@@ -4,7 +4,8 @@ import { readActionDispatch } from './actionDispatch.js';
 import { actionAttemptIdentity } from './flowOrchestrator.js';
 import { flowRunIdForOccurrence, materializeFlowRunProject } from './flowRun.js';
 import { isActionNode } from './flowEngine.js';
-export type ServiceRunProgress = {projectId:string;scheduleId:string;scheduledFor:number;runId?:string;status:'starting'|'running'|'waiting'|'held'|'completed'|'failed'|'cancelled';nodes:{id:string;name:string;status:'running'|'waiting'|'failed'}[];updatedAt?:number};
+import { coachingReviewAllowsNextOccurrence } from './coachingSchedule.js';
+export type ServiceRunProgress = {projectId:string;scheduleId:string;scheduledFor:number;runId?:string;canStartNewRun?:boolean;awaitingReview?:boolean;status:'starting'|'running'|'waiting'|'held'|'completed'|'failed'|'cancelled';nodes:{id:string;name:string;status:'running'|'waiting'|'failed'}[];updatedAt?:number};
 export async function readServiceRunProgress(schedule:TenantSchedule, occurrence:ScheduleRun|null, project:Project, scheduledFor:number, deps={readFlowRun,readActionDispatch}):Promise<ServiceRunProgress>{
  const base={projectId:String(project.id),scheduleId:schedule.id,scheduledFor,nodes:[] as ServiceRunProgress['nodes']};
  if(!occurrence)return {...base,status:'starting'};
@@ -33,5 +34,8 @@ export async function readServiceRunProgress(schedule:TenantSchedule, occurrence
  const status=occurrence.recoveryResolution?'failed':held||run?.outboundRecoveryHold?'held':terminal||(['completed','failed'].includes(occurrence.status)?occurrence.status:nodes.some(n=>n.status==='running')?'running':nodes.some(n=>n.status==='waiting')||run?.status==='waiting'?'waiting':'running');
  if(['completed','cancelled'].includes(status))nodes=[];
  if(status==='failed')nodes=nodes.filter(n=>n.status==='failed');
- return {...base,runId:run?.id,status:status as ServiceRunProgress['status'],nodes,updatedAt:run?.updatedAt||occurrence.completedAt||occurrence.startedAt};
+ const awaitingReview=status==='waiting' && !!run && coachingReviewAllowsNextOccurrence(materializeFlowRunProject(project,run));
+ const canStartNewRun=!held && !run?.outboundRecoveryHold && (!occurrence.providerCode || !!occurrence.recoveryResolution)
+   && (awaitingReview || ['completed','failed','cancelled'].includes(status));
+ return {...base,runId:run?.id,status:status as ServiceRunProgress['status'],canStartNewRun,awaitingReview,nodes,updatedAt:run?.updatedAt||occurrence.completedAt||occurrence.startedAt};
 }

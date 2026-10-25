@@ -1,4 +1,5 @@
 import { outboundScheduleRecovery } from './outboundScheduleRecovery.js';
+import { pendingManualScheduleOccurrence } from './scheduleConcurrency.js';
 import { escalateOutboundRecovery } from './outboundRecoveryEscalation.js';
 import { randomUUID } from 'node:crypto';
 import type { TenantSchedule } from '../types.js';
@@ -65,6 +66,10 @@ export const runTenantSchedule = async (
   if(!currentSchedule || currentSchedule.recoveryPendingId) return {scheduleId:schedule.id,status:'blocked',error:'Schedule recovery is being applied or the schedule was removed'};
   if(options.advanceSchedule!==false && currentSchedule.nextRunAt!==scheduledFor) return {scheduleId:schedule.id,status:'skipped',error:'This occurrence is no longer the schedule head'};
   schedule=currentSchedule;
+  if (await pendingManualScheduleOccurrence(schedule, scheduledFor) !== null) return {
+    scheduleId: schedule.id, status: 'deferred', projectId: schedule.projectId,
+    error: 'An existing manual session is still awaiting its outcome. No additional call was started.'
+  };
   if (options.advanceSchedule === false && scheduledFor !== schedule.nextRunAt) {
     const held = await readScheduleRun(schedule, schedule.nextRunAt);
     if (!held?.recoveryResolution && (held?.status === 'blocked' || held?.manualReviewRequired || held?.recoveryReviewedAt)) return { scheduleId: schedule.id, status: 'blocked', error: 'Reconcile the existing occurrence before starting another run' };

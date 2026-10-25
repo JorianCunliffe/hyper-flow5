@@ -343,6 +343,8 @@ export type ScheduleRecurrence =
 export type ScheduleMisfirePolicy = 'run_once' | 'catch_up' | 'skip';
 
 export interface TenantScheduleBase {
+  /** Server-owned pointer used to coalesce concurrent manual starts. */
+  manualStartAt?: number;
   /** Server-owned recovery command journal; never accepted from configuration input. */
   recoveryPendingId?: string | null;
   recoveryCommands?: Record<string, any>;
@@ -406,7 +408,7 @@ export interface FlowStartSchedule extends TenantScheduleBase {
 
 export type TenantSchedule = CommunicationsTriageSchedule | FlowStartSchedule;
 
-export type TenantScheduleInput = Partial<Omit<TenantScheduleBase, 'id' | 'orgId' | 'createdAt' | 'updatedAt'>> & {
+export type TenantScheduleInput = Partial<Omit<TenantScheduleBase, 'id' | 'orgId' | 'createdAt' | 'updatedAt' | 'manualStartAt'>> & {
   id?: string;
   name?: string;
   activity?: TenantSchedule['activity'];

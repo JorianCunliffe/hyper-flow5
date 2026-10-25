@@ -990,6 +990,7 @@ export interface paths {
          * List/create/update/delete schedules; DELETE returns 204
          * @description List/create/update/delete schedules; DELETE returns 204
          *     Authority: schedules:write
+         *     Resuming a paused schedule recalculates the next future occurrence in its timezone. An unresolved current occurrence is retained for reconciliation; resume never silently abandons a provider hold.
          */
         patch: operations["patch__api_schedules"];
         trace?: never;
@@ -1007,6 +1008,7 @@ export interface paths {
          * Run one schedule immediately (real effects)
          * @description Run one schedule immediately (real effects)
          *     Authority: schedules:write
+         *     Daily coaching Start now enables the recurring schedule and moves its next occurrence to the next future configured local time. Active or uncertain sessions are continued, never duplicated; a completed session awaiting web review may remain open while a new session starts.
          */
         post: operations["post__api_schedules_run"];
         delete?: never;
@@ -13865,14 +13867,19 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Operation result. A pending/held result is not proof of completion. */
+            /** @description Original or reserved occurrence identity, future schedule, and execution result; acceptance does not prove a connected call. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        [key: string]: unknown;
+                        scheduledFor: number;
+                        nextRunAt?: number;
+                        scheduleEnabled?: boolean;
+                        result: {
+                            [key: string]: unknown;
+                        };
                     };
                 };
             };

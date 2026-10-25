@@ -1175,6 +1175,37 @@ export const listTenantSchedules = async (orgId: string): Promise<TenantSchedule
 export const readTenantSchedule = async (orgId: string, id: string): Promise<TenantSchedule | null> =>
   (await scheduleRef(orgId,id).get()).val();
 
+/** Reserve one manual occurrence and its future timer in the same transaction. */
+export const manualScheduleReservationValue = (
+  current: TenantSchedule | null, expected: TenantSchedule, scheduledFor: number, restartRecurring: boolean, now: number
+): TenantSchedule | undefined => {
+  if (!current || current.recoveryPendingId) throw new Error('Resolve schedule recovery before starting another session');
+  if (current.manualStartAt && current.manualStartAt !== expected.manualStartAt) return current;
+  if (JSON.stringify(current) !== JSON.stringify(expected)) return undefined;
+  const nextRunAt = current.recurrence.kind === 'daily'
+    ? nextDailyScheduleOccurrence(now, current.recurrence.localTime, current.timezone, current.recurrence.daysOfWeek)
+    : now + Math.max(5, current.intervalMinutes) * 60_000;
+  return { ...current, manualStartAt: scheduledFor, updatedAt: now,
+    ...(restartRecurring ? { enabled: true, nextRunAt } : {}) };
+};
+
+export const reserveManualScheduleStart = async (
+  schedule: TenantSchedule, scheduledFor: number, restartRecurring: boolean, now = Date.now()
+): Promise<TenantSchedule> => {
+  const reference = scheduleRef(schedule.orgId, schedule.id);
+  const listener = () => {};
+  try {
+    await new Promise<void>((resolve, reject) => { reference.on('value', listener, reject); reference.once('value', () => resolve(), reject); });
+    let invocation = 0;
+    const result = await reference.transaction(raw => {
+      const current = seededScheduleTransactionValue(raw as TenantSchedule | null, schedule, ++invocation);
+      return manualScheduleReservationValue(current, schedule, scheduledFor, restartRecurring, now);
+    }, undefined, false);
+    if (!result.committed) throw new Error('Schedule changed; reload before starting');
+    return result.snapshot.val() as TenantSchedule;
+  } finally { reference.off('value', listener); }
+};
+
 export const saveTenantSchedule = async (
   orgId: string,
   input: TenantScheduleInput
@@ -1182,7 +1213,13 @@ export const saveTenantSchedule = async (
   const now = Date.now();
   const id = String(input.id || `schedule_${randomUUID().replace(/-/g, '')}`);
   const existing = (await scheduleRef(orgId, id).get()).val() as TenantSchedule | null;
-  const schedule = normalizeTenantSchedule(orgId, id, input, existing, now);
+  const resuming = existing?.enabled === false && input.enabled === true && input.nextRunAt === undefined;
+  const head = resuming ? await readScheduleRun(existing) : null;
+  // Resuming a timer cannot abandon an unresolved provider effect or review hold.
+  const protectedHead = !!head && !head.recoveryResolution &&
+    (head.manualReviewRequired || head.recoveryReviewedAt || !['completed', 'failed'].includes(head.status));
+  const schedule = normalizeTenantSchedule(orgId, id,
+    protectedHead ? { ...input, nextRunAt: existing!.nextRunAt } : input, existing, now);
   if (!schedule.name) throw new Error('Schedule name is required');
   if (schedule.activity === 'flow_start' && !schedule.projectId) {
     throw new Error('projectId is required for a flow_start schedule');
@@ -1223,7 +1260,9 @@ export const normalizeTenantSchedule = (
     ? nextDailyScheduleOccurrence(now, recurrence.localTime, timezone, recurrence.daysOfWeek)
     : now;
   const timingChanged = !!existing && ((input.recurrence !== undefined && JSON.stringify(recurrence) !== JSON.stringify(existing.recurrence)) || (input.timezone !== undefined && timezone !== existing.timezone));
-  const requestedNextRun = Number(input.nextRunAt ?? (timingChanged ? defaultNextRun : existing?.nextRunAt) ?? defaultNextRun);
+  const resuming = existing?.enabled === false && input.enabled === true;
+  const resumedNextRun = recurrence.kind === 'daily' ? defaultNextRun : now + intervalMinutes * 60_000;
+  const requestedNextRun = Number(input.nextRunAt ?? (resuming ? resumedNextRun : timingChanged ? defaultNextRun : existing?.nextRunAt) ?? defaultNextRun);
   const misfirePolicy = ['run_once', 'catch_up', 'skip'].includes(String(input.misfirePolicy ?? existing?.misfirePolicy))
     ? (input.misfirePolicy ?? existing?.misfirePolicy) as TenantSchedule['misfirePolicy']
     : 'run_once';
@@ -1240,6 +1279,7 @@ export const normalizeTenantSchedule = (
     createdAt: Number(existing?.createdAt || now),
     updatedAt: now
   };
+  if (existing?.manualStartAt) Object.assign(base, { manualStartAt: existing.manualStartAt });
   if (activity === 'flow_start') {
     const prior = existing?.activity === 'flow_start' ? existing : undefined;
     return {

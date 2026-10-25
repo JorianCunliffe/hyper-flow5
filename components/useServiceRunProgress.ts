@@ -1,7 +1,8 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {firebaseService} from '../services/firebaseService';
 import type {ServiceRunProgress} from '../lib/serviceRunProgress';
-export const progressBusy=(p?:ServiceRunProgress|null)=>!!p&&['starting','running','waiting','held'].includes(p.status);
+import {progressBusy} from '../lib/serviceProgressState';
+export {progressBusy} from '../lib/serviceProgressState';
 export function useServiceRunProgress(projectId:string,scheduleId?:string,request=firebaseService.authorizedFetch){
  const storageKey=`service-run:${firebaseService.getCurrentOrgId()}:${firebaseService.getCurrentUser()?.uid}:${projectId}`;
  const [progress,setProgress]=useState<ServiceRunProgress|null>(null);
@@ -36,7 +37,7 @@ export function useServiceRunProgress(projectId:string,scheduleId?:string,reques
     const p=body.progress as ServiceRunProgress|null;
     if(p && !target){pinned.current={scheduleId:p.scheduleId,scheduledFor:p.scheduledFor};try{sessionStorage.setItem(storageKey,JSON.stringify(pinned.current));}catch{}}
     setProgress(p);setChecking(false);setTrackingError('');
-    done=!p||['completed','failed','cancelled'].includes(p.status);
+    done=!p||['completed','failed','cancelled'].includes(p.status)||!!(p.awaitingReview&&p.canStartNewRun);
     if(p?.status==='starting' && Date.now()-p.scheduledFor>30000){setChecking(true);setTrackingError('The start is not confirmed yet. Checking this same run; do not start another call.');}
    }catch(e){if(!disposed&&version===generation.current){setChecking(true);setTrackingError('Connection interrupted. Checking the saved run; no automatic restart.');}}
    finally{clearTimeout(timeout);inFlight=false;if(!disposed&&!done)timer=setTimeout(poll,3000);}

@@ -3,10 +3,9 @@ import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.j
 import { ApiAuthError, requireAppMember } from '../../lib/apiAuth.js';
 import { isSchedulerTickAuthorized, schedulerAuthenticationConfigured } from '../../lib/schedulerAuth.js';
 import { deleteTenantSchedule, readScheduleRun, releaseBlockedScheduleRun, listTenantSchedules, readTenantCommunicationsSettings, recordSchedulerTick, saveTenantSchedule } from '../../lib/serverStore.js';
-import { failedScheduleResults, runTenantSchedule, tickSchedules } from '../../lib/scheduler.js';
-import { listScheduleRuns } from '../../lib/serverStore.js';
-import { manualRecoveryOccurrence } from '../../lib/outboundScheduleRecovery.js';
+import { failedScheduleResults, tickSchedules } from '../../lib/scheduler.js';
 import { scheduleRecovery, RecoveryError, requireRecoveryAdministrator } from '../../lib/scheduleRecovery.js';
+import { startScheduleNow } from '../../lib/manualScheduleStart.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const action = typeof req.query.action === 'string' ? req.query.action : undefined;
@@ -75,12 +74,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const id = String(req.body?.id || '');
       const schedule = (await listTenantSchedules(member.orgId)).find(item => item.id === id);
       if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
-      const recovery = manualRecoveryOccurrence(await listScheduleRuns(member.orgId, id, 100));
       const requested=req.body?.scheduledFor;
       if(requested!==undefined && (!Number.isSafeInteger(requested)||requested<=0||requested>Date.now()+30000))return res.status(422).json({error:'Invalid manual occurrence timestamp'});
       if(requested!==undefined && requested<Date.now()-600000 && !await readScheduleRun(schedule,requested))return res.status(409).json({error:'Manual start expired; check saved run status before starting again'});
-      const scheduledFor=recovery?.scheduledFor ?? requested ?? Date.now();
-      return res.status(200).json({ scheduledFor, result: await runTenantSchedule(schedule, scheduledFor, { advanceSchedule: false }) });
+      return res.status(200).json(await startScheduleNow(schedule, requested));
     }
     if (req.method === 'GET') return res.status(200).json({ data: await listTenantSchedules(member.orgId) });
     if (req.method === 'POST' || req.method === 'PATCH') {

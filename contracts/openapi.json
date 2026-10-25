@@ -19251,7 +19251,7 @@
       "patch": {
         "operationId": "patch__api_schedules",
         "summary": "List/create/update/delete schedules; DELETE returns 204",
-        "description": "List/create/update/delete schedules; DELETE returns 204\nAuthority: schedules:write",
+        "description": "List/create/update/delete schedules; DELETE returns 204\nAuthority: schedules:write\nResuming a paused schedule recalculates the next future occurrence in its timezone. An unresolved current occurrence is retained for reconciliation; resume never silently abandons a provider hold.",
         "security": [
           {
             "FirebaseBearer": []
@@ -19507,7 +19507,7 @@
       "post": {
         "operationId": "post__api_schedules_run",
         "summary": "Run one schedule immediately (real effects)",
-        "description": "Run one schedule immediately (real effects)\nAuthority: schedules:write",
+        "description": "Run one schedule immediately (real effects)\nAuthority: schedules:write\nDaily coaching Start now enables the recurring schedule and moves its next occurrence to the next future configured local time. Active or uncertain sessions are continued, never duplicated; a completed session awaiting web review may remain open while a new session starts.",
         "security": [
           {
             "FirebaseBearer": []
@@ -19520,12 +19520,30 @@
         "x-authority": "schedules:write",
         "responses": {
           "200": {
-            "description": "Operation result. A pending/held result is not proof of completion.",
+            "description": "Original or reserved occurrence identity, future schedule, and execution result; acceptance does not prove a connected call.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true
+                  "required": [
+                    "scheduledFor",
+                    "result"
+                  ],
+                  "properties": {
+                    "scheduledFor": {
+                      "type": "integer"
+                    },
+                    "nextRunAt": {
+                      "type": "integer"
+                    },
+                    "scheduleEnabled": {
+                      "type": "boolean"
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
+                  }
                 }
               }
             }
