@@ -1,4 +1,5 @@
 import { assertHumanDecision } from '../http/authority.js';
+import {decisionResponseId,decisionChannel} from '../briefings/evidence.js';
 import { randomUUID } from "node:crypto";
 import { readPage, pageRows } from "../tenantControl/pagination.js";
 import { GoogleGenAI } from "@google/genai";
@@ -363,7 +364,7 @@ export async function handleVisibleFlows(
           member.uid,
         )
       : null;
-  const responseId = randomUUID();
+  const responseId = decisionResponseId(member);
   const now = Date.now();
   const item = await store.transact(member.orgId, body.id, (current) => {
     const record = assertScope(current);
@@ -396,7 +397,7 @@ export async function handleVisibleFlows(
             {
               id: responseId,
               at: now,
-              via: "web",
+              via: decisionChannel(member),
               actor: member.uid,
               text: `Inputs supplied in version ${versionDraft!.version}; separate approval remains required.`,
             },
@@ -427,7 +428,7 @@ export async function handleVisibleFlows(
           {
             id: responseId,
             at: now,
-            via: "web",
+            via: decisionChannel(member),
             actor: member.uid,
             decision: operation === "approve" ? "approved" : "rejected",
           },

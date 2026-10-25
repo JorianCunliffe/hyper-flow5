@@ -76,7 +76,7 @@ export interface CommitmentCommand {
   expectedVersion: number; askId?: string; decision?: AskDecision; note?: string; terms?: unknown;
   enabled?: boolean; leadHours?: number;
 }
-export function transitionCommitment(current: Commitment, command: CommitmentCommand, actor: string, now: number, nextAskId: string): Commitment {
+export function transitionCommitment(current: Commitment, command: CommitmentCommand, actor: string, now: number, nextAskId: string, evidence?:{id:string;via:'web'|'voice'}): Commitment {
   if (current.version !== command.expectedVersion) fail(409, 'This obligation changed. Reload before reviewing.');
   if (actor !== current.reviewerUid && current.terms.owner !== `user:${actor}` && current.terms.beneficiary !== `user:${actor}`) fail(403, 'Only the assigned parties or reviewer can change this obligation.');
   const row = structuredClone(current); const note = bounded(command.note);
@@ -92,13 +92,13 @@ export function transitionCommitment(current: Commitment, command: CommitmentCom
       if (command.decision) fail(400, 'Clarification is not approval. Supply the missing terms first.');
       const terms = readTerms(command.terms);
       if (missingTerms(terms).length) fail(400, `Clarify: ${missingTerms(terms).join(', ')}.`);
-      const response: HumanResponse = { id: `${gate.ask.id}:response`, at: now, via: 'web', actor, text: note, values: { ...terms } };
+      const response: HumanResponse = { id: evidence?.id || `${gate.ask.id}:response`, at: now, via: evidence?.via || 'web', actor, text: note, values: { ...terms } };
       const invalid = validateResponse(gate.ask, response); if (invalid) fail(400, invalid);
       row.asks.push(recordAskResponse(gate.ask, response)); delete row.review;
       row.terms = terms; review(row, 'accept', now, nextAskId);
     } else {
       if (command.terms && JSON.stringify(readTerms(command.terms)) !== JSON.stringify(readTerms(row.proposedTerms || row.terms))) fail(409, 'Save changed terms before answering this Ask.');
-      const response: HumanResponse = { id: `${gate.ask.id}:response`, at: now, via: 'web', actor, text: note, decision: command.decision };
+      const response: HumanResponse = { id: evidence?.id || `${gate.ask.id}:response`, at: now, via: evidence?.via || 'web', actor, text: note, decision: command.decision };
       const invalid = validateResponse(gate.ask, response); if (invalid) fail(400, invalid);
       if (!['approved','rejected','revise'].includes(String(command.decision))) fail(400, 'Choose approve, reject or revise.');
       row.asks.push(recordAskResponse(gate.ask, response)); delete row.review;

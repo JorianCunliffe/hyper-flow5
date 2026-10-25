@@ -34,6 +34,7 @@ export interface HyperFlowCallOverrides {
 }
 
 export interface StartCallRequest {
+  briefing_enabled?: boolean;
   to: string;
   from: string;
   overrides: HyperFlowCallOverrides;

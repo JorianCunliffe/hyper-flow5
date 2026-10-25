@@ -12,6 +12,1141 @@
     }
   ],
   "paths": {
+    "/api/briefings": {
+      "get": {
+        "operationId": "get__api_briefings",
+        "summary": "Current tasks, approvals, user reports, personal settings and change history",
+        "description": "Current tasks, approvals, user reports, personal settings and change history\nAuthority: briefings:read; membership and subject checks",
+        "security": [
+          {
+            "FirebaseBearer": []
+          },
+          {
+            "ApiClientBearer": []
+          }
+        ],
+        "x-source": "lib/briefings/api.ts",
+        "x-authority": "briefings:read; membership and subject checks",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "briefings:read",
+        "parameters": [
+          {
+            "name": "operation",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "list_tasks",
+                "list_approvals",
+                "subjects",
+                "read_item",
+                "report",
+                "prepare_change",
+                "confirm_change",
+                "change_result",
+                "changes",
+                "settings",
+                "readiness",
+                "map_assignee"
+              ]
+            }
+          },
+          {
+            "name": "subject",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reportType",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "workload",
+                "progress",
+                "approvals"
+              ]
+            }
+          },
+          {
+            "name": "startDate",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "includeClosed",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "post__api_briefings",
+        "summary": "Reports, revision-pinned prepare/confirm and assignee mappings",
+        "description": "Reports, revision-pinned prepare/confirm and assignee mappings\nAuthority: briefings:write; verified human required for mutations",
+        "security": [
+          {
+            "FirebaseBearer": []
+          },
+          {
+            "ApiClientBearer": []
+          }
+        ],
+        "x-source": "lib/briefings/api.ts; lib/briefings/changes.ts",
+        "x-authority": "briefings:write; verified human required for mutations",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "briefings:write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "list_tasks",
+                      "list_approvals",
+                      "subjects",
+                      "read_item",
+                      "report",
+                      "prepare_change",
+                      "confirm_change",
+                      "change_result",
+                      "changes",
+                      "settings",
+                      "readiness",
+                      "map_assignee"
+                    ]
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "itemId": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "reportType": {
+                    "type": "string",
+                    "enum": [
+                      "workload",
+                      "progress",
+                      "approvals"
+                    ]
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "endDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "includeClosed": {
+                    "type": "boolean"
+                  },
+                  "after": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "set_status",
+                      "progress",
+                      "submit",
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 120
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  },
+                  "visualChecked": {
+                    "type": "boolean"
+                  },
+                  "contentChecked": {
+                    "type": "boolean"
+                  },
+                  "publicUseChecked": {
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "allowTaskUpdates": {
+                    "type": "boolean"
+                  },
+                  "allowApprovals": {
+                    "type": "boolean"
+                  },
+                  "sections": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "tasks",
+                        "approvals",
+                        "reports"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "uniqueItems": true
+                  },
+                  "reportSubject": {
+                    "type": "string",
+                    "enum": [
+                      "me",
+                      "all"
+                    ]
+                  },
+                  "reportDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365
+                  },
+                  "projectIds": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "operation"
+                ]
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "list_tasks",
+          "list_approvals",
+          "subjects",
+          "read_item",
+          "report",
+          "prepare_change",
+          "confirm_change",
+          "change_result",
+          "changes",
+          "settings",
+          "readiness",
+          "map_assignee"
+        ]
+      },
+      "put": {
+        "operationId": "put__api_briefings",
+        "summary": "Enrol and configure call briefing permissions",
+        "description": "Enrol and configure call briefing permissions\nAuthority: Human session",
+        "security": [
+          {
+            "FirebaseBearer": []
+          }
+        ],
+        "x-source": "lib/briefings/api.ts",
+        "x-authority": "Human session",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "briefings:write",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "list_tasks",
+                      "list_approvals",
+                      "subjects",
+                      "read_item",
+                      "report",
+                      "prepare_change",
+                      "confirm_change",
+                      "change_result",
+                      "changes",
+                      "settings",
+                      "readiness",
+                      "map_assignee"
+                    ]
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "projectId": {
+                    "type": "string"
+                  },
+                  "itemId": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "reportType": {
+                    "type": "string",
+                    "enum": [
+                      "workload",
+                      "progress",
+                      "approvals"
+                    ]
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "endDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "includeClosed": {
+                    "type": "boolean"
+                  },
+                  "after": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "set_status",
+                      "progress",
+                      "submit",
+                      "approve",
+                      "reject"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 120
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  },
+                  "visualChecked": {
+                    "type": "boolean"
+                  },
+                  "contentChecked": {
+                    "type": "boolean"
+                  },
+                  "publicUseChecked": {
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "allowTaskUpdates": {
+                    "type": "boolean"
+                  },
+                  "allowApprovals": {
+                    "type": "boolean"
+                  },
+                  "sections": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "tasks",
+                        "approvals",
+                        "reports"
+                      ]
+                    },
+                    "maxItems": 3,
+                    "uniqueItems": true
+                  },
+                  "reportSubject": {
+                    "type": "string",
+                    "enum": [
+                      "me",
+                      "all"
+                    ]
+                  },
+                  "reportDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365
+                  },
+                  "projectIds": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "operation"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/briefing": {
+      "post": {
+        "operationId": "post__api_agent_briefing",
+        "summary": "Call-bound briefing tools with per-call SMS verification and transcript confirmation",
+        "description": "Call-bound briefing tools with per-call SMS verification and transcript confirmation\nAuthority: Timestamped Communications V2 signature; enrolled verified caller",
+        "security": [
+          {
+            "CommunicationsSignature": []
+          }
+        ],
+        "x-source": "lib/briefings/voice.ts",
+        "x-authority": "Timestamped Communications V2 signature; enrolled verified caller",
+        "responses": {
+          "200": {
+            "description": "Operation result. A pending/held result is not proof of completion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authority denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision/state conflict; read and reconcile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request/result limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request budget exhausted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "human-or-service",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "tenant_id",
+                  "person_id",
+                  "communication_id",
+                  "thread_id",
+                  "service_identity",
+                  "args"
+                ],
+                "properties": {
+                  "tenant_id": {
+                    "type": "string"
+                  },
+                  "person_id": {
+                    "type": "string"
+                  },
+                  "communication_id": {
+                    "type": "string"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "service_identity": {
+                    "type": "string"
+                  },
+                  "args": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "request_code",
+                          "verify_code",
+                          "list_tasks",
+                          "list_approvals",
+                          "subjects",
+                          "read_item",
+                          "report",
+                          "prepare_change",
+                          "confirm_change",
+                          "change_result"
+                        ]
+                      },
+                      "subject": {
+                        "type": "string"
+                      },
+                      "projectId": {
+                        "type": "string"
+                      },
+                      "itemId": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "reportType": {
+                        "type": "string",
+                        "enum": [
+                          "workload",
+                          "progress",
+                          "approvals"
+                        ]
+                      },
+                      "startDate": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "endDate": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "includeClosed": {
+                        "type": "boolean"
+                      },
+                      "after": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "set_status",
+                          "progress",
+                          "submit",
+                          "approve",
+                          "reject"
+                        ]
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 8,
+                        "maxLength": 120
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "confirmed": {
+                        "type": "boolean"
+                      },
+                      "visualChecked": {
+                        "type": "boolean"
+                      },
+                      "contentChecked": {
+                        "type": "boolean"
+                      },
+                      "publicUseChecked": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "userId": {
+                        "type": "string"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "allowTaskUpdates": {
+                        "type": "boolean"
+                      },
+                      "allowApprovals": {
+                        "type": "boolean"
+                      },
+                      "sections": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "tasks",
+                            "approvals",
+                            "reports"
+                          ]
+                        },
+                        "maxItems": 3,
+                        "uniqueItems": true
+                      },
+                      "reportSubject": {
+                        "type": "string",
+                        "enum": [
+                          "me",
+                          "all"
+                        ]
+                      },
+                      "reportDays": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 365
+                      },
+                      "projectIds": {
+                        "type": [
+                          "array",
+                          "null"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "code": {
+                        "type": "string",
+                        "maxLength": 12
+                      }
+                    },
+                    "required": [
+                      "operation"
+                    ]
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "description": "Trusted media-stream evidence supplied by Communications, never model arguments",
+                    "properties": {
+                      "human": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      },
+                      "assistant": {
+                        "type": [
+                          "object",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-operations": [
+          "request_code",
+          "verify_code",
+          "subjects",
+          "list_tasks",
+          "list_approvals",
+          "read_item",
+          "report",
+          "prepare_change",
+          "confirm_change",
+          "change_result"
+        ]
+      }
+    },
     "/api/schedules/recovery": {
       "post": {
         "operationId": "post__api_schedules_recovery",
@@ -23723,6 +24858,10 @@
                                     "type": "string",
                                     "maxLength": 20000
                                   },
+                                  "assigneeUid": {
+                                    "type": "string",
+                                    "maxLength": 20000
+                                  },
                                   "role": {
                                     "type": "string",
                                     "maxLength": 20000
@@ -24812,6 +25951,10 @@
                                     "maxLength": 20000
                                   },
                                   "assignedTo": {
+                                    "type": "string",
+                                    "maxLength": 20000
+                                  },
+                                  "assigneeUid": {
                                     "type": "string",
                                     "maxLength": 20000
                                   },
@@ -26278,6 +27421,10 @@
                               "type": "string",
                               "maxLength": 20000
                             },
+                            "assigneeUid": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
                             "role": {
                               "type": "string",
                               "maxLength": 20000
@@ -27215,6 +28362,10 @@
                               "maxLength": 20000
                             },
                             "assignedTo": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
+                            "assigneeUid": {
                               "type": "string",
                               "maxLength": 20000
                             },
@@ -28529,6 +29680,10 @@
                         "type": "string",
                         "maxLength": 20000
                       },
+                      "assigneeUid": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
                       "role": {
                         "type": "string",
                         "maxLength": 20000
@@ -28865,6 +30020,10 @@
                         "maxLength": 20000
                       },
                       "assignedTo": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "assigneeUid": {
                         "type": "string",
                         "maxLength": 20000
                       },
@@ -30397,6 +31556,13 @@
                           },
                           "required": [],
                           "additionalProperties": false
+                        }
+                      },
+                      "briefingAssignees": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string",
+                          "maxLength": 20000
                         }
                       }
                     },
@@ -32007,6 +33173,18 @@
                       "projectId": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                      },
+                      "assignedTo": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "assigneeUid": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "status": {
+                        "type": "string",
+                        "maxLength": 20000
                       }
                     },
                     "required": [],
@@ -32189,6 +33367,18 @@
                       "projectId": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                      },
+                      "assignedTo": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "assigneeUid": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "status": {
+                        "type": "string",
+                        "maxLength": 20000
                       }
                     },
                     "required": [],
@@ -35739,6 +36929,18 @@
           "projectId": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "assignedTo": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "assigneeUid": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 20000
           }
         },
         "required": [
@@ -35839,6 +37041,10 @@
                         "maxLength": 20000
                       },
                       "assignedTo": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "assigneeUid": {
                         "type": "string",
                         "maxLength": 20000
                       },
@@ -36736,6 +37942,10 @@
                   "type": "string",
                   "maxLength": 20000
                 },
+                "assigneeUid": {
+                  "type": "string",
+                  "maxLength": 20000
+                },
                 "role": {
                   "type": "string",
                   "maxLength": 20000
@@ -37478,6 +38688,10 @@
             "type": "string",
             "maxLength": 20000
           },
+          "assigneeUid": {
+            "type": "string",
+            "maxLength": 20000
+          },
           "role": {
             "type": "string",
             "maxLength": 20000
@@ -37704,6 +38918,13 @@
               "required": [],
               "additionalProperties": false
             }
+          },
+          "briefingAssignees": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 20000
+            }
           }
         },
         "required": [],
@@ -37864,6 +39085,18 @@
                   "projectId": {
                     "type": "string",
                     "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "assignedTo": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "assigneeUid": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "status": {
+                    "type": "string",
+                    "maxLength": 20000
                   }
                 },
                 "required": [],
@@ -37961,6 +39194,10 @@
                                 "maxLength": 20000
                               },
                               "assignedTo": {
+                                "type": "string",
+                                "maxLength": 20000
+                              },
+                              "assigneeUid": {
                                 "type": "string",
                                 "maxLength": 20000
                               },
@@ -38855,6 +40092,10 @@
                           "type": "string",
                           "maxLength": 20000
                         },
+                        "assigneeUid": {
+                          "type": "string",
+                          "maxLength": 20000
+                        },
                         "role": {
                           "type": "string",
                           "maxLength": 20000
@@ -39594,6 +40835,10 @@
                     "type": "string",
                     "maxLength": 20000
                   },
+                  "assigneeUid": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
                   "role": {
                     "type": "string",
                     "maxLength": 20000
@@ -39816,6 +41061,13 @@
                       },
                       "required": [],
                       "additionalProperties": false
+                    }
+                  },
+                  "briefingAssignees": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 20000
                     }
                   }
                 },

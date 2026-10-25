@@ -1,4 +1,5 @@
 import { assertHumanDecision } from '../http/authority.js';
+import {briefingDecisionEvidence} from '../briefings/evidence.js';
 import {handleOperationalReview} from '../operationalReview.js';
 import { randomUUID } from 'node:crypto';
 import { handlePromiseLedger, ledgerSource } from './promiseLedger.js';
@@ -150,7 +151,7 @@ export async function handleCommitments(request: { method?: string; query?: Reco
   }
   const item = await deps.transact(member.orgId, id, row => {
     if (!row || row.orgId !== member.orgId || !allowed.has(row.projectId)) throw new CommitmentError(404, 'Obligation not found.');
-    return transitionCommitment(row, body, member.uid, now, askId);
+    return transitionCommitment(row, body, member.uid, now, askId,briefingDecisionEvidence(member));
   });
   return { item: visible(item), viewerUid: member.uid };
 }

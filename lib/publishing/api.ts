@@ -1,4 +1,5 @@
 import { assertHumanDecision } from '../http/authority.js';
+import {decisionResponseId,decisionChannel} from '../briefings/evidence.js';
 import { createHash, randomUUID } from "node:crypto";
 import { createAsk } from "../asks/createAsk.js";
 import { recordAskResponse } from "../humanAsk.js";
@@ -388,9 +389,9 @@ export async function handlePublishing(
           "Confirm this exact content is permitted for public use",
         );
       row.ask = recordAskResponse(row.ask, {
-        id: randomUUID(),
+        id: decisionResponseId(member),
         at: Date.now(),
-        via: "web",
+        via: decisionChannel(member),
         actor: member.uid,
         decision: b.operation === "approve" ? "approved" : "rejected",
       });

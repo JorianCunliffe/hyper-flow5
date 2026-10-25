@@ -5,6 +5,7 @@ import { firebaseService } from '../services/firebaseService';
 import { ServiceStatusNotices } from './ServiceStatusNotices';
 import { ScheduleRecoveryPanel } from './ScheduleRecoveryPanel';
 import { useServiceRunProgress } from './useServiceRunProgress';
+import {BriefingPanel} from './BriefingPanel';
 import type { ServiceRunProgress } from '../lib/serviceRunProgress';
 
 export const ServiceConfigurationPanel: React.FC<{ project: Project; onConfigure: () => void; onOpenActivity?: (view: 'emails' | 'coaching') => void; request?:typeof firebaseService.authorizedFetch; onShowStep?:(nodeId:string)=>void; onProgress?:(progress:ServiceRunProgress|null)=>void }> = ({ project, onConfigure, onOpenActivity,onProgress,onShowStep,request=firebaseService.authorizedFetch }) => {
@@ -75,5 +76,6 @@ export const ServiceConfigurationPanel: React.FC<{ project: Project; onConfigure
     {recoveryHeld && schedule && <button type="button" className="mt-3 rounded-lg bg-amber-700 px-3 py-2 text-white font-bold" onClick={()=>setRecoveryOpen(true)}>Resolve held run</button>}
     {recoveryOpen && schedule && <ScheduleRecoveryPanel schedule={schedule} onClose={()=>setRecoveryOpen(false)} onApplied={load} />}
     <ServiceStatusNotices status={status} />
+    {isCoaching && firebaseService.getCurrentOrgId() && <div className="mt-4"><BriefingPanel orgId={firebaseService.getCurrentOrgId()!} projectId={String(project.id)}/></div>}
   </div>;
 };

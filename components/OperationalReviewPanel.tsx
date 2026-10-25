@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import {BriefingPanel} from './BriefingPanel';
 import { firebaseService } from "../services/firebaseService";
 const button =
   "rounded border border-slate-300 bg-white px-3 py-2 text-sm disabled:opacity-40";
@@ -123,12 +124,13 @@ export function OperationalReviewPanel({
       aria-label="Owner review"
       className="mb-6 rounded-xl border border-slate-200 bg-white p-5"
     >
-      <h2 className="text-lg font-bold">Owner review</h2>
+      <BriefingPanel orgId={orgId} projectId={projectId}/>
+      <h2 className="mt-5 text-lg font-bold">Owner review</h2>
       <p className="text-sm text-slate-600">
         Briefing, questions, then next actions.
       </p>
       {work
-        .filter((r) => (r.due || r.type === "task") && r.status === "OPEN")
+        .filter((r) => (r.due || r.type === "task") && !['COMPLETED','COMPLETE','CANCELLED','ABANDONED','REJECTED'].includes(String(r.status).toUpperCase()))
         .map((r) => (
           <p key={r.id} role="status" className="mt-2 text-amber-800">
             {r.type === "task" ? "Task" : "Reminder"}: {r.title}

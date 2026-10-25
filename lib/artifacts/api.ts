@@ -1,4 +1,5 @@
 import { assertHumanDecision } from '../http/authority.js';
+import {decisionResponseId,decisionChannel} from '../briefings/evidence.js';
 import { randomUUID } from "node:crypto";
 import { readPage, pageRows } from "../tenantControl/pagination.js";
 import {
@@ -668,7 +669,7 @@ export async function handleArtifacts(
         if (review ? row.status !== "generated" : row.status !== "proposed")
           throw new ArtifactError(409, "This Ask is no longer open");
         if (
-          review &&
+          review && body.decision !== 'rejected' &&
           (!row.receipt ||
             body.fileHash !== row.receipt.sha256 ||
             body.visualChecked !== true ||
@@ -679,12 +680,12 @@ export async function handleArtifacts(
             "Inspect the generated file and confirm layout and source content for its exact fingerprint",
           );
         const response = {
-          id: randomUUID(),
+          id: decisionResponseId(member),
           at: Date.now(),
-          via: "web" as const,
+          via: decisionChannel(member),
           actor: member.uid,
           decision:
-            body.operation === "reject"
+            body.operation === "reject" || review && body.decision === 'rejected'
               ? ("rejected" as const)
               : ("approved" as const),
         };
@@ -692,14 +693,14 @@ export async function handleArtifacts(
           ...row,
           revision: row.revision + 1,
           status: review
-            ? "reviewed"
+            ? body.decision === 'rejected' ? 'rejected' : "reviewed"
             : body.operation === "approve"
               ? "approved"
               : "rejected",
           ...(review
             ? {
                 reviewAsk: recordAskResponse(row.reviewAsk!, response),
-                receipt: { ...row.receipt!, visual: "reviewed" },
+                receipt: { ...row.receipt!, visual: body.decision === 'rejected' ? row.receipt!.visual : "reviewed" },
               }
             : { ask: recordAskResponse(row.ask, response) }),
         };

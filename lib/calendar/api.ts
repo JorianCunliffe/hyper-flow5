@@ -1,4 +1,5 @@
 import { assertHumanDecision } from '../http/authority.js';
+import {decisionResponseId,decisionChannel} from '../briefings/evidence.js';
 import { randomUUID } from "node:crypto";
 import {
   listTenantProjects,
@@ -416,9 +417,9 @@ export async function handleCalendar(
           "This proposal belongs to its designated reviewer",
         );
       p.ask = recordAskResponse(p.ask, {
-        id: randomUUID(),
+        id: decisionResponseId(member),
         at: Date.now(),
-        via: "web",
+        via: decisionChannel(member),
         actor: member.uid,
         decision: body.operation === "approve" ? "approved" : "rejected",
       });

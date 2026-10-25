@@ -1,4 +1,5 @@
 import {contactPolicySchema} from '../cockpit/contactPolicySchema.js';
+import {briefingOperations,briefingRequestSchema,briefingVoiceSchema} from '../briefings/schema.js';
 import { receptionConfigSchema, receptionProjectSchema } from "../reception/schema.js";
 import { requestScope } from "../tenantControl/clients.js";
 import { taskContracts } from "./taskContracts.js";
@@ -17,6 +18,8 @@ const body = (schema: any) => ({
 });
 const json = (schema: any) => ({ content: { "application/json": { schema } } });
 export const domainOperations: Record<string, string[]> = {
+  '/api/briefings':briefingOperations,
+  '/api/agent/briefing':['request_code','verify_code','subjects','list_tasks','list_approvals','read_item','report','prepare_change','confirm_change','change_result'],
   '/api/schedules/recovery':['preview','apply'],
   '/api/operational-log':['health','configure','archive'],
   '/api/reception':['preview','prepare','apply','review_activation','activate','review_enquiry','confirm_availability','reconcile_booking','reconcile_ask'],
@@ -708,7 +711,12 @@ export function buildOpenApi() {
       row.path === "/api/organizations/create"
     )
       op.security = [{ FirebaseBearer: [] }];
-    if (["/api/events", "/api/agent/voice-context", "/api/agent/capture-work", "/api/agent/reception"].includes(row.path))
+    if(row.path==='/api/briefings'){
+      if(method==='get')op.parameters=Object.entries(briefingRequestSchema.properties).filter(([name])=>['operation','subject','projectId','itemId','status','id','after','limit','includeClosed','reportType','startDate','endDate'].includes(name)).map(([name,schema])=>({name,in:'query',schema}));
+      else op.requestBody=body(briefingRequestSchema);
+    }
+    if(row.path==='/api/agent/briefing')op.requestBody=body(briefingVoiceSchema);
+    if (["/api/events", "/api/agent/voice-context", "/api/agent/capture-work", "/api/agent/reception", "/api/agent/briefing"].includes(row.path))
       op.security = [{ CommunicationsSignature: [] }];
     if (row.path === "/api/schedules/tick")
       op.security = [

@@ -61,6 +61,7 @@ export function requestScope(req: {url?:string; method?:string; query?:any; body
   }
   const b=req.body||{};
   const read=req.method==='GET' || path==='/api/communications/memory' ||
+    (path==='/api/briefings'&&['subjects','list_tasks','list_approvals','read_item','report','change_result'].includes(b.operation)) ||
     (path==='/api/configuration' && ['validate','plan'].includes(b.operation)) ||
     (path==='/api/commitments' && b.action==='promise_ledger' && ['query','read','coverage'].includes(b.operation||'query')) ||
     (path==='/api/commitments' && b.action==='operational_review' && ['read','work'].includes(b.operation));

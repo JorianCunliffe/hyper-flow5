@@ -1,5 +1,33 @@
 [
   {
+    "method": "GET",
+    "source": "lib/briefings/api.ts",
+    "description": "Current tasks, approvals, user reports, personal settings and change history",
+    "path": "/api/briefings",
+    "authorization": "briefings:read; membership and subject checks"
+  },
+  {
+    "method": "POST",
+    "source": "lib/briefings/api.ts; lib/briefings/changes.ts",
+    "description": "Reports, revision-pinned prepare/confirm and assignee mappings",
+    "path": "/api/briefings",
+    "authorization": "briefings:write; verified human required for mutations"
+  },
+  {
+    "method": "PUT",
+    "source": "lib/briefings/api.ts",
+    "description": "Enrol and configure call briefing permissions",
+    "path": "/api/briefings",
+    "authorization": "Human session"
+  },
+  {
+    "method": "POST",
+    "source": "lib/briefings/voice.ts",
+    "description": "Call-bound briefing tools with per-call SMS verification and transcript confirmation",
+    "path": "/api/agent/briefing",
+    "authorization": "Timestamped Communications V2 signature; enrolled verified caller"
+  },
+  {
     "path": "/api/schedules/recovery",
     "method": "POST",
     "description": "Preview and apply a reviewed held-schedule recovery decision; preserves original provider evidence",

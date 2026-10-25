@@ -110,7 +110,7 @@ const run = async () => {
     ok(!result.ok, 'the event inbox is backend-only', result.detail);
     result = await request('mallory', 'PUT', 'external_events/org_a/event_2', { event_id: 'event_2' });
     ok(!result.ok, 'clients cannot forge event inbox records', result.detail);
-    for (const root of ['operational_events', 'operational_event_archive', 'operational_log_health', 'operational_log_policy', 'reception', 'setup_assistant_sessions', 'triage_items', 'schedules', 'schedule_runs', 'scheduler_health', 'service_setup_drafts', 'communication_cursors', 'ask_resolutions', 'communication_delivery']) {
+    for (const root of ['briefings', 'operational_events', 'operational_event_archive', 'operational_log_health', 'operational_log_policy', 'reception', 'setup_assistant_sessions', 'triage_items', 'schedules', 'schedule_runs', 'scheduler_health', 'service_setup_drafts', 'communication_cursors', 'ask_resolutions', 'communication_delivery']) {
       result = await request('alice', 'GET', `${root}/org_a`);
       ok(!result.ok, `${root} reads are API-only, even for tenant members`, result.detail);
       result = await request('mallory', 'PUT', `${root}/org_a/forged`, { forged: true });
@@ -118,6 +118,19 @@ const run = async () => {
     }
     result = await request('mallory', 'GET', 'serverActivity');
     ok(!result.ok, 'server activity is backend-only', result.detail);
+
+    section('Briefing challenge and receipt authority');
+    result=await request('alice','PUT','briefings/org_a/sessions/forged',{verified:true,uid:'alice'});
+    ok(!result.ok,'a member cannot manufacture a verified call session',result.detail);
+    const runtime=testEnv.authenticatedContext('hyperflow-runtime-v1',{hyperflow_runtime:true}).database();
+    await set(ref(runtime,'briefings/org_a/changes/test'),{status:'prepared'});
+    ok((await get(ref(runtime,'briefings/org_a/changes/test'))).val().status==='prepared','the trusted runtime can persist briefing changes');
+    await testEnv.withSecurityRulesDisabled(async ctx=>{await set(ref(ctx.database(),'tenant_lifecycle/org_a/state'),'suspended');});
+    let suspendedRead=false,suspendedWrite=false;
+    try{await get(ref(runtime,'briefings/org_a/changes/test'));suspendedRead=true;}catch{}
+    try{await set(ref(runtime,'briefings/org_a/changes/test'),{status:'completed'});suspendedWrite=true;}catch{}
+    ok(!suspendedRead,'suspension revokes runtime access to briefing evidence');
+    ok(!suspendedWrite,'suspension prevents new briefing writes');
   } finally {
     await testEnv.cleanup();
   }

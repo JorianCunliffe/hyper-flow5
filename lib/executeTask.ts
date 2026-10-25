@@ -1,4 +1,5 @@
 import { validateReferenceContext } from './flowInputs.js';
+import {outboundBriefingEnabled} from './briefings/outbound.js';
 import { ActionRecoveryRequired } from './actionDispatch.js';
 import { TRIAGE_BATCH_CHECKPOINT } from './actionRecovery.js';
 import { executeMailboxDraft } from './mailboxDraftAction.js';
@@ -137,7 +138,7 @@ export async function executeTask(
   templateFile: string | undefined,
   projectData: Record<string, any> | undefined,
   ctx?: ExecuteContext,
-  dependencies: { emailClient?: Pick<CommunicationsClient, 'sendEmail'>; callClient?: Pick<CommunicationsClient, 'startCall' | 'listPeople' | 'listCommunications'>; callContext?: typeof outboundConversationContext } = {}
+  dependencies: { emailClient?: Pick<CommunicationsClient, 'sendEmail'>; callClient?: Pick<CommunicationsClient, 'startCall' | 'listPeople' | 'listCommunications'>; callContext?: typeof outboundConversationContext; briefingEnabled?:typeof outboundBriefingEnabled } = {}
 ): Promise<TaskExecutionResult> {
   const taskType = normalizeTaskType(rawTaskType);
   if (!taskType) {
@@ -547,12 +548,14 @@ export async function executeTask(
       const overrides = buildCallOverrides(String(instruction), purpose, resolvedCall.greeting);
       overrides.systemMessage += `\n\n${history.instructions}`;
       logs.push(`Conversation context: ${history.status}; ${history.sources.length} authorized sources`);
+      const briefing=['coaching_session','daily_briefing'].includes(purpose)&&await (dependencies.briefingEnabled||outboundBriefingEnabled)(correlation.tenant_id,String(toPhone),client);
       const result = await client.startCall({
         to: String(toPhone),
         from: communicationFromNumber(templateData, projectData, ctx),
         overrides,
         correlation: communicationCorrelation(ctx),
         purpose: { type: purpose },
+        ...(briefing?{briefing_enabled:true}:{}),
         callback_url: communicationCallbackUrl(ctx)
       });
       return communicationResponse(result, logs, { call_data: resolvedCall, conversation_context: {status:history.status,sourceIds:history.sources} });

@@ -6,6 +6,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/agent/briefing",
+      "destination": "/api/events?action=briefing"
+    },
+    {
+      "source": "/api/briefings",
+      "destination": "/api/communications/status?action=briefings"
+    },
+    {
       "source": "/api/schedules/recovery",
       "destination": "/api/schedules?action=recovery"
     },

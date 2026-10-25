@@ -49,6 +49,7 @@ export const taskSchema = obj(
     name: str,
     displayId: str,
     assignedTo: str,
+    assigneeUid: str,
     role: str,
     description: str,
     notes: str,
@@ -225,6 +226,7 @@ export const settingsSchema = obj({
     type: "object",
     additionalProperties: obj({ email: str, phone: str }),
   },
+  briefingAssignees: {type:'object',additionalProperties:str},
 });
 export const uiViewSchema = obj(
   {
@@ -247,7 +249,7 @@ export const uiViewSchema = obj(
   },
   ["id", "name", "view"],
 );
-export const scratchSchema = obj({ id, name: str, projectId: id }, [
+export const scratchSchema = obj({ id, name: str, projectId: id, assignedTo:str,assigneeUid:str,status:str }, [
   "id",
   "name",
 ]);

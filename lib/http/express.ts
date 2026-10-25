@@ -32,6 +32,7 @@ export function mountApi(app: Express) {
     ["/api/events", ""],
     ["/api/agent/voice-context", "voice_context"],
     ["/api/agent/capture-work", "capture_work"],
+    ["/api/agent/briefing", "briefing"],
   ]) {
     app.all(
       path,

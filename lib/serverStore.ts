@@ -7,6 +7,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 import { randomUUID } from 'node:crypto';
+import {canonicalHash} from './canonicalHash.js';
 import { crc32cUpdate, crc32cBase64 } from './files/crc32c.js';
 import { FILE_CHUNK_BYTES } from './files/model.js';
 import { CommitmentError, normalizeCommitment } from './commitments/model.js';
@@ -1315,11 +1316,13 @@ export const normalizeTenantSchedule = (
 export const claimTriageAgentProposal = async (
   orgId: string,
   itemId: string,
-  actor: string
+  actor: string,
+  expectedFingerprint?: string
 ): Promise<TriageItem | null> => {
   const now = Date.now();
   const result = await triageItemRef(orgId, itemId).transaction(current => {
     const proposal = current?.agentProposal as AgentActionProposal | undefined;
+    if(proposal&&expectedFingerprint&&canonicalHash(proposal)!==expectedFingerprint)throw new Error('Agent proposal changed before review');
     if (!proposal || !['pending', 'failed'].includes(proposal.status)) return undefined;
     const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});
     return {
@@ -1337,11 +1340,13 @@ export const finishTriageAgentProposal = async (
   itemId: string,
   status: 'applied' | 'rejected' | 'failed',
   actor: string,
-  error?: string
+  error?: string,
+  expectedFingerprint?: string
 ): Promise<TriageItem | null> => {
   const now = Date.now();
   const result = await triageItemRef(orgId, itemId).transaction(current => {
     const proposal = current?.agentProposal as AgentActionProposal | undefined;
+    if(proposal&&expectedFingerprint&&canonicalHash(proposal)!==expectedFingerprint)throw new Error('Agent proposal changed before review');
     if (!proposal || (status !== 'rejected' && proposal.status !== 'processing')) return undefined;
     if (status === 'rejected' && !['pending', 'failed'].includes(proposal.status)) return undefined;
     const audit = Array.isArray(current.audit) ? current.audit : Object.values(current.audit || {});

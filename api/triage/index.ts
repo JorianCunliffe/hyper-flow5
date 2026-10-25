@@ -1,3 +1,4 @@
+import {reviewAgentProposal} from '../../lib/triage/agentProposalReview.js';
 import { TenantControlError } from '../../lib/tenantControl/model.js';
 import { assertHumanDecision } from '../../lib/http/authority.js';
 import type { VercelRequest, VercelResponse } from '../../lib/http/vercelTypes.js';
@@ -5,21 +6,14 @@ import { ApiAuthError, requireAppMember, requireProjectInTenant } from '../../li
 import { readTriageDraftPreview, adoptTriageDraftBaseline, recoverReviewedTriageDraft } from '../../lib/triage/draftPreview.js';
 import { recoverTriageDraft } from '../../lib/triage/recoverDraft.js';
 import {
-  claimTriageAgentProposal,
-  findProject,
-  finishTriageAgentProposal,
   listTenantTriageItems,
   listTenantTriageDigests,
   patchTenantTriageItem,
   readTenantTriageItem,
-  setTenantTriageDisposition,
-  writeProject
+  setTenantTriageDisposition
 } from '../../lib/serverStore.js';
 import type { TriageDisposition } from '../../types.js';
 import { respondToAsk } from '../../lib/asks/respondToAsk.js';
-import { appendGrantedGoogleSheet } from '../../lib/integrations/googleWorkspace.js';
-import { advanceScheduledServerFlow } from '../../lib/serverFlow.js';
-import { COACHING_TRANSIENT_KEYS } from '../../lib/projectTemplates.js';
 import { readTenantCapabilityPolicy, saveTenantCapabilityPolicy } from '../../lib/capabilityPolicyStore.js';
 import { readProjectWorkspaceResources, saveProjectWorkspaceResources } from '../../lib/workspaceResourceCatalog.js';
 
@@ -97,68 +91,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (typeof id !== 'string' || !id) return res.status(400).json({ error: 'id is required' });
     const actor = `${member.role}:${member.uid}`;
 
-    if (action === 'reject_agent_proposal') {
-      const item = await finishTriageAgentProposal(member.orgId, id, 'rejected', actor);
-      return item ? res.status(200).json({ item }) : res.status(409).json({ error: 'Agent proposal is not awaiting review' });
+    if (action === 'reject_agent_proposal' || action === 'approve_agent_proposal') {
+      try { return res.status(200).json(await reviewAgentProposal(member,id,action === 'approve_agent_proposal'?'approve':'reject',actor)); }
+      catch(error:any) { return res.status(error.status || 409).json({error:String(error.message || error).slice(0,1000)}); }
     }
-
-    if (action === 'approve_agent_proposal') {
-      const claimed = await claimTriageAgentProposal(member.orgId, id, actor);
-      if (!claimed?.agentProposal) return res.status(409).json({ error: 'Agent proposal is not awaiting review' });
-      const proposal = claimed.agentProposal;
-      try {
-        const located = await findProject(member.orgId, proposal.projectId);
-        if (!located || located.project.projectData?.project_template !== 'daily_coaching') {
-          throw new Error('Agent proposal is not linked to a Daily Coaching project');
-        }
-        if (proposal.kind === 'request_coaching_call') {
-          const scheduledFor = proposal.requestedAt;
-          const outcome = await advanceScheduledServerFlow(member.orgId, proposal.projectId, {
-            scheduleId: `agent_request:${id}`,
-            scheduleRunId: `agent_request:${id}:${scheduledFor}`,
-            scheduledFor,
-            flowId: 'coaching',
-            resetPolicy: 'flow',
-            clearProjectDataKeys: COACHING_TRANSIENT_KEYS,
-            input: { coaching_trigger: 'approved_agent_request', coaching_request_communication_id: claimed.communicationId }
-          });
-          if (!outcome.ok) throw new Error(outcome.reason || 'Coaching call could not be started');
-        } else {
-          const value = String(proposal.value || '').trim();
-          if (!value) throw new Error('Coaching proposal has no value');
-          const isCommitment = proposal.kind === 'coaching_commitment';
-          const when = new Date(proposal.requestedAt).toISOString();
-          await appendGrantedGoogleSheet(
-            member.orgId,
-            proposal.projectId,
-            `agent-proposal:${member.orgId}:${id}:sheet:v1`,
-            [[when, '', '', isCommitment ? value : '', isCommitment ? '' : value, proposal.summary, proposal.confidence]]
-          );
-          const key = isCommitment ? 'coaching_commitments' : 'coaching_next_actions';
-          const existing = String(located.project.projectData?.[key] || '').trim();
-          const combined = existing && !existing.split('\n').includes(value) ? `${existing}\n${value}` : existing || value;
-          const priorUpdates = Array.isArray(located.project.projectData?.coaching_manual_updates)
-            ? located.project.projectData.coaching_manual_updates.slice(-99) : [];
-          await writeProject(member.orgId, located.index, {
-            ...located.project,
-            projectData: {
-              ...(located.project.projectData || {}),
-              [key]: combined,
-              coaching_manual_updates: [...priorUpdates, {
-                at: when, kind: proposal.kind, value, sourceCommunicationId: claimed.communicationId, actor
-              }]
-            }
-          });
-        }
-        const item = await finishTriageAgentProposal(member.orgId, id, 'applied', actor);
-        return res.status(200).json({ item });
-      } catch (error: any) {
-        const message = String(error?.message || error).slice(0, 1_000);
-        await finishTriageAgentProposal(member.orgId, id, 'failed', actor, message);
-        return res.status(409).json({ error: message });
-      }
-    }
-
     if (action === 'accept_interpretation') {
       const item = await readTenantTriageItem(member.orgId, id);
       if (!item?.projectId || !item.askId) return res.status(409).json({ error: 'Triage item is not linked to an Ask' });

@@ -1,0 +1,293 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+import express from "express";
+import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
+import { ref, set } from "firebase/database";
+
+test("signed live briefing tools verify a call, save one task change and one domain approval in the real Firebase adapter", async () => {
+  assert.equal(process.env.FIREBASE_DATABASE_EMULATOR_HOST, "127.0.0.1:9010");
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
+    project_id: "demo-hyperflow",
+    client_email: "fixture@demo-hyperflow.iam.gserviceaccount.com",
+    private_key: privateKey,
+  });
+  process.env.FIREBASE_DATABASE_URL = "https://demo-hyperflow.firebaseio.com";
+  process.env.FIREBASE_ENFORCE_TENANT_LIFECYCLE = "true";
+  process.env.COMMUNICATIONS_WEBHOOK_SECRET = "fixture-briefing-secret";
+  process.env.COMMUNICATIONS_API_KEY = "fixture";
+  const env = await initializeTestEnvironment({
+    projectId: "demo-hyperflow",
+    database: {
+      host: "127.0.0.1",
+      port: 9010,
+      rules: readFileSync("database.rules.json", "utf8"),
+    },
+  });
+  const { getApps, deleteApp } = await import("firebase-admin/app");
+  const app = express();
+  let code = "",
+    sms = 0;
+  app.get("/v1/contacts", (_req, res) =>
+    res.json({
+      data: [
+        {
+          id: "person",
+          name: "Alice",
+          phone_number: "+15550000001",
+          phone: "+15550000001",
+        },
+      ],
+    }),
+  );
+  app.get("/v1/communications/comm_fixture", (_req, res) =>
+    res.json({
+      communication_id: "comm_fixture",
+      tenant_id: "briefing_fixture",
+      thread_id: "thread_fixture",
+      person_id: "person",
+      channel: "voice",
+      status: "in_progress",
+    }),
+  );
+  app.post("/v1/messages", express.json(), (req, res) => {
+    sms++;
+    assert.equal(req.body.to, "+15550000001");
+    code = req.body.body.match(/\b\d{6}\b/)[0];
+    res
+      .status(201)
+      .json({ communication_id: "sms_fixture", status: "accepted" });
+  });
+  const { mountApi } = await import("../../lib/http/express.js");
+  mountApi(app);
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${(server.address() as any).port}`;
+  process.env.COMMUNICATIONS_API_URL = base;
+  process.env.HYPERFLOW_EVENT_URL = base + "/api/events";
+  const checkout = process.env.PHASE02_COMMUNICATIONS_CHECKOUT;
+  assert.ok(checkout, "Provide the pinned Communications checkout");
+  const { callBriefing } = await import(
+    pathToFileURL(path.join(checkout, "briefingVoice.js")).href
+  );
+  const context: any = {
+    briefingPrivate: true,
+    tenantId: "briefing_fixture",
+    personId: "person",
+    communicationId: "comm_fixture",
+    threadId: "thread_fixture",
+    serviceIdentity: "+15550000000",
+  };
+  const invoke = (args: any) =>
+    callBriefing(args, context, {
+      fetchBriefing: (url: string, options: any) => fetch(url, options),
+    });
+  const { handleBriefings } = await import("../../lib/briefings/api.js");
+  const { handleCommitments } = await import("../../lib/commitments/api.js");
+  const store = await import("../../lib/serverStore.js");
+  const member = {
+    orgId: "briefing_fixture",
+    uid: "alice",
+    role: "owner",
+    email: "alice@example.test",
+  };
+  try {
+    await env.clearDatabase();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.database();
+      await set(ref(db, "users/alice"), {
+        orgId: member.orgId,
+        email: member.email,
+      });
+      await set(ref(db, `organizations/${member.orgId}/members`), {
+        alice: { role: "owner", email: member.email },
+        bob: { role: "member", email: "bob@example.test" },
+      });
+      await set(ref(db, `agent_profiles/${member.orgId}`), {
+        agentId: "fixture",
+        displayName: "Fixture",
+        timezone: "Australia/Brisbane",
+        primaryUserId: "alice",
+        primaryPersonId: "person",
+        allowedProjectIds: ["p"],
+        serviceIdentities: { phone: "+15550000000" },
+      });
+      await set(ref(db, `projects/${member.orgId}`), {
+        dataRevision: 1,
+        settings: { teamMemberDetails: { Alice: { email: member.email } } },
+        projects: [
+          {
+            id: "p",
+            name: "Acceptance",
+            revision: 1,
+            milestones: [
+              {
+                id: "n",
+                name: "Work",
+                nodeType: "milestone",
+                subtasks: [
+                  {
+                    id: "t",
+                    name: "Disposable fixture task",
+                    assignedTo: "Alice",
+                    status: "Started",
+                    description: "No external work",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+    await handleBriefings(
+      {
+        method: "PUT",
+        body: {
+          operation: "settings",
+          enabled: true,
+          allowTaskUpdates: true,
+          allowApprovals: true,
+          sections: ["tasks", "approvals", "reports"],
+        },
+      },
+      member,
+    );
+    await assert.rejects(invoke({ operation: "list_tasks" }), /Verify the SMS/);
+    assert.equal(
+      (await invoke({ operation: "request_code" })).status,
+      "code_sent",
+    );
+    await invoke({ operation: "request_code" });
+    assert.equal(sms, 1);
+    await invoke({ operation: "verify_code", code });
+    const tasks = await invoke({ operation: "list_tasks" });
+    assert.equal(tasks.items.length, 1);
+    const task = tasks.items[0];
+    const prepared = await invoke({
+      operation: "prepare_change",
+      itemId: task.id,
+      version: task.version,
+      action: "set_status",
+      status: "Completed",
+      requestId: "fixture_task_change",
+    });
+    const confirm = async (proposal: any) => {
+      const now = Date.now();
+      context.briefingAssistantTurn = {
+        text: proposal.readback,
+        at: now,
+        playedAt: now + 1,
+        interrupted: false,
+      };
+      context.briefingHumanTurn = { text: "confirm", at: now + 2 };
+      return invoke({ operation: "confirm_change", id: proposal.id });
+    };
+    assert.equal((await confirm(prepared)).status, "completed");
+    await confirm(prepared);
+    const workspace: any = await store.readTenantWorkspace(member.orgId);
+    assert.equal(
+      workspace.projects[0].milestones[0].subtasks[0].status,
+      "Completed",
+    );
+    assert.equal(workspace.activityLogs.length, 1);
+    assert.ok(workspace.briefingReceipts.fixture_task_change);
+    const created: any = await handleCommitments(
+      {
+        method: "POST",
+        body: {
+          action: "create",
+          projectId: "p",
+          terms: {
+            owner: "user:alice",
+            beneficiary: "user:alice",
+            deliverable: "Fixture review",
+            criteria: "Explicit acceptance only",
+            dueAt: new Date(Date.now() + 86400000).toISOString(),
+            timezone: "Australia/Brisbane",
+          },
+        },
+      },
+      member,
+    );
+    const queue = await invoke({ operation: "list_approvals" });
+    const approval = queue.items.find(
+      (i: any) => i.sourceId === created.item.id,
+    );
+    assert.ok(approval);
+    const proposed = await invoke({
+      operation: "prepare_change",
+      itemId: approval.id,
+      version: approval.version,
+      action: "approve",
+      note: "Accept the isolated fixture obligation",
+      requestId: "fixture_approval_change",
+    });
+    const decisions = await Promise.all([confirm(proposed), confirm(proposed)]);
+    assert.ok(decisions.some((r) => r.status === "completed"));
+    const obligation = await store.readOperationalCommitment(
+      member.orgId,
+      created.item.id,
+    );
+    assert.equal(obligation?.state, "accepted");
+    assert.equal(obligation?.asks.at(-1)?.responses[0].via, "voice");
+    assert.equal(
+      obligation?.asks.at(-1)?.responses[0].id,
+      "briefing_fixture_approval_change",
+    );
+    assert.equal(
+      obligation?.history.filter((h) =>
+        h.note.includes("[briefing:fixture_approval_change]"),
+      ).length,
+      1,
+    );
+    const report = await invoke({
+      operation: "report",
+      subject: "all",
+      reportType: "workload",
+    });
+    assert.equal(report.byUser.length, 2);
+    assert.equal(
+      report.byUser.find((u: any) => u.userId === "alice").completed,
+      1,
+    );
+    const web: any = await handleBriefings(
+      {
+        method: "POST",
+        body: { operation: "report", subject: "all", reportType: "workload" },
+      },
+      member,
+    );
+    assert.deepEqual(web.byUser, report.byUser);
+    await handleBriefings(
+      {
+        method: "PUT",
+        body: {
+          operation: "settings",
+          enabled: false,
+          allowTaskUpdates: false,
+          allowApprovals: false,
+        },
+      },
+      member,
+    );
+    await assert.rejects(
+      invoke({ operation: "list_tasks" }),
+      /Enable and enrol/,
+    );
+  } finally {
+    await env.cleanup();
+    for (const app of getApps()) await deleteApp(app);
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

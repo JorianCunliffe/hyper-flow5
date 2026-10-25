@@ -457,6 +457,7 @@ export interface ScheduleRun {
 }
 
 export interface AppSettings {
+  briefingAssignees?: Record<string,string>;
   projectTypes: string[];
   companies: string[];
   people: string[];
@@ -759,6 +760,7 @@ export interface Subtask {
   displayId?: string;
   name: string;
   assignedTo: string;
+  assigneeUid?: string;
   role?: string;
   description: string;
   notes?: string;
@@ -867,6 +869,9 @@ export interface ActivityLog {
 export interface ScratchTask {
   id: string;
   name: string;
+  assignedTo?: string;
+  assigneeUid?: string;
+  status?: string;
   projectId?: string;
   createdBy?: string;
   createdAt: number;

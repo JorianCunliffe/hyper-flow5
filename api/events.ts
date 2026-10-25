@@ -1,4 +1,5 @@
 import { TenantControlError } from '../lib/tenantControl/model.js';
+import { briefingVoice } from '../lib/briefings/voice.js';
 import { redact } from '../lib/setupAssistant/safety.js';
 import { receptionCommand, finishReception } from '../lib/reception/service.js';
 import { captureVoiceWork } from '../lib/capturedWork/voice.js';
@@ -68,7 +69,7 @@ export const POST = async (request: Request): Promise<Response> => {
 
   const rawBody = Buffer.from(await request.arrayBuffer());
   const action = new URL(request.url).searchParams.get('action');
-  if (['voice_context', 'capture_work', 'reception'].includes(action || '') && rawBody.length > 64 * 1024) return json({ error: 'Request body is too large' }, 413);
+  if (['voice_context', 'capture_work', 'reception', 'briefing'].includes(action || '') && rawBody.length > 64 * 1024) return json({ error: 'Request body is too large' }, 413);
   const signature = request.headers.get('x-communications-signature') || undefined;
   const signatureV2 = request.headers.get('x-communications-signature-v2') || undefined;
   const timestamp = request.headers.get('x-communications-timestamp') || undefined;
@@ -76,7 +77,7 @@ export const POST = async (request: Request): Promise<Response> => {
     rawBody,
     { signature, signatureV2, timestamp },
     secret,
-    ['voice_context', 'capture_work', 'reception'].includes(action || '') ? true : undefined
+    ['voice_context', 'capture_work', 'reception', 'briefing'].includes(action || '') ? true : undefined
   );
   if (!valid) return json({ error: 'Invalid or missing Communications signature' }, 401);
 
@@ -88,6 +89,7 @@ export const POST = async (request: Request): Promise<Response> => {
 
   try {
     const body = parseSignedJsonBody(rawBody);
+    if (action === 'briefing') return json(await briefingVoice(body), 200);
     if (action === 'reception') return json(await receptionCommand(body),200);
     if (action === 'capture_work') return json(await captureVoiceWork(body), 200);
     if (action === 'voice_context') {

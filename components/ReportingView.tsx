@@ -1,4 +1,6 @@
 import { ViewOptions } from './ViewOptions';
+import {BriefingPanel} from './BriefingPanel';
+import {firebaseService} from '../services/firebaseService';
 import React, { useState, useMemo } from 'react';
 import { Project, AppSettings, Subtask, Milestone, ActivityLog } from '../types';
 import { BarChart3, Filter, Calendar, CheckCircle2, Circle, AlertCircle, Clock, Activity, Target } from 'lucide-react';
@@ -131,7 +133,8 @@ export const ReportingView: React.FC<ReportingViewProps> = ({ projects, settings
   }, [filteredTasks]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-slate-50">
+    <div className="flex flex-col h-full overflow-y-auto bg-slate-50">
+      {firebaseService.getCurrentOrgId()&&<div className="p-4"><BriefingPanel orgId={firebaseService.getCurrentOrgId()!}/></div>}
       <div className="p-6 border-b border-slate-200 bg-white shrink-0">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">

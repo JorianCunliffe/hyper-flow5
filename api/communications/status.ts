@@ -1,4 +1,5 @@
 import { waitUntil } from '@vercel/functions';
+import { handleBriefings } from '../../lib/briefings/api.js';
 import { handleContacts } from '../../lib/communications/contacts.js';
 import { processAgentInbox } from '../../lib/agentRouter.js';
 import { readDiagnostics } from '../../lib/tenantControl/diagnostics.js';
@@ -85,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const member = await requireAppMember(req);
+    if (action === 'briefings') { res.setHeader('Cache-Control','no-store'); return res.status(200).json(await handleBriefings(req,member)); }
     if (action === 'contacts') {
       const result = await handleContacts(req, member);
       return res.status(result.status).json(result.body);
