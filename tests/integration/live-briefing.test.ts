@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import express from "express";
+import {createVoiceMediaHarness} from '../voiceMediaHarness.js';
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 import { ref, set } from "firebase/database";
 
@@ -35,6 +36,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
   });
   const { getApps, deleteApp } = await import("firebase-admin/app");
   const app = express();
+  let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
+  let interruptNextRequest=false;
   let promptVersion = "briefing-first.v2";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
@@ -70,6 +73,11 @@ test("signed live briefing tools verify a call, save one task change and one dom
       .json({ communication_id: "sms_fixture", status: "accepted" });
   });
   const { mountApi } = await import("../../lib/http/express.js");
+  app.use('/api/agent/briefing',(_req,_res,next)=>{
+    if(!interruptNextRequest){next();return;}
+    interruptNextRequest=false;
+    media!.interruptVerification().then(()=>next(),next);
+  });
   mountApi(app);
   const server = createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -78,9 +86,6 @@ test("signed live briefing tools verify a call, save one task change and one dom
   process.env.HYPERFLOW_EVENT_URL = base + "/api/events";
   const checkout = process.env.PHASE02_COMMUNICATIONS_CHECKOUT;
   assert.ok(checkout, "Provide the pinned Communications checkout");
-  const { callBriefing } = await import(
-    pathToFileURL(path.join(checkout, "briefingVoice.js")).href
-  );
   const context: any = {
     briefingPrivate: true,
     tenantId: "briefing_fixture",
@@ -89,10 +94,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     threadId: "thread_fixture",
     serviceIdentity: "+15550000000",
   };
-  const invoke = (args: any) =>
-    callBriefing(args, context, {
-      fetchBriefing: (url: string, options: any) => fetch(url, options),
-    });
+  const invoke = (args: any) => media!.invoke(args);
   const { handleBriefings } = await import("../../lib/briefings/api.js");
   const { handleCommitments } = await import("../../lib/commitments/api.js");
   const store = await import("../../lib/serverStore.js");
@@ -198,6 +200,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       },
       member,
     );
+    media=await createVoiceMediaHarness(checkout,base,context);
     await assert.rejects(invoke({ operation: "list_tasks" }), /Verify the SMS/);
     const readiness = async ():Promise<any> => handleBriefings({method:"GET",query:{operation:"readiness"}},member);
     assert.equal((await readiness()).ready,true);
@@ -210,11 +213,16 @@ test("signed live briefing tools verify a call, save one task change and one dom
     );
     await invoke({ operation: "request_code" });
     assert.equal(sms, 1);
+    interruptNextRequest=true;
+    const beforeVerification=media.continuations;
     await invoke({ operation: "verify_code", code });
+    await media.assertVerificationHandoff(beforeVerification);
+    assert.ok((await invoke({operation:'subjects'})).subjects.length>=2);
     const tasks = await invoke({ operation: "list_tasks" });
     assert.equal(tasks.incomplete, false, JSON.stringify(tasks.notices));
     assert.equal(tasks.items.length, 1);
     const task = tasks.items[0];
+    assert.equal((await invoke({operation:'read_item',itemId:task.id})).item.id,task.id);
     const prepared = await invoke({
       operation: "prepare_change",
       itemId: task.id,
@@ -223,6 +231,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       status: "Completed",
       requestId: "fixture_task_change",
     });
+    await assert.rejects(invoke({operation:'confirm_change',id:prepared.id}),/Read the exact proposal/);
     const confirm = async (proposal: any) => {
       const now = Date.now();
       context.briefingAssistantTurn = {
@@ -232,9 +241,11 @@ test("signed live briefing tools verify a call, save one task change and one dom
         interrupted: false,
       };
       context.briefingHumanTurn = { text: "confirm", at: now + 2 };
+      await media!.confirmReadback(proposal.readback);
       return invoke({ operation: "confirm_change", id: proposal.id });
     };
     assert.equal((await confirm(prepared)).status, "completed");
+    assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'completed');
     await confirm(prepared);
     const workspace: any = await store.readTenantWorkspace(member.orgId);
     assert.equal(
@@ -317,6 +328,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
       reportType: "workload",
     });
     assert.equal(report.byUser.length, 2);
+    const personalReport=await invoke({operation:'report',subject:'me',reportType:'workload'});
+    assert.equal(personalReport.byUser.length,1);
     assert.equal(
       report.byUser.find((u: any) => u.userId === "alice").completed,
       1,
@@ -346,6 +359,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
       /Enable and enrol/,
     );
   } finally {
+    await media?.close();
     await env.cleanup();
     for (const app of getApps()) await deleteApp(app);
     server.closeAllConnections();

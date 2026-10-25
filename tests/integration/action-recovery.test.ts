@@ -72,7 +72,7 @@ test('real runtime rules: concurrent schedule, stale projection, callback races 
     await env.withSecurityRulesDisabled(async context => { await set(ref(context.database(), `projects/${org}/projects`), [definition]); });
     const callback = (event_id: string, type: string) => ({ event_id, source: 'communications', type,
       communication_id: 'comm-one', correlation: providerRequest.correlation,
-      payload: type === 'call.completed' ? { transcript_text: 'A valid conversation', conversation_completed: true, disposition: 'hangup' }
+      payload: type === 'call.completed' ? { transcript_text: 'A valid private briefing conversation', successful: true, memory_eligible: false, disposition: 'human_completed' }
         : { disposition: 'provider_failed', successful: false } });
     const raced = await Promise.all([receiveExternalEvent(callback('failed', 'call.failed')), receiveExternalEvent(callback('completed', 'call.completed'))]);
     assert.ok(raced.every(result => result.ok), JSON.stringify(raced));
