@@ -8,6 +8,13 @@ const fixture = (name: string): any => JSON.parse(readFileSync(
 ));
 
 describe('external event inbox envelope', () => {
+  test('private successful briefings complete workflows without making their contents eligible for general memory', () => {
+    const event=normalizeExternalEvent({event_id:'evt_private_briefing',source:'communications',type:'call.completed',purpose:{type:'coaching_session'},correlation:{tenant_id:'org_1',project_id:'coaching',run_id:'run_private',task_id:'call'},payload:{disposition:'human_completed',successful:true,memory_eligible:false}});
+    assert.equal(terminalExternalEventResult(event)?.status,'success');
+    assert.equal(event.payload.memory_eligible,false);
+    assert.equal(terminalExternalEventResult({...event,payload:{...event.payload,successful:false}})?.status,'error');
+    assert.equal(terminalExternalEventResult({...event,payload:{memory_eligible:false,disposition:'voicemail'}})?.status,'error');
+  });
   test('Ask notification receipts do not resolve the waiting workflow action', () => {
     const raw = { event_id: 'evt_delivery', source: 'communications', type: 'sms.delivered',
       communication_id: 'comm_sms', purpose: { type: 'human_ask', ask_id: 'ask_sms' },

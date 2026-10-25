@@ -220,15 +220,14 @@ export const terminalExternalEventResult = (event: ExternalEventEnvelope): {
   if (!status) return null;
   const disposition = typeof event.payload.disposition === 'string' ? event.payload.disposition : undefined;
   const successful = typeof event.payload.successful === 'boolean' ? event.payload.successful : undefined;
-  const memoryEligible = typeof event.payload.memory_eligible === 'boolean' ? event.payload.memory_eligible : undefined;
 
   // A contradictory producer payload must fail closed even if its event name
   // says completed. Provider completion is not verified human success.
   const completedConversation = event.payload.conversation_completed === true ||
-    (event.payload.conversation_completed !== false && successful === true && memoryEligible !== false);
+    (event.payload.conversation_completed !== false && successful === true);
   if (event.type.toLowerCase().startsWith('call.') && completedConversation) status = 'success';
   else if (event.type.toLowerCase() === 'call.completed' && (
-    successful === false || memoryEligible === false || (disposition && disposition !== 'human_completed')
+    successful === false || (disposition && disposition !== 'human_completed')
   )) status = 'error';
 
   const failure = String(
