@@ -50,6 +50,16 @@ export interface ContactDay {
     channel: string;
     at: number;
   }>;
+  releasedAttempts?: Record<string, {
+    operationId: string;
+    target: string;
+    channel: string;
+    at: number;
+    releasedAt: number;
+    actor: string;
+    reason: string;
+    evidence: Record<string, unknown>;
+  }>;
 }
 export function claimContactDay(
   current: ContactDay | null,
@@ -62,8 +72,10 @@ export function claimContactDay(
   },
   policy: ContactWindow,
 ) {
-  const row = { attempts: [...(current?.attempts || [])] };
-  const sameOperation = row.attempts.find(
+  // RTDB can return sparse numeric children as an object after an audited release.
+  // Preserve release evidence through subsequent transactional claims.
+  const row: ContactDay = { ...current, attempts: Object.values(current?.attempts || {}).filter(Boolean) };
+  const sameOperation = [...row.attempts, ...Object.values(row.releasedAttempts || {})].find(
     (a) => a.operationId === input.operationId,
   );
   if (sameOperation)

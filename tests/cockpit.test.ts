@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import {selectOperatingItems,answerOperatingQuestion,relationshipItems,type OperatingSnapshot,type OperatingItem} from '../lib/cockpit/model';
 import {claimContactDay,normalizeContactWindow,contactWindowOpen} from '../lib/cockpit/contactPolicy';
 const now=Date.parse('2026-09-09T00:00:00Z');
+test('contact claims preserve audited releases, normalize sparse storage and refuse released operation replay',()=>{
+  const released={operationId:'unused',target:'+61400000001',channel:'voice',at:now,releasedAt:now+1,actor:'owner',reason:'Verified failure before provider dispatch',evidence:{approvedSnapshot:false}};
+  const current={attempts:[{operationId:'real',target:released.target,channel:'voice',at:now},null],releasedAttempts:{receipt:released}} as unknown as import('../lib/cockpit/contactPolicy').ContactDay;
+  const policy=normalizeContactWindow({startHour:9,endHour:17,maxPerDay:2,maxPerContact:2});
+  const replay=claimContactDay(current,{...released,now:now+1000,coalesce:false},policy);
+  assert.equal(replay.allowed,false);
+  const next=claimContactDay(current,{...released,operationId:'new',now:now+1000,coalesce:false},policy);
+  assert.equal(next.allowed,true);
+  assert.equal(next.row.attempts.length,2);
+  assert.deepEqual(next.row.releasedAttempts,{receipt:released});
+  assert.equal(current.attempts.length,2);
+  assert.equal(claimContactDay(next.row,{...released,operationId:'fourth',now:now+2000,coalesce:false},policy).allowed,false);
+});
 const item=(id:string,owner:string,beneficiary:string,state='accepted'):OperatingItem=>({id,version:1,projectId:'alpha',deliverable:`Deliver ${id}`,owner,beneficiary,dueAt:'2026-09-09T17:00:00+10:00',timezone:'Australia/Brisbane',state,needsDecision:false,reviewerUid:'ceo',updatedAt:now,sourceChanged:false,sourceCommunicationIds:['source-a']});
 const snapshot:OperatingSnapshot={owner:'hyperflow',viewerUid:'ceo',timezone:'Australia/Brisbane',asOf:new Date(now).toISOString(),items:[item('mine','user:ceo','contact:alex'),item('owed','contact:alex','user:ceo'),item('other','contact:pat','contact:lee'),{...item('decision','user:ceo','contact:alex','candidate'),needsDecision:true},item('done','contact:alex','user:ceo','fulfilled')],contacts:[{id:'alex',name:'Alex Smith'},{id:'pat',name:'Pat Lee'}],flows:[],incomplete:false,notices:[]};
 test('cockpit separates accepted production, waiting, decisions and fulfilled work in the user timezone',()=>{
