@@ -27,6 +27,7 @@ import type { FlowHold, FlowHoldConfig, FlowRun, FlowSignal, RuntimeMilestone } 
 import { settleVisibleCallback } from './visibleFlows/runtime.js';
 import { communicationOutcomeFromOutput } from './actionRunPresentation.js';
 import { recordedVoiceCancellation } from './asks/cancelVoiceAsk.js';
+import { coachingReviewAllowsNextOccurrence } from './coachingSchedule.js';
 export { respondToAsk } from './asks/respondToAsk.js';
 
 export interface AdvanceOutcome {
@@ -36,6 +37,7 @@ export interface AdvanceOutcome {
   log?: string[];
   pending?: string[];
   status?: FlowRun['status'];
+  awaitingCoachingReview?: boolean;
 }
 
 export interface ScheduledFlowContext {
@@ -235,6 +237,7 @@ const advanceRunOnce = async (
     ok: true,
     flowRunId: savedRun.id,
     status: savedRun.status,
+    awaitingCoachingReview: savedRun.status === 'waiting' && coachingReviewAllowsNextOccurrence(delivered.project),
     log: [
       ...initialLog,
       ...advanced.log,

@@ -136,7 +136,9 @@ export const runTenantSchedule = async (
       return { scheduleId: schedule.id, status: 'failed', error: message };
     }
     if (flowOutcome?.status === 'waiting' || flowOutcome?.status === 'running') {
-      await finishScheduleRun(run, { status: flowOutcome.status === 'waiting' ? 'waiting' : 'partial', flowRunId: flowOutcome.flowRunId, providerCode: '', retryAfter: 0 });
+      await completeScheduleOccurrence(schedule, run, scheduledFor, {
+        status: flowOutcome.status === 'waiting' ? 'waiting' : 'partial', flowRunId: flowOutcome.flowRunId, providerCode: '', retryAfter: 0
+      }, flowOutcome.awaitingCoachingReview === true && options.advanceSchedule !== false);
       return { scheduleId: schedule.id, status: 'deferred', projectId: schedule.projectId, runId: run.id };
     }
     await completeScheduleOccurrence(

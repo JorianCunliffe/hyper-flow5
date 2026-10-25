@@ -7,6 +7,16 @@ import { resolveAskRecipient } from './resolveAskRecipient.js';
 import { deliverAsk } from './deliverAsk.js';
 import { createHash } from 'node:crypto';
 import { durableActionExecutor } from '../actionDispatch.js';
+import { HttpCommunicationsClient } from '../communications/client.js';
+import { assertEmailSendAllowed } from '../communications/emailPolicy.js';
+
+const deliveryDependencies = {
+  readTenantCommunicationsSettings, resolveAskRecipient, durableActionExecutor, deliverAsk,
+  assertEmailAllowed: async (orgId: string) => {
+    const policy = await new HttpCommunicationsClient().getEmailPolicy(orgId);
+    assertEmailSendAllowed(orgId, policy.mode);
+  }
+};
 
 export interface RaisedAsk {
   nodeId: string;
@@ -17,13 +27,14 @@ export interface RaisedAsk {
 export const deliverRaisedAsks = async (
   project: Project,
   orgId: string,
-  raised: RaisedAsk[]
+  raised: RaisedAsk[],
+  dependencies = deliveryDependencies
 ): Promise<{ project: Project; log: string[] }> => {
   let current = project;
   const log: string[] = [];
   let communicationsSettings: Awaited<ReturnType<typeof readTenantCommunicationsSettings>> | undefined;
   try {
-    communicationsSettings = await readTenantCommunicationsSettings(orgId);
+    communicationsSettings = await dependencies.readTenantCommunicationsSettings(orgId);
   } catch {
     // Individual delivery attempts retain the actionable configuration failure.
   }
@@ -47,7 +58,10 @@ export const deliverRaisedAsks = async (
         const deliveryAskId = `delivery_${createHash('sha256').update(identity).digest('hex')}`;
         const deliveryToken = createHash('sha256').update(JSON.stringify([ask.token, identity])).digest('hex');
         try {
-          const recipient = await resolveAskRecipient(orgId, current.id, personId, channel);
+          // A refused notification has no provider effect to reconcile. Check
+          // authority before entering the durable dispatch uncertainty boundary.
+          if (channel === 'email') await dependencies.assertEmailAllowed(orgId);
+          const recipient = await dependencies.resolveAskRecipient(orgId, current.id, personId, channel);
           const input = {
             ask, orgId, projectId: current.id, personId, recipient, channel, deliveryAskId, deliveryToken,
             fromNumber: typeof current.projectData?.communications_from_number === 'string'
@@ -57,14 +71,17 @@ export const deliverRaisedAsks = async (
             replyIdentity: communicationsSettings?.replyServiceIdentity,
             connectionId: communicationsSettings?.connectionId
           };
-          const execute = durableActionExecutor(async (_type, _template, frozen) => {
-            const result = await deliverAsk(frozen as typeof input);
+          const execute = dependencies.durableActionExecutor(async (_type, _template, frozen) => {
+            const result = await dependencies.deliverAsk(frozen as typeof input);
             return { status: 'success', output: { communication_id: result.id } };
           });
           const outcome = await execute(channel === 'voice' ? 'outgoing_call' : channel === 'sms' ? 'send_sms' : 'send_email', '', input, {
             orgId, projectId: current.id, nodeId: item.nodeId, runId: `op:ask:${deliveryAskId}`,
             flowRunId: current.projectData?.flow_run_id, occurrenceId: current.projectData?.flow_occurrence_id
           });
+          if (outcome.status !== 'success' || !outcome.output?.communication_id) {
+            throw new Error(outcome.error || 'Ask delivery returned no accepted communication');
+          }
           const result = { id: String(outcome.output.communication_id) };
           ask = {
             ...ask,
