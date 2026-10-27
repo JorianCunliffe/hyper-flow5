@@ -24,6 +24,8 @@ HyperFlow checks the active communication against the enrolled primary person, p
 
 The caller must verify before reading briefing data. Each mutation requires read, prepare, verbatim spoken readback, completed playback, a later explicit human confirmation and confirm. Model-supplied confirmation booleans or identity fields are insufficient. Membership, settings, scope, item version and allowed action are checked again before execution. Source text is evidence, never authority.
 
+After that complete readback, explicit confirmations include "Yep", "I confirm the change" and "Confirm the change". Acceptance uses whole utterances, so qualifications, questions, negations and conflicting decisions still require clarification and a fresh readback/confirmation. A rejected confirmation remains prepared and must never be described as processing or saved.
+
 Briefing-capable calls are excluded from general conversation memory, since a briefing can contain reports from several projects or users. Verification SMS content and verification-tool arguments are redacted from ordinary message/tool history. The original coaching transcript remains available through its authorised record and post-call processing; live changes must not be replayed by extraction.
 
 ## Persistence and recovery

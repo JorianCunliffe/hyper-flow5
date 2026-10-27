@@ -43,14 +43,14 @@ export async function createVoiceMediaHarness(checkout:string,base:string,contex
       async invoke(args:any){const id='tool_'+(++sequence);send({type:'response.created',response:{id}});send({type:'response.done',response:{id,status:'completed',output:[{type:'function_call',name:'hyperflow_briefing',call_id:id,arguments:JSON.stringify(args)}]}});await wait(()=>results.has(id),'tool result '+args.operation);const result=results.get(id);if(result.error&&result.status!=='confirmation_rejected')throw new Error(result.error);return result;},
       async interruptVerification(){send({type:'input_audio_buffer.speech_started'});send({type:'input_audio_buffer.speech_stopped'});send({type:'response.created',response:{id:'caller_waiting'}});send({type:'response.done',response:{id:'caller_waiting',status:'completed',output:[{type:'message',role:'assistant',content:[{type:'audio',transcript:'Still processing'}]}]}});await new Promise(r=>setTimeout(r,50));},
       async interruptReadback(text:string){const item='interrupted_readback_'+(++sequence);send({type:'response.output_audio.delta',item_id:item,delta:'AAAA'});send({type:'response.output_audio_transcript.done',item_id:item,transcript:text});send({type:'input_audio_buffer.speech_started'});send({type:'response.output_audio.done',item_id:item});send({type:'input_audio_buffer.speech_stopped'});send({type:'input_audio_buffer.committed',item_id:'human_'+sequence});send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:'confirm'});await new Promise(r=>setTimeout(r,10));},
-      async confirmReadback(text:string){
+      async confirmReadback(text:string,confirmation='confirm'){
         const item='readback_'+(++sequence),prior=marks;
         send({type:'response.output_audio.delta',item_id:item,delta:'AAAA'});
         send({type:'response.output_audio.done',item_id:item});
         await wait(()=>marks>prior,'Twilio playback mark');await new Promise(r=>setTimeout(r,5));
         send({type:'input_audio_buffer.speech_started'});send({type:'input_audio_buffer.speech_stopped'});
         send({type:'input_audio_buffer.committed',item_id:'human_'+sequence});
-        send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:'confirm'});
+        send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:confirmation});
         // Reproduce late readback transcription and the real intervening acknowledgement.
         send({type:'response.output_audio_transcript.done',item_id:item,transcript:text});
         await new Promise(r=>setTimeout(r,5));const ack='acknowledgement_'+sequence;

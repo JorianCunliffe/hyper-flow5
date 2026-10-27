@@ -264,6 +264,16 @@ test("confirmation cannot reverse an approval decision or hide a qualification a
   );
   assert.equal(clearConfirmation("Yes, please.", "set_status"), true);
 });
+test("natural explicit voice confirmations accept the caller's actual phrases without accepting qualifications", () => {
+  for (const action of ["approve", "reject", "set_status"]) {
+    for (const phrase of ["Yep.", "Yeah, please.", "I confirm the change.", "Confirm the change.", "I confirm this change.", "Yes, confirm this change."]) {
+      assert.equal(clearConfirmation(phrase, action), true, `${action}: ${phrase}`);
+    }
+    for (const phrase of ["Yep, but wait", "I confirm the change if it is correct", "Do not confirm the change", "Can I confirm the change?", "I confirm the change, no wait", "I completed it", "Yep, reject it", "Yeah, approve it"]) {
+      assert.equal(clearConfirmation(phrase, action), false, `${action}: ${phrase}`);
+    }
+  }
+});
 test("briefing HTTP boundary rejects unsigned and legacy signatures and grants report reads no write scope", async () => {
   const before = process.env.COMMUNICATIONS_WEBHOOK_SECRET;
   process.env.COMMUNICATIONS_WEBHOOK_SECRET = "briefing-test-secret";

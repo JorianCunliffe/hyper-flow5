@@ -243,7 +243,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     await media.interruptReadback(prepared.readback);
     assert.equal((await invoke({operation:'confirm_change',id:prepared.id})).status,'confirmation_rejected');
     assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'prepared');
-    const confirm = async (proposal: any) => {
+    const confirm = async (proposal: any,confirmation='confirm') => {
       const now = Date.now();
       context.briefingAssistantTurn = {
         text: proposal.readback,
@@ -251,11 +251,15 @@ test("signed live briefing tools verify a call, save one task change and one dom
         playedAt: now + 1,
         interrupted: false,
       };
-      context.briefingHumanTurn = { text: "confirm", at: now + 2 };
-      await media!.confirmReadback(proposal.readback);
+      context.briefingHumanTurn = { text: confirmation, at: now + 2 };
+      await media!.confirmReadback(proposal.readback,confirmation);
       return invoke({ operation: "confirm_change", id: proposal.id });
     };
-    assert.equal((await confirm(prepared)).status, "completed");
+    const qualified = await confirm(prepared, 'Yep, but do not change it.');
+    assert.equal(qualified.status, 'confirmation_rejected');
+    assert.match(qualified.error, /clear new confirmation/);
+    assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'prepared');
+    assert.equal((await confirm(prepared,'Yep.')).status, "completed");
     assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'completed');
     await confirm(prepared);
     const workspace: any = await store.readTenantWorkspace(member.orgId);
@@ -322,7 +326,10 @@ test("signed live briefing tools verify a call, save one task change and one dom
       requestId: "fixture_approval_change",
     });
     modelContract.approvalPreparation=proposed;
-    const decisions = await Promise.all([confirm(proposed), confirm(proposed)]);
+    const rejected = await confirm(proposed,'I confirm the change if it is correct.');
+    assert.equal(rejected.status,'confirmation_rejected');
+    assert.equal((await invoke({operation:'change_result',id:proposed.id})).status,'prepared');
+    const decisions = await Promise.all([confirm(proposed,'Confirm the change.'), confirm(proposed,'Confirm the change.')]);
     assert.ok(decisions.some((r) => r.status === "completed"));
     const obligation = await store.readOperationalCommitment(
       member.orgId,
