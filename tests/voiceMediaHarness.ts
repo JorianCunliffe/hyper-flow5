@@ -21,7 +21,7 @@ export async function createVoiceMediaHarness(checkout:string,base:string,contex
   child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
   const wait=async(check:()=>boolean,label:string)=>{for(let n=0;n<300;n++){if(check())return;if(child.exitCode!==null)throw new Error('Media child exited: '+logs.slice(-1500));await new Promise(r=>setTimeout(r,20));}throw new Error('Timed out: '+label+' '+logs.slice(-1000));};
   try{
-    let ready=false;for(let n=0;n<200;n++){try{ready=(await fetch(service+'/health')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,30));}assert.ok(ready,'Media child starts: '+logs.slice(-3000));
+    let ready=false;for(let n=0;n<650;n++){if(child.exitCode!==null)throw new Error('Media child exited during startup: '+logs.slice(-3000));try{ready=(await fetch(service+'/health')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,30));}assert.ok(ready,'Media child starts: '+logs.slice(-3000));
     const twilio=createRequire(path.join(checkout,'package.json'))('twilio');
     const media=new WebSocket(service.replace('http:','ws:')+'/media-stream',{headers:{'x-twilio-signature':twilio.getExpectedTwilioSignature(token,service+'/media-stream',{})}});await once(media,'open');
     media.on('message',raw=>{const event=JSON.parse(String(raw));if(event.event==='mark'){marks++;media.send(JSON.stringify({event:'mark',mark:event.mark}));}});
@@ -40,9 +40,24 @@ export async function createVoiceMediaHarness(checkout:string,base:string,contex
     });
     send({type:'session.created'});await wait(()=>logs.includes('session.updated'),'session handshake');
     return {
-      async invoke(args:any){const id='tool_'+(++sequence);send({type:'response.created',response:{id}});send({type:'response.done',response:{id,status:'completed',output:[{type:'function_call',name:'hyperflow_briefing',call_id:id,arguments:JSON.stringify(args)}]}});await wait(()=>results.has(id),'tool result '+args.operation);const result=results.get(id);if(result.error)throw new Error(result.error);return result;},
+      async invoke(args:any){const id='tool_'+(++sequence);send({type:'response.created',response:{id}});send({type:'response.done',response:{id,status:'completed',output:[{type:'function_call',name:'hyperflow_briefing',call_id:id,arguments:JSON.stringify(args)}]}});await wait(()=>results.has(id),'tool result '+args.operation);const result=results.get(id);if(result.error&&result.status!=='confirmation_rejected')throw new Error(result.error);return result;},
       async interruptVerification(){send({type:'input_audio_buffer.speech_started'});send({type:'input_audio_buffer.speech_stopped'});send({type:'response.created',response:{id:'caller_waiting'}});send({type:'response.done',response:{id:'caller_waiting',status:'completed',output:[{type:'message',role:'assistant',content:[{type:'audio',transcript:'Still processing'}]}]}});await new Promise(r=>setTimeout(r,50));},
-      async confirmReadback(text:string){const item='readback_'+(++sequence),prior=marks;send({type:'response.output_audio.delta',item_id:item,delta:'AAAA'});send({type:'response.output_audio_transcript.done',item_id:item,transcript:text});await wait(()=>marks>prior,'Twilio playback mark');await new Promise(r=>setTimeout(r,5));send({type:'input_audio_buffer.speech_started'});send({type:'input_audio_buffer.speech_stopped'});send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:'confirm'});await new Promise(r=>setTimeout(r,5));},
+      async interruptReadback(text:string){const item='interrupted_readback_'+(++sequence);send({type:'response.output_audio.delta',item_id:item,delta:'AAAA'});send({type:'response.output_audio_transcript.done',item_id:item,transcript:text});send({type:'input_audio_buffer.speech_started'});send({type:'response.output_audio.done',item_id:item});send({type:'input_audio_buffer.speech_stopped'});send({type:'input_audio_buffer.committed',item_id:'human_'+sequence});send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:'confirm'});await new Promise(r=>setTimeout(r,10));},
+      async confirmReadback(text:string){
+        const item='readback_'+(++sequence),prior=marks;
+        send({type:'response.output_audio.delta',item_id:item,delta:'AAAA'});
+        send({type:'response.output_audio.done',item_id:item});
+        await wait(()=>marks>prior,'Twilio playback mark');await new Promise(r=>setTimeout(r,5));
+        send({type:'input_audio_buffer.speech_started'});send({type:'input_audio_buffer.speech_stopped'});
+        send({type:'input_audio_buffer.committed',item_id:'human_'+sequence});
+        send({type:'conversation.item.input_audio_transcription.completed',item_id:'human_'+sequence,transcript:'confirm'});
+        // Reproduce late readback transcription and the real intervening acknowledgement.
+        send({type:'response.output_audio_transcript.done',item_id:item,transcript:text});
+        await new Promise(r=>setTimeout(r,5));const ack='acknowledgement_'+sequence;
+        send({type:'response.output_audio.delta',item_id:ack,delta:'AAAA'});send({type:'response.output_audio.done',item_id:ack});
+        send({type:'response.output_audio_transcript.done',item_id:ack,transcript:'Thanks, I am saving that change now. One moment.'});
+        await wait(()=>marks>prior+1,'acknowledgement playback');await new Promise(r=>setTimeout(r,5));
+      },
       async assertVerificationHandoff(before:number){await wait(()=>notices.some(x=>JSON.stringify(x).includes('verification SUCCEEDED'))&&continuations>before&&logs.includes('deferred_tool_continuation'),'verification continuation');assert.match(logs,/Voice tool result acknowledged/);},
       get continuations(){return continuations;},
       async close(){media.terminate();ai.terminate();child.kill();if(child.exitCode===null)await once(child,'exit');await new Promise<void>(r=>wss.close(()=>r()));},

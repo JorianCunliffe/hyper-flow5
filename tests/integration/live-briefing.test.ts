@@ -235,7 +235,14 @@ test("signed live briefing tools verify a call, save one task change and one dom
       requestId: "fixture_task_change",
     });
     modelContract.taskPreparation=prepared;
-    await assert.rejects(invoke({operation:'confirm_change',id:prepared.id}),/Read the exact proposal/);
+    const deniedConfirmation=await invoke({operation:'confirm_change',id:prepared.id});
+    assert.equal(deniedConfirmation.status,'confirmation_rejected');
+    assert.equal(deniedConfirmation.confirmationAccepted,false);
+    assert.match(deniedConfirmation.error,/Read the exact proposal/);
+    assert.match(deniedConfirmation.nextStep,/Do not describe it as processing or saved/);
+    await media.interruptReadback(prepared.readback);
+    assert.equal((await invoke({operation:'confirm_change',id:prepared.id})).status,'confirmation_rejected');
+    assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'prepared');
     const confirm = async (proposal: any) => {
       const now = Date.now();
       context.briefingAssistantTurn = {
