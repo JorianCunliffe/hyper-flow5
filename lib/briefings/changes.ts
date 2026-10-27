@@ -115,7 +115,7 @@ export async function prepareChange(
   const id = clean(input.requestId, 120);
   if (!/^[a-zA-Z0-9_-]{8,120}$/.test(id))
     fail(422, "A stable requestId of 8–120 characters is required");
-  const snapshot = await deps.snapshot(member, scope);
+  const snapshot = await deps.snapshot(member, scope, undefined, String(input.itemId || ""));
   const item = snapshot.items.find((i) => i.id === input.itemId);
   if (!item || !item.actions.includes(input.action))
     fail(403, "This item or action is not available to you");
@@ -246,7 +246,7 @@ export async function confirmChange(
   } else if (input.confirmed !== true)
     fail(422, "Explicit confirmation is required");
   const fresh = await deps.membership(member.uid, member.orgId);
-  const snapshot = await deps.snapshot({ ...member, role: fresh.role }, scope);
+  const snapshot = await deps.snapshot({ ...member, role: fresh.role }, scope, undefined, initial.item.id);
   const item = snapshot.items.find((i) => i.id === initial.item.id);
   if (
     !item ||

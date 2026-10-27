@@ -31,6 +31,25 @@ export async function briefingVoice(
   body: any,
   deps = voiceDependencies,
 ): Promise<Record<string, any>> {
+  const started = Date.now();
+  let status = "failed";
+  try {
+    const result = await runBriefingVoice(body, deps);
+    status = "ok";
+    return result;
+  } finally {
+    console.info("[briefing] tool finished", {
+      operation: text(body?.args?.operation),
+      communicationId: text(body?.communication_id),
+      durationMs: Date.now() - started,
+      status,
+    });
+  }
+}
+async function runBriefingVoice(
+  body: any,
+  deps = voiceDependencies,
+): Promise<Record<string, any>> {
   const org = text(body.tenant_id),
     person = text(body.person_id),
     call = text(body.communication_id),
@@ -45,11 +64,13 @@ export async function briefingVoice(
     profile.serviceIdentities?.phone !== line
   )
     fail(403, "This caller is not enrolled for briefings");
-  const member = await deps.member(profile.primaryUserId, org),
-    settings = await deps.settings(member);
+  const [member, communication] = await Promise.all([
+    deps.member(profile.primaryUserId, org),
+    deps.communication(org, call),
+  ]);
+  const settings = await deps.settings(member);
   if (!settings.enabled || settings.enrolledBy !== member.uid)
     fail(403, "Enable and enrol daily briefings in HyperFlow first");
-  const communication = await deps.communication(org, call);
   if (
     communication.tenantId !== org ||
     communication.personId !== person ||
@@ -196,7 +217,10 @@ export async function briefingVoice(
     const approval = ["approve", "reject"].includes(args.action);
     if (approval ? !settings.allowApprovals : !settings.allowTaskUpdates)
       fail(403, "This write capability is disabled in briefing settings");
-    return deps.prepare(member, args, scope, call);
+    const result = await deps.prepare(member, args, scope, call);
+    return { ...result, nextStep: result.status === "prepared"
+      ? "This change is NOT saved. Read readback VERBATIM in one uninterrupted turn. Then wait for a separate clear caller confirmation and call confirm_change with this exact id."
+      : "Only status completed means saved. For processing or uncertain use change_result; do not repeat the action." };
   }
   if (operation === "confirm_change") {
     const proposal = await deps.read(org, "changes", text(args.id));
@@ -270,5 +294,18 @@ export async function briefingVoice(
         .slice(0, 10);
     }
   }
-  return deps.handle({ method: "POST", body: query }, member, scope);
+  const result = await deps.handle({ method: "POST", body: query }, member, scope);
+  if (operation === "list_approvals") return {
+    ...result,
+    nextStep: "Discuss one item at a time. When the caller asks to approve, call read_item with that exact item.id, then prepare_change using its current version and an allowed action. Do not merely acknowledge the request. An item without approve in actions cannot be approved: explain its notice and what answer or checks are needed. No item in this list has been approved by reading it.",
+  };
+  if (operation === "read_item" && "item" in result && result.item) return {
+    ...result,
+    changeOptions: (result.item.actions || []).map((action: string) => ({
+      operation: "prepare_change", itemId: result.item.id, version: result.item.version, action,
+      requestId: `voice-${fingerprint([call, result.item.id, result.item.version, action]).slice(0, 48)}`,
+    })),
+    nextStep: "Use a returned changeOption to prepare the requested action now. Supply status for set_status, a note for progress/submit, and any requiredChecks only after the caller explicitly attests each check for this exact item. A request to approve authorises preparation; the returned readback still needs a separate caller confirmation. If actions is empty explain notice; nothing has been saved.",
+  };
+  return result;
 }

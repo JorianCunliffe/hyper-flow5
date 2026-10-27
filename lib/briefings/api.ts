@@ -275,7 +275,7 @@ export async function handleBriefings(
         .map(({ aliases, ...s }) => s),
     };
   }
-  const snapshot = await loadBriefing(member, scope);
+  const snapshot = await loadBriefing(member, scope, undefined, operation === "read_item" ? String(input.itemId || "") : undefined);
   if (operation === "report") return briefingReport(snapshot, member, input);
   if (operation === "read_item") {
     const item = snapshot.items.find((i) => i.id === input.itemId);

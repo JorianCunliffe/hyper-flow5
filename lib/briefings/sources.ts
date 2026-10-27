@@ -84,7 +84,12 @@ export async function loadBriefing(
   member: BriefingMember,
   projectIds?: string[],
   deps = sourceDependencies,
+  itemId?: string,
 ): Promise<BriefingSnapshot> {
+  // An item read still rebuilds its live version and authority, but does not
+  // wait for unrelated domain stores. Lists and reports retain full coverage.
+  const source = itemId?.split(":")[0];
+  const wants = (...sources: string[]) => !source || sources.includes(source);
   const [rawWorkspace, profile] = await Promise.all([
     deps.workspace(member.orgId),
     deps.profile(member.orgId),
@@ -143,7 +148,7 @@ export async function loadBriefing(
       },
       set,
     );
-  await Promise.all([
+  const sourceReads = Promise.all([
     read(
       "Memberships",
       () => deps.members(member.orgId),
@@ -153,35 +158,35 @@ export async function loadBriefing(
     ),
     read(
       "Review tasks",
-      () => deps.work(member.orgId),
+      async () => wants("review_work") ? deps.work(member.orgId) : {},
       (v) => {
         data.work = rows(v);
       },
     ),
     paged(
       "Commitments",
-      (a, l) => deps.commitments(member.orgId, a, l),
+      async (a, l) => wants("commitment", "commitment_approval") ? deps.commitments(member.orgId, a, l) : [],
       (v) => {
         data.commitments = v;
       },
     ),
     paged(
       "Flows",
-      (a, l) => deps.flows(member.orgId, a, l),
+      async (a, l) => wants("flow_approval") ? deps.flows(member.orgId, a, l) : [],
       (v) => {
         data.flows = v;
       },
     ),
     paged(
       "Artifacts",
-      (a, l) => deps.artifacts(member.orgId, a, l),
+      async (a, l) => wants("artifact_approval") ? deps.artifacts(member.orgId, a, l) : [],
       (v) => {
         data.artifacts = v;
       },
     ),
     read(
       "Calendars",
-      () => deps.calendars(member.orgId),
+      async () => wants("calendar_approval") ? deps.calendars(member.orgId) : [],
       (v) => {
         data.calendars = v;
         if (v.length >= 100)
@@ -190,7 +195,7 @@ export async function loadBriefing(
     ),
     read(
       "Triage",
-      () => deps.triage(member.orgId, 1000),
+      async () => wants("triage_approval") ? deps.triage(member.orgId, 1000) : [],
       (v) => {
         data.triage = v.slice(0, 1000);
         if (v.length > 1000)
@@ -207,7 +212,7 @@ export async function loadBriefing(
         await Promise.all([
           read(
             `Publications for ${p.name}`,
-            () => deps.publishing(member.orgId, p.id),
+            async () => wants("publication_approval") ? deps.publishing(member.orgId, p.id) : null,
             (v) => {
               data.publications.push(
                 ...rows(v?.items).map((r: any) => ({ ...r, projectId: p.id })),
@@ -216,7 +221,7 @@ export async function loadBriefing(
           ),
           read(
             `Workflow approvals for ${p.name}`,
-            () => deps.runs(member.orgId, p.id, 200),
+            async () => wants("workflow_ask") ? deps.runs(member.orgId, p.id, 200) : [],
             (v) => {
               data.runs.push(...v);
               if (v.length >= 200)
@@ -228,6 +233,7 @@ export async function loadBriefing(
         ]);
       }),
     );
+  await sourceReads;
   return buildSnapshot(data, member, projectIds);
 }
 

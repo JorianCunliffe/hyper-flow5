@@ -21,7 +21,7 @@ export async function createVoiceMediaHarness(checkout:string,base:string,contex
   child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
   const wait=async(check:()=>boolean,label:string)=>{for(let n=0;n<300;n++){if(check())return;if(child.exitCode!==null)throw new Error('Media child exited: '+logs.slice(-1500));await new Promise(r=>setTimeout(r,20));}throw new Error('Timed out: '+label+' '+logs.slice(-1000));};
   try{
-    let ready=false;for(let n=0;n<200;n++){try{ready=(await fetch(service+'/health')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,30));}assert.ok(ready,'Media child starts');
+    let ready=false;for(let n=0;n<200;n++){try{ready=(await fetch(service+'/health')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,30));}assert.ok(ready,'Media child starts: '+logs.slice(-3000));
     const twilio=createRequire(path.join(checkout,'package.json'))('twilio');
     const media=new WebSocket(service.replace('http:','ws:')+'/media-stream',{headers:{'x-twilio-signature':twilio.getExpectedTwilioSignature(token,service+'/media-stream',{})}});await once(media,'open');
     media.on('message',raw=>{const event=JSON.parse(String(raw));if(event.event==='mark'){marks++;media.send(JSON.stringify({event:'mark',mark:event.mark}));}});

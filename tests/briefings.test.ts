@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { clearConfirmation } from "../lib/briefings/changes.js";
 import { outboundBriefingEnabled } from "../lib/briefings/outbound.js";
 import assert from "node:assert/strict";
-import { buildSnapshot, type SourceData } from "../lib/briefings/sources.js";
+import { buildSnapshot, loadBriefing, type SourceData } from "../lib/briefings/sources.js";
 import {
   queryBriefing,
   briefingReport,
@@ -31,6 +31,47 @@ const member = {
   role: "owner",
   email: "alice@example.test",
 };
+test('item reads revalidate their source without waiting for unrelated domain stores', async () => {
+  const data = empty();
+  const touched: string[] = [];
+  const deps: any = {
+    workspace: async () => data.workspace, profile: async () => ({}), members: async () => data.members,
+    work: async () => { touched.push('review_work'); return {}; },
+    commitments: async () => { touched.push('commitment'); return []; },
+    flows: async () => { touched.push('flow_approval'); return []; },
+    artifacts: async () => { touched.push('artifact_approval'); return []; },
+    calendars: async () => { touched.push('calendar_approval'); return []; },
+    triage: async () => { touched.push('triage_approval'); return []; },
+    publishing: async () => { touched.push('publication_approval'); return null; },
+    runs: async () => { touched.push('workflow_ask'); return []; },
+  };
+  const full = await loadBriefing(member, undefined, deps);
+  touched.length = 0;
+  const item = full.items.find(i => i.source === 'subtask')!;
+  const focused = await loadBriefing(member, undefined, deps, item.id);
+  assert.deepEqual(focused.items.find(i => i.id === item.id), item);
+  assert.deepEqual(touched, []);
+  for (const source of ['review_work', 'commitment', 'commitment_approval', 'flow_approval', 'artifact_approval', 'calendar_approval', 'triage_approval', 'publication_approval', 'workflow_ask']) {
+    touched.length = 0;
+    await loadBriefing(member, undefined, deps, `${source}:fixture`);
+    assert.deepEqual(touched, [source === 'commitment_approval' ? 'commitment' : source]);
+  }
+});
+
+test('verified voice reads provide exact preparation arguments without claiming an approval was saved', async () => {
+  const f = voiceFixture();
+  await briefingVoice({...f.body,args:{operation:'request_code'}}, f.deps);
+  await briefingVoice({...f.body,args:{operation:'verify_code',code:f.code()}}, f.deps);
+  f.deps.handle = async () => ({item:{id:'task_approval:p:n:t', version:'current', actions:['approve','reject'], requiredChecks:['visualChecked']}});
+  const response = await briefingVoice({...f.body,args:{operation:'read_item',itemId:'task_approval:p:n:t'}}, f.deps);
+  assert.equal(response.changeOptions[0].itemId, 'task_approval:p:n:t');
+  assert.equal(response.changeOptions[0].version, 'current');
+  assert.equal(response.changeOptions[0].action, 'approve');
+  assert.equal(response.changeOptions[0].visualChecked, undefined);
+  assert.match(response.nextStep, /separate caller confirmation/);
+  const again = await briefingVoice({...f.body,args:{operation:'read_item'}}, f.deps);
+  assert.equal(again.changeOptions[0].requestId, response.changeOptions[0].requestId);
+});
 test("live briefing and private history opt in only for the enrolled unambiguous coaching recipient", async () => {
   let settings: any = { enabled: true, enrolledBy: "alice" };
   const deps: any = {

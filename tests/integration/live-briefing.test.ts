@@ -301,7 +301,11 @@ test("signed live briefing tools verify a call, save one task change and one dom
       (i: any) => i.sourceId === created.item.id,
     );
     assert.ok(approval);
+    // Asking about a slow operation while it runs must not erase the item or
+    // prepared proposal from the actual media handler's model context.
+    interruptNextRequest=true;
     modelContract.approvalDetail=await invoke({operation:'read_item',itemId:approval.id});
+    interruptNextRequest=true;
     const proposed = await invoke({
       operation: "prepare_change",
       itemId: approval.id,
