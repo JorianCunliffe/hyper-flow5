@@ -295,7 +295,7 @@ async function runBriefingVoice(
     });
   }
   if (operation === "change_result")
-    return text(args.id).startsWith('task_') ? deps.taskResult(member,text(args.id),call) : deps.result(member, text(args.id), call);
+    return /^task_[a-f0-9]{40}$/.test(text(args.id)) ? deps.taskResult(member,text(args.id),call) : deps.result(member, text(args.id), call);
   if (
     ![
       "subjects",
