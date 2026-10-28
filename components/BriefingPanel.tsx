@@ -457,7 +457,7 @@ export function BriefingPanel({
           {!data.items?.length && (
             <p className="text-sm">
               No matching items were returned
-              {data.incomplete ? "; some sources are unavailable." : "."}
+              {data.incomplete ? "; see the coverage notes above." : "."}
             </p>
           )}
           {data.items?.some((i: any) => i.actions.length > 0) && (
