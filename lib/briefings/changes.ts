@@ -41,6 +41,7 @@ export type Change = {
   expiresAt: number;
   status: "prepared" | "processing" | "completed" | "failed" | "uncertain";
   requestHash: string;
+  voiceInputHash?: string;
   item: BriefingItem;
   action: string;
   parameters: any;
@@ -97,6 +98,8 @@ export function clearConfirmation(text: unknown, action: string): boolean {
   )
     return true;
   return (
+    (action !== "reject" && ["approve that", "approved that", "approve it", "approved it"].includes(words)) ||
+    (action === "progress" && ["mark progress", "marked progress", "record progress", "update progress"].includes(words)) ||
     (action === "approve" &&
       ["approve", "approve it", "approve that", "yes approve", "yes approve that", "yes approve it", "yes please approve that", "please approve that"].includes(words)) ||
     (action === "reject" &&
@@ -106,31 +109,48 @@ export function clearConfirmation(text: unknown, action: string): boolean {
 // Only the verified voice gateway can bind a decision to the item discussed
 // before the caller spoke. Serialized evidence cannot manufacture this marker.
 type VoiceFocus = { itemId: string; version: string; at: number };
-const conversationDecisions = new WeakMap<object, VoiceFocus>();
+const conversationDecisions = new WeakMap<object, VoiceFocus & { progressReport?: boolean }>();
 export async function decideVoiceChange(
   member: BriefingMember, input: any, scope: string[] | undefined,
   callId: string, human: any, focus: VoiceFocus, deps = changeDependencies,
 ) {
   if (member.apiClientId) fail(403, "A verified person must decide briefing changes");
+  const inputParameters = { note: clean(input.note),
+    ...(input.action === "set_status" ? {status:input.status} : {}),
+  };
   const existing: Change = await deps.read(member.orgId, "changes", clean(input.requestId, 120));
   if (existing && existing.uid === member.uid && existing.callId === callId && existing.status !== "prepared") {
     const parameters = { note: clean(input.note),
       ...(input.action === "set_status" ? {status:input.status} : {}),
       ...(input.action === "approve" ? Object.fromEntries((existing.item.requiredChecks || []).map(check => [check,input[check]])) : {}),
     };
-    if (existing.requestHash !== fingerprint([member.uid,callId,input.itemId,input.version,input.action,parameters]))
+    if ((existing.voiceInputHash || existing.requestHash) !== fingerprint([member.uid,callId,input.itemId,input.version,input.action,parameters]))
       fail(409, "requestId was used for different content");
     return safe(existing);
   }
   if (!focus || !Number.isFinite(focus.at) || focus.itemId !== input.itemId || focus.version !== input.version)
     fail(409, "Refresh the current item before applying its decision");
-  if (!human || !Number.isFinite(human.at) || human.at <= focus.at ||
-      human.at > Date.now() + 5000 || Date.now() - human.at > 90000 ||
-      !clearConfirmation(human.text, input.action))
+  if (!human || !clean(human.text)) fail(422, "Caller transcription is not available yet");
+  const callerNote = clean(human.text);
+  const explicit = clearConfirmation(human.text,input.action);
+  const progressReport = input.action === "progress" && !explicit && callerNote.length >= 8 &&
+    !/\?$/.test(callerNote) &&
+    !/^(?:yes[, ]+|please )?(?:reject|rejected|submit|submitted)(?: (?:it|that))?[.!]?$/i.test(callerNote) &&
+    !/^(?:yes|yep|yeah)[, ]+(?:but\s+)?(?:wait|hold|don't|do not)\b/i.test(callerNote) &&
+    !/^(?:no[, ]*)?(?:please )?(?:(?:don't|do not) (?:save|record|update|change|do)|wait\b|hold on\b|not now\b|no thanks\b)/i.test(callerNote);
+  if (!Number.isFinite(human.at) || human.at <= focus.at ||
+      human.at > Date.now() + 5000 || Date.now() - human.at > 90000 || (!explicit && !progressReport))
     fail(422, "A clear decision on the current item is required");
-  const proposal = await prepareChange(member, input, scope, callId, deps);
+  if (input.action === "progress" && !progressReport && !clean(input.note))
+    fail(422, "Describe the progress to record");
+  const proposal = await prepareChange(member, progressReport ? {...input,note:callerNote} : input, scope, callId, deps);
+  if (progressReport) await deps.transact(member.orgId,"changes",proposal.id,(current:Change)=>{
+    const voiceInputHash = fingerprint([member.uid,callId,input.itemId,input.version,input.action,inputParameters]);
+    if (current.voiceInputHash && current.voiceInputHash !== voiceInputHash) fail(409,"requestId was used for different content");
+    return {...current,voiceInputHash};
+  });
   const confirmation = { ...human, mode: "conversation", contextAt: focus.at };
-  conversationDecisions.set(confirmation, focus);
+  conversationDecisions.set(confirmation, {...focus,progressReport});
   return confirmChange(member, { id: proposal.id }, scope, callId, confirmation, deps);
 }
 const safe = (row: Change) => ({
@@ -281,7 +301,8 @@ export async function confirmChange(
       confirmation.at <= (context?.at ?? initial.createdAt) ||
       confirmation.at > Date.now() + 5000 ||
       Date.now() - confirmation.at > 90000 ||
-      !clearConfirmation(confirmation.text, initial.action)
+      !(clearConfirmation(confirmation.text, initial.action) ||
+        (context?.progressReport && initial.action === "progress" && initial.parameters.note === clean(confirmation.text)))
     )
       fail(
         422,

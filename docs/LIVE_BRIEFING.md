@@ -26,6 +26,8 @@ The caller must verify before reading briefing data. Voice decisions use `read_i
 
 The verified call session pins the current item's ID, version and observation time server-side. `decide_item` requires a fresh trusted caller turn after that item was fetched; list/report navigation clears this focus, and a later item cannot consume an earlier yes. Membership, grants, version, allowed action and required review checks are revalidated before execution. Source text and model-supplied confirmation booleans cannot provide a caller decision. Whole-utterance matching rejects qualifications, questions, negations and conflicting decisions. A rejected or uncertain decision must never be described as saved.
 
+Progress is a report rather than an approval. If the caller only asks to mark progress, collect the note once; their explanation is saved verbatim from the trusted caller transcript without another confirmation. This cannot mark the overall task complete. Repeated delivery returns the original receipt, and a delayed transcript remains bound to its original request. Missing transcription and missing note return distinct outcomes instead of a repeated approval question.
+
 Briefing-capable calls are excluded from general conversation memory, since a briefing can contain reports from several projects or users. Verification SMS content and verification-tool arguments are redacted from ordinary message/tool history. The original coaching transcript remains available through its authorised record and post-call processing; live changes must not be replayed by extraction.
 
 ## Persistence and recovery

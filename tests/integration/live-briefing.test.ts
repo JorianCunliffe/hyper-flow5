@@ -356,6 +356,22 @@ test("signed live briefing tools verify a call, save one task change and one dom
       ).length,
       1,
     );
+    const commitments=await invoke({operation:'list_tasks'});
+    const ongoing=commitments.items.find((item:any)=>item.source==='commitment'&&item.sourceId===created.item.id);
+    assert.ok(ongoing);
+    const detail=await invoke({operation:'read_item',itemId:ongoing.id});
+    const progress={...detail.changeOptions.find((option:any)=>option.action==='progress'),requestId:'fixture_progress_change'};
+    assert.equal(progress.operation,'decide_item');
+    await media.confirmReadback('What would you like to do?', 'Marked progress.');
+    assert.equal((await invoke(progress)).status,'note_required');
+    const progressText='Just to say that that particular piece has been done, but the overall tests are ongoing.';
+    await media.confirmReadback('What progress should I record?',progressText);
+    assert.equal((await invoke(progress)).status,'completed');
+    assert.equal((await invoke(progress)).status,'completed');
+    const progressed=await store.readOperationalCommitment(member.orgId,created.item.id);
+    assert.equal(progressed?.state,'in_progress');
+    assert.equal(progressed?.history.filter((h)=>h.note.includes('[briefing:fixture_progress_change]')).length,1);
+    assert.ok(JSON.stringify(progressed).includes(progressText));
     const report = await invoke({
       operation: "report",
       subject: "all",

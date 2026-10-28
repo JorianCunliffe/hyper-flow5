@@ -668,12 +668,30 @@ test("one conversational decision saves immediately without a second proposal or
 test("conversational decisions stay bound to the current item, fresh caller and current version", async () => {
   const f = changeFixture();
   const focus = { itemId: f.input.itemId, version: f.input.version, at: Date.now() - 100 };
-  for (const human of [undefined, {text:'Yes.', at:focus.at - 1}, {text:'Yes, but wait.', at:Date.now()}, {text:'Approve that.', at:Date.now()}, {text:'Yes.', at:Date.now()-100000}])
-    await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps), /clear decision/);
+  for (const human of [undefined, {text:'Yes.', at:focus.at - 1}, {text:'Yes, but wait.', at:Date.now()}, {text:'Reject that.', at:Date.now()}, {text:'Yes.', at:Date.now()-100000}])
+    await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps), /clear decision|transcription/);
   await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", {text:'Yes.',at:Date.now()}, {...focus,itemId:'other'}, f.deps), /current item/);
   const changed = buildSnapshot(empty(),member);changed.items[0].version = 'new';f.setSnapshot(changed);
   await assert.rejects(decideVoiceChange(member,f.input,undefined,"call",{text:'Yes.',at:Date.now()},focus,f.deps),/changed/);
   assert.equal(f.effects(),0);
+});
+test("the caller's progress explanation is saved verbatim without an approval phrase", async () => {
+  const f=changeFixture(), snapshot=buildSnapshot(empty(),member);
+  snapshot.items[0].actions=['progress'];f.setSnapshot(snapshot);
+  const input={...f.input,action:'progress',note:'Model paraphrase'};
+  const focus={itemId:input.itemId,version:input.version,at:Date.now()-100};
+  await assert.rejects(decideVoiceChange(member,{...input,note:''},undefined,'call',{text:'Marked progress.',at:Date.now()},focus,f.deps),/Describe the progress/);
+  const text='Just to say that that particular piece has been done, but the overall tests are ongoing.';
+  const human={text,at:Date.now()};
+  assert.equal((await decideVoiceChange(member,input,undefined,'call',human,focus,f.deps)).status,'completed');
+  assert.equal(f.records.get(input.requestId).parameters.note,text);
+  assert.equal((await decideVoiceChange(member,input,undefined,'call',null,null as any,f.deps)).status,'completed');
+  assert.equal(f.effects(),1);
+  const other={...input,requestId:'different_request'};
+  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Do not record this update.",at:Date.now()},focus,f.deps),/clear decision/);
+  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Yes, but wait.",at:Date.now()},focus,f.deps),/clear decision/);
+  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Reject that.",at:Date.now()},focus,f.deps),/clear decision/);
+  assert.equal(f.effects(),1);
 });
 test("lost domain results remain uncertain and are never automatically replayed", async () => {
   const f = changeFixture();

@@ -324,6 +324,7 @@ async function runBriefingVoice(
         operation: "decide_item", itemId: result.item.id, version: result.item.version, action,
         requestId: `voice-${fingerprint([call, result.item.id, result.item.version, action]).slice(0, 48)}`,
       })),
+      progressInstruction: "For progress, collect the actual update first. If the caller says mark progress without a note, ask what progress to record once. Their explanation itself is the update: call decide_item immediately, then acknowledge the saved result and move on. Do not ask for yes or approval after collecting the note. Partial completion is a progress note, not overall task completion.",
       nextStep: "Describe this item briefly and ask for its decision once. A clear yes, approve that, or other explicit instruction is the final decision: call the returned decide_item option immediately, acknowledge the saved result and move on. Do not prepare a second proposal, read a formal readback or ask for confirmation again. Supply the requested status/note. For requiredChecks, explain the checks in the initial question and set them only if the caller attests them; do not invent checks or attestations. If actions is empty explain notice; nothing has been saved.",
     };
   }
