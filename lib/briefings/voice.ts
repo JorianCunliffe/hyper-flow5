@@ -9,6 +9,7 @@ import { handleBriefings, briefingSettings } from "./api.js";
 import { prepareChange, confirmChange, readChange, decideVoiceChange } from "./changes.js";
 import { fingerprint, fail } from "./model.js";
 import { readBriefingRecord, transactBriefingRecord } from "./store.js";
+import {createBriefingTask, briefingTaskResult} from './createTask.js';
 
 export const voiceDependencies = {
   profile: readTenantAgentProfile,
@@ -25,6 +26,8 @@ export const voiceDependencies = {
   confirm: confirmChange,
   decide: decideVoiceChange,
   result: readChange,
+  createTask: createBriefingTask,
+  taskResult: briefingTaskResult,
 };
 const text = (v: any) => (typeof v === "string" ? v.trim() : "");
 /** Entry point is reachable only after timestamped Communications signature validation. */
@@ -231,6 +234,10 @@ async function runBriefingVoice(
       403,
       "Verify the SMS code for this call before accessing the briefing",
     );
+  if (operation === "create_task") {
+    if (!settings.allowTaskUpdates) fail(403, 'Task creation is disabled in briefing settings');
+    return deps.createTask(member,args,scope,call);
+  }
   if (operation === "decide_item") {
     const approval = ["approve", "reject"].includes(args.action);
     if (approval ? !settings.allowApprovals : !settings.allowTaskUpdates)
@@ -288,10 +295,11 @@ async function runBriefingVoice(
     });
   }
   if (operation === "change_result")
-    return deps.result(member, text(args.id), call);
+    return text(args.id).startsWith('task_') ? deps.taskResult(member,text(args.id),call) : deps.result(member, text(args.id), call);
   if (
     ![
       "subjects",
+      "list_projects",
       "list_tasks",
       "list_approvals",
       "read_item",

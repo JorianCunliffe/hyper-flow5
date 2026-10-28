@@ -415,6 +415,7 @@ export function buildSnapshot(
       status: task.status || "Not started",
       assigneeUid: uid,
       actions: uid === member.uid ? ["set_status"] : [],
+      details: task.description,
       commands: { set_status: { domain: "scratch", id: task.id } },
       updatedAt: task.updatedAt || task.createdAt,
     });

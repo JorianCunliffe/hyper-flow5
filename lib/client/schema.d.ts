@@ -2063,6 +2063,7 @@ export interface components {
         ScratchTask: {
             id: string;
             name: string;
+            description?: string;
             projectId?: string;
             assignedTo?: string;
             assigneeUid?: string;
@@ -2540,6 +2541,7 @@ export interface components {
             value?: {
                 id?: string;
                 name?: string;
+                description?: string;
                 projectId?: string;
                 assignedTo?: string;
                 assigneeUid?: string;
@@ -3183,7 +3185,7 @@ export interface operations {
     get__api_briefings: {
         parameters: {
             query?: {
-                operation?: "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
+                operation?: "list_tasks" | "list_approvals" | "subjects" | "list_projects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
                 subject?: string;
                 projectId?: string;
                 itemId?: string;
@@ -3307,7 +3309,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    operation: "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
+                    operation: "list_tasks" | "list_approvals" | "subjects" | "list_projects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
                     subject?: string;
                     projectId?: string;
                     itemId?: string;
@@ -3452,7 +3454,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    operation: "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
+                    operation: "list_tasks" | "list_approvals" | "subjects" | "list_projects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result" | "changes" | "settings" | "readiness" | "map_assignee";
                     subject?: string;
                     projectId?: string;
                     itemId?: string;
@@ -3603,7 +3605,7 @@ export interface operations {
                     service_identity: string;
                     args: {
                         /** @enum {string} */
-                        operation: "request_code" | "start_briefing" | "verify_code" | "decide_item" | "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
+                        operation: "request_code" | "start_briefing" | "verify_code" | "decide_item" | "create_task" | "list_tasks" | "list_approvals" | "subjects" | "list_projects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
                         subject?: string;
                         projectId?: string;
                         itemId?: string;
@@ -3640,6 +3642,8 @@ export interface operations {
                         reportDays?: number;
                         projectIds?: string[] | null;
                         code?: string;
+                        title?: string;
+                        description?: string;
                     };
                     /** @description Trusted media-stream evidence supplied by Communications, never model arguments */
                     evidence?: {
@@ -20730,6 +20734,7 @@ export interface operations {
                     value?: {
                         id?: string;
                         name?: string;
+                        description?: string;
                         projectId?: string;
                         assignedTo?: string;
                         assigneeUid?: string;
@@ -20853,6 +20858,7 @@ export interface operations {
                     value: {
                         id?: string;
                         name?: string;
+                        description?: string;
                         projectId?: string;
                         assignedTo?: string;
                         assigneeUid?: string;

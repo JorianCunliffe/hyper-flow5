@@ -95,6 +95,11 @@ export async function handleBriefings(
 ) {
   const input = req.method === "GET" ? req.query || {} : req.body || {};
   const operation = input.operation || "list_tasks";
+  if (operation === 'list_projects') {
+    const workspace=workspaceView(await sourceDependencies.workspace(member.orgId));
+    return {projects:workspace.projects.filter((p:any)=>!p.isArchived && (!scope || scope.includes(p.id))).map((p:any)=>({id:p.id,name:p.name})),
+      nextStep:'Use the matching project ID when creating a task. Ask which project only if the caller has not identified one and the choice is ambiguous.'};
+  }
   if (operation === "readiness") {
     const [settings, profile] = await Promise.all([
       briefingSettings(member),
@@ -150,7 +155,7 @@ export async function handleBriefings(
         response.ok &&
         health.liveBriefing === true &&
         health.briefingProtocol === "briefing-tool.v1" &&
-        health.briefingPromptVersion === "briefing-first.v5";
+        health.briefingPromptVersion === "briefing-first.v6";
       checks.push({
         name: "Live tools",
         ready,

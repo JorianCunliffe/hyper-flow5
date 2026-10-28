@@ -871,6 +871,7 @@ export interface ActivityLog {
 export interface ScratchTask {
   id: string;
   name: string;
+  description?: string;
   assignedTo?: string;
   assigneeUid?: string;
   status?: string;

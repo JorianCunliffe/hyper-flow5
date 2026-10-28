@@ -19,7 +19,7 @@ const body = (schema: any) => ({
 const json = (schema: any) => ({ content: { "application/json": { schema } } });
 export const domainOperations: Record<string, string[]> = {
   '/api/briefings':briefingOperations,
-  '/api/agent/briefing':['start_briefing','request_code','verify_code','subjects','list_tasks','list_approvals','read_item','report','decide_item','prepare_change','confirm_change','change_result'],
+  '/api/agent/briefing':['start_briefing','request_code','verify_code','subjects','list_projects','create_task','list_tasks','list_approvals','read_item','report','decide_item','prepare_change','confirm_change','change_result'],
   '/api/schedules/recovery':['preview','apply'],
   '/api/operational-log':['health','configure','archive'],
   '/api/reception':['preview','prepare','apply','review_activation','activate','review_enquiry','confirm_availability','reconcile_booking','reconcile_ask'],

@@ -53,10 +53,11 @@ export const Scratchpad: React.FC<ScratchpadProps> = ({ scratchTasks, onUpdateSc
       id: Math.random().toString(36).substr(2, 9),
       displayId: 'T-###',
       name: task.name,
-      description: '',
+      description: task.description || '',
       notes: '',
-      assignedTo: '',
-      status: 'Not started'
+      assignedTo: task.assignedTo || '',
+      assigneeUid: task.assigneeUid,
+      status: task.status || 'Not started'
     };
     setModalTask(dummySubtask);
     setModalScratchId(task.id);

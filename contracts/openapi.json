@@ -141,6 +141,7 @@
                 "list_tasks",
                 "list_approvals",
                 "subjects",
+                "list_projects",
                 "read_item",
                 "report",
                 "prepare_change",
@@ -374,6 +375,7 @@
                       "list_tasks",
                       "list_approvals",
                       "subjects",
+                      "list_projects",
                       "read_item",
                       "report",
                       "prepare_change",
@@ -526,6 +528,7 @@
           "list_tasks",
           "list_approvals",
           "subjects",
+          "list_projects",
           "read_item",
           "report",
           "prepare_change",
@@ -667,6 +670,7 @@
                       "list_tasks",
                       "list_approvals",
                       "subjects",
+                      "list_projects",
                       "read_item",
                       "report",
                       "prepare_change",
@@ -976,9 +980,11 @@
                           "start_briefing",
                           "verify_code",
                           "decide_item",
+                          "create_task",
                           "list_tasks",
                           "list_approvals",
                           "subjects",
+                          "list_projects",
                           "read_item",
                           "report",
                           "prepare_change",
@@ -1118,6 +1124,14 @@
                       "code": {
                         "type": "string",
                         "maxLength": 12
+                      },
+                      "title": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 5000
                       }
                     },
                     "required": [
@@ -1152,6 +1166,8 @@
           "request_code",
           "verify_code",
           "subjects",
+          "list_projects",
+          "create_task",
           "list_tasks",
           "list_approvals",
           "read_item",
@@ -33186,6 +33202,10 @@
                         "type": "string",
                         "maxLength": 20000
                       },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
                       "projectId": {
                         "type": "string",
                         "pattern": "^[A-Za-z0-9_-]{1,128}$"
@@ -33377,6 +33397,10 @@
                         "pattern": "^[A-Za-z0-9_-]{1,128}$"
                       },
                       "name": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "description": {
                         "type": "string",
                         "maxLength": 20000
                       },
@@ -36942,6 +36966,10 @@
             "type": "string",
             "maxLength": 20000
           },
+          "description": {
+            "type": "string",
+            "maxLength": 20000
+          },
           "projectId": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{1,128}$"
@@ -39095,6 +39123,10 @@
                     "pattern": "^[A-Za-z0-9_-]{1,128}$"
                   },
                   "name": {
+                    "type": "string",
+                    "maxLength": 20000
+                  },
+                  "description": {
                     "type": "string",
                     "maxLength": 20000
                   },

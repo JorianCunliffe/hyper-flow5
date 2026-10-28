@@ -3,6 +3,7 @@ export const briefingOperations = [
   "list_tasks",
   "list_approvals",
   "subjects",
+  "list_projects",
   "read_item",
   "report",
   "prepare_change",
@@ -86,6 +87,7 @@ export const briefingVoiceSchema = {
             "start_briefing",
             "verify_code",
             "decide_item",
+            "create_task",
             ...briefingOperations.filter(
               (o) =>
                 !["settings", "map_assignee", "changes", "readiness"].includes(
@@ -95,6 +97,8 @@ export const briefingVoiceSchema = {
           ],
         },
         code: { type: "string", maxLength: 12 },
+        title: {type:'string',maxLength:500},
+        description: {type:'string',maxLength:5000},
       },
     },
     evidence: {

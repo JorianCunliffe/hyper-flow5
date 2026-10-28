@@ -39,7 +39,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
   let interruptNextRequest=false;
   const modelContract:any={};
-  let promptVersion = "briefing-first.v5";
+  let promptVersion = "briefing-first.v6";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
     sms = 0;
@@ -207,11 +207,12 @@ test("signed live briefing tools verify a call, save one task change and one dom
     );
     media=await createVoiceMediaHarness(checkout,base,context);
     await assert.rejects(invoke({ operation: "list_tasks" }), /Verify the SMS/);
+    await assert.rejects(invoke({operation:'create_task',title:'No unauthenticated task',projectId:'p',requestId:'unauthenticated'}),/Verify the SMS/);
     const readiness = async ():Promise<any> => handleBriefings({method:"GET",query:{operation:"readiness"}},member);
     assert.equal((await readiness()).ready,true);
     promptVersion = "legacy-coaching";
     assert.equal((await readiness()).ready,false);
-    promptVersion = "briefing-first.v5";
+    promptVersion = "briefing-first.v6";
     assert.equal(
       (await invoke({ operation: "request_code" })).status,
       "code_sent",
@@ -419,6 +420,26 @@ test("signed live briefing tools verify a call, save one task change and one dom
       member,
     );
     assert.deepEqual(web.byUser, report.byUser);
+    const projects = await invoke({operation:'list_projects'});
+    assert.equal(projects.projects[0].id,'p');
+    modelContract.projects=projects;
+    const creation={operation:'create_task',projectId:'p',title:'Revamp coaching with a new context',description:'Try a revised daily coaching context.',requestId:'fixture_new_task'};
+    const newTask=await invoke(creation);
+    assert.equal(newTask.status,'completed');
+    assert.equal(newTask.item.assigneeUid,'alice');
+    modelContract.taskCreation=newTask;
+    assert.equal((await invoke(creation)).id,newTask.id);
+    assert.equal((await invoke({operation:'change_result',id:newTask.id})).saved,true);
+    const createdWorkspace:any=await store.readTenantWorkspace(member.orgId);
+    assert.equal(createdWorkspace.scratchTasks.filter((t:any)=>t.id===newTask.item.id.replace('scratch:','')).length,1);
+    const listed=await invoke({operation:'list_tasks'});
+    assert.ok(listed.items.some((t:any)=>t.id===newTask.item.id));
+    const newDetail=await invoke({operation:'read_item',itemId:newTask.item.id});
+    assert.equal(newDetail.item.details,creation.description);
+    assert.equal((await invoke({...newDetail.changeOptions[0],status:'Started',requestId:'fixture_new_task_start'})).status,'completed');
+    assert.equal((await invoke({operation:'read_item',itemId:newTask.item.id})).item.status,'Started');
+    await handleBriefings({method:'PUT',body:{operation:'settings',enabled:true,allowTaskUpdates:false,allowApprovals:true,requireSmsVerification:false}},member);
+    await assert.rejects(invoke({...creation,requestId:'disabled_creation'}),/disabled/);
     if(process.env.BRIEFING_MODEL_CONTRACT_OUTPUT) writeFileSync(process.env.BRIEFING_MODEL_CONTRACT_OUTPUT,JSON.stringify(modelContract,null,2)+'\n');
     await handleBriefings(
       {

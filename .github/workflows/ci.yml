@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: JorianCunliffe/communications-service
-          ref: af051dba2035b0eab6a717b4462f34f672e4903a
+          ref: 7cc7429378a07a7b1b7a13d3c6992599f6ba1590
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: JorianCunliffe/communications-service
-          ref: af051dba2035b0eab6a717b4462f34f672e4903a
+          ref: 7cc7429378a07a7b1b7a13d3c6992599f6ba1590
           path: communications
       - uses: actions/setup-node@v4
         with:

@@ -249,7 +249,7 @@ export const uiViewSchema = obj(
   },
   ["id", "name", "view"],
 );
-export const scratchSchema = obj({ id, name: str, projectId: id, assignedTo:str,assigneeUid:str,status:str }, [
+export const scratchSchema = obj({ id, name: str, description:str, projectId: id, assignedTo:str,assigneeUid:str,status:str }, [
   "id",
   "name",
 ]);
