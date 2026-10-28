@@ -254,6 +254,21 @@ test("commitment transitions use PATCH and reject successful responses for a dif
     /different obligation/,
   );
 });
+test("task-style obligation status commands use native progress/submission without claiming fulfillment", async () => {
+  const d=empty();d.commitments=[{id:'owned',projectId:'p',version:4,state:'accepted',reviewerUid:member.uid,
+    terms:{owner:'user:alice',beneficiary:'user:alice',deliverable:'Prepare report'}}];
+  const item=buildSnapshot(d,member).items.find(i=>i.source==='commitment')!;
+  assert.ok(item.actions.includes('set_status'));
+  assert.deepEqual(item.statusOptions,['Started','Submitted','Completed']);
+  for(const [status,action,state] of [['Started','progress','in_progress'],['Completed','submit','submitted']]){
+    const change:any={id:'status_'+status,uid:member.uid,callId:'call',item,action:'set_status',parameters:{status,note:'Caller instruction'}};
+    const result=await executeChange(member,change,{...executionDependencies,commitments:async(req:any)=>{
+      assert.equal(req.method,'PATCH');assert.equal(req.body.action,action);assert.equal(req.body.expectedVersion,4);
+      return {item:{id:'owned',state}} as any;
+    }});
+    assert.equal(result.item.state,state);
+  }
+});
 test("confirmation cannot reverse an approval decision or hide a qualification after truncation", () => {
   assert.equal(clearConfirmation("approve it", "reject"), false);
   assert.equal(clearConfirmation("reject it", "approve"), false);

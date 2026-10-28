@@ -443,8 +443,14 @@ export function buildSnapshot(
       assigneeUid: uid,
       dueAt: c.terms?.dueAt,
       updatedAt: c.updatedAt,
-      actions: uid === member.uid && !c.review ? ["progress", "submit"] : [],
+      actions: uid === member.uid && !c.review ? ["set_status", "progress", "submit"] : [],
+      statusOptions: ["Started", "Submitted", "Completed"],
+      notice: "Started records progress. Completed records the work as done and submits it for acceptance; it does not bypass the beneficiary's acceptance.",
       commands: {
+        set_status: {
+          domain: "commitments", id: c.id, projectId: c.projectId,
+          action: "briefing_status", expectedVersion: c.version,
+        },
         progress: {
           domain: "commitments",
           id: c.id,

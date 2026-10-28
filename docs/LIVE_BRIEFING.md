@@ -28,6 +28,8 @@ The signed, enrolled call assistant is the natural-language interpreter. A separ
 
 Progress notes are optional. Include details the caller supplies; otherwise record that progress was reported during the call. Partial completion remains progress rather than completion of the whole task. Submissions can likewise record the caller's request without demanding a separate explanation. Real domain requirements still apply.
 
+Assigned work includes both project tasks and obligations. For an owned obligation, task-style status commands are translated to its native operations: Started records progress; Submitted or Completed records the work as done and submits it for acceptance. The saved result states that acceptance is still pending rather than claiming fulfillment. The approval queue exposes that acceptance to the authorised beneficiary; its approval fulfills the obligation. This avoids rejecting an ordinary status instruction solely because the record is an obligation.
+
 Briefing-capable calls are excluded from general conversation memory, since a briefing can contain reports from several projects or users. Verification SMS content and verification-tool arguments are redacted from ordinary message/tool history. The original coaching transcript remains available through its authorised record and post-call processing; live changes must not be replayed by extraction.
 
 ## Persistence and recovery

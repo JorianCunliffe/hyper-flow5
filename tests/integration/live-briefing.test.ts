@@ -372,6 +372,23 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal(progressed?.state,'in_progress');
     assert.equal(progressed?.history.filter((h)=>h.note.includes('[briefing:fixture_progress_change]')).length,1);
     assert.ok(JSON.stringify(progressed).includes(progressText));
+    const completionDetail=await invoke({operation:'read_item',itemId:ongoing.id});
+    assert.ok(completionDetail.item.actions.includes('set_status'));
+    const completion={...completionDetail.changeOptions.find((option:any)=>option.action==='set_status'),
+      status:'Completed',requestId:'fixture_completion_change'};
+    const submitted=await invoke(completion);
+    assert.equal(submitted.status,'completed');
+    assert.equal(submitted.result.item.state,'submitted');
+    assert.match(submitted.nextStep,/submitted, not yet fulfilled/);
+    assert.equal((await invoke(completion)).status,'completed');
+    const fulfillmentQueue=await invoke({operation:'list_approvals'});
+    const fulfillment=fulfillmentQueue.items.find((item:any)=>item.sourceId===created.item.id);
+    const fulfillmentDetail=await invoke({operation:'read_item',itemId:fulfillment.id});
+    const accept={...fulfillmentDetail.changeOptions.find((option:any)=>option.action==='approve'),requestId:'fixture_fulfillment_change'};
+    assert.equal((await invoke(accept)).status,'completed');
+    const fulfilled=await store.readOperationalCommitment(member.orgId,created.item.id);
+    assert.equal(fulfilled?.state,'fulfilled');
+    assert.equal(fulfilled?.history.filter((h)=>h.note.includes('[briefing:fixture_completion_change]')).length,1);
     await handleBriefings({method:'PUT',body:{operation:'settings',enabled:true,allowTaskUpdates:true,allowApprovals:true,requireSmsVerification:false}},member);
     await transactBriefingRecord(member.orgId,'sessions',`call_${fingerprint('comm_fixture').slice(0,40)}`,()=>({verified:false}));
     const beforeSms=sms;
@@ -392,7 +409,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal(personalReport.byUser.length,1);
     assert.equal(
       report.byUser.find((u: any) => u.userId === "alice").completed,
-      1,
+      2,
     );
     const web: any = await handleBriefings(
       {

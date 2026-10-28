@@ -237,7 +237,9 @@ async function runBriefingVoice(
       fail(403, "This write capability is disabled in briefing settings");
     const result = await deps.decide(member, args, scope, call, body.evidence?.human, session.focus);
     return { ...result, nextStep: result.status === "completed"
-      ? "The decision is saved. Acknowledge it briefly and move to the next item. Do not request another confirmation."
+      ? result.result?.item?.state === "submitted"
+        ? "The completion report is saved and submitted for acceptance. Say that it is submitted, not yet fulfilled. Continue to the next item or pending approvals without reconfirming this saved submission."
+        : "The decision is saved. Acknowledge it briefly and move to the next item. Do not request another confirmation."
       : "Check change_result for this exact id. Do not repeat an uncertain decision or claim it is saved." };
   }
   if (operation === "prepare_change") {

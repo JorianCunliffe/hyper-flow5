@@ -117,7 +117,9 @@ export async function decideVoiceChange(
   if (member.apiClientId) fail(403, "A verified person must decide briefing changes");
   const submittedNote = clean(input.note);
   const note = submittedNote || (input.action === "progress" ? "Progress reported during coaching call."
-    : input.action === "submit" ? "Submitted for review during coaching call." : "");
+    : input.action === "submit" ? "Submitted for review during coaching call."
+    : input.action === "set_status" && String(input.itemId).startsWith('commitment:') && input.status === "Completed"
+      ? "Caller reported work completed during coaching call." : "");
   const existing: Change = await deps.read(member.orgId, "changes", clean(input.requestId, 120));
   if (existing && existing.uid === member.uid && existing.callId === callId && existing.status !== "prepared") {
     const parameters = { note: existing.voiceInputHash ? submittedNote : note,
@@ -175,7 +177,7 @@ export async function prepareChange(
       parameters[check] = true;
     }
   if (input.action === "set_status") {
-    const statuses = [...new Set([...Object.values(SubtaskStatus),...(snapshot.statusOptions||[])])] as string[];
+    const statuses = item.statusOptions || [...new Set([...Object.values(SubtaskStatus),...(snapshot.statusOptions||[])])] as string[];
     if (!statuses.includes(input.status))
       fail(422, `Choose one of: ${statuses.join(", ")}`);
     parameters.status = input.status;
@@ -200,7 +202,10 @@ export async function prepareChange(
               : "you checked this exact content is permitted for public use",
         )
       : [];
-  const readback = `${item.projectName ? item.projectName + ": " : ""}${item.title}. ${input.action === "set_status" ? `Change status from ${item.status} to ${parameters.status}` : input.action === "approve" ? "Approve this exact version" : input.action === "reject" ? "Reject this exact version" : input.action === "submit" ? "Submit evidence for review" : "Record progress"}.${attestations.length ? " You confirm " + attestations.join(" and ") + "." : ""}${parameters.note ? " Note: " + parameters.note : ""} Confirm this change?`;
+  const statusReadback = item.source === "commitment" && ["Completed","Submitted"].includes(parameters.status)
+    ? "Record the work reported done and submit it for acceptance"
+    : `Change status from ${item.status} to ${parameters.status}`;
+  const readback = `${item.projectName ? item.projectName + ": " : ""}${item.title}. ${input.action === "set_status" ? statusReadback : input.action === "approve" ? "Approve this exact version" : input.action === "reject" ? "Reject this exact version" : input.action === "submit" ? "Submit evidence for review" : "Record progress"}.${attestations.length ? " You confirm " + attestations.join(" and ") + "." : ""}${parameters.note ? " Note: " + parameters.note : ""} Confirm this change?`;
   const now = Date.now();
   const saved = await deps.transact(
     member.orgId,
@@ -381,6 +386,11 @@ export async function executeChange(
   const command = change.item.commands?.[change.action];
   if (!command) fail(422, "No domain operation is available");
   const { domain, ...body } = command;
+  if (domain === "commitments" && body.action === "briefing_status") {
+    const status=change.parameters.status;
+    if (!["Started","Submitted","Completed"].includes(status)) fail(422,"Choose Started, Submitted or Completed for this obligation");
+    body.action=status === "Started" ? "progress" : "submit";
+  }
   const note = `[briefing:${change.id}] ${change.parameters.note || "Confirmed during briefing"}`;
   if (["subtask", "task_approval", "scratch"].includes(domain)) {
     const saved = await deps.workspace(member.orgId, (current) => {
@@ -602,7 +612,8 @@ export async function reconcileChange(member: BriefingMember, change: Change) {
       (h) =>
         h.actor === member.uid && h.note?.includes(`[briefing:${change.id}]`),
     );
-    return evidence ? { saved: true, version: evidence.version } : null;
+    return evidence ? { saved: true, version: evidence.version,
+      item: {id:row!.id,state:row!.state,version:row!.version} } : null;
   }
   if (c.domain === "triage") {
     const row = await readTenantTriageItem(member.orgId, c.id);

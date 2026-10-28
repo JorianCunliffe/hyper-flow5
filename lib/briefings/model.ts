@@ -33,6 +33,7 @@ export type BriefingItem = {
   dueAt?: string;
   updatedAt?: number;
   actions: string[];
+  statusOptions?: string[];
   notice?: string;
   details?: string;
   requiredChecks?: string[];
