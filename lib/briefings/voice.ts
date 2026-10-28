@@ -324,9 +324,13 @@ async function runBriefingVoice(
     }
   }
   const result = await deps.handle({ method: "POST", body: query }, member, scope);
+  if (operation === "list_tasks") return {
+    ...result,
+    nextStep: "This task request is finished. Present the returned tasks and use their actions for updates. Other sections have not been requested by this operation: call list_approvals for approvals and report for reports. Do not describe them as still loading. A coverage notice does not prevent updates to returned actionable items.",
+  };
   if (operation === "list_approvals") return {
     ...result,
-    nextStep: "Discuss one item at a time. Call read_item before presenting an item for a decision. When the caller says yes or approve that, use decide_item to save that decision immediately, then move on. Do not ask them to approve it again. An item without approve in actions needs its specified answer or checks. Reading this list does not approve anything.",
+    nextStep: "This approval request is finished. Discuss one returned actionable approval at a time; use its exact item ID and version, not a task ID. Fetch read_item only if more details are needed. When the caller says yes or approve that, use decide_item to save that decision immediately, then move on. Do not ask them to approve it again. A coverage warning does not block returned approvals. An item without approve in actions needs its specified answer or checks. Reading this list does not approve anything.",
   };
   if (operation === "read_item" && "item" in result && result.item) {
     return {

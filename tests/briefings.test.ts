@@ -52,11 +52,29 @@ test('item reads revalidate their source without waiting for unrelated domain st
   const focused = await loadBriefing(member, undefined, deps, item.id);
   assert.deepEqual(focused.items.find(i => i.id === item.id), item);
   assert.deepEqual(touched, []);
+  touched.length = 0;
+  await loadBriefing(member, undefined, deps, undefined, 'task');
+  assert.deepEqual(touched.sort(), ['commitment', 'review_work']);
+  touched.length = 0;
+  await loadBriefing(member, undefined, deps, undefined, 'approval');
+  assert.ok(!touched.includes('review_work'));
+  assert.ok(touched.includes('commitment') && touched.includes('workflow_ask'));
   for (const source of ['review_work', 'commitment', 'commitment_approval', 'flow_approval', 'artifact_approval', 'calendar_approval', 'triage_approval', 'publication_approval', 'workflow_ask']) {
     touched.length = 0;
     await loadBriefing(member, undefined, deps, `${source}:fixture`);
     assert.deepEqual(touched, [source === 'commitment_approval' ? 'commitment' : source]);
   }
+});
+
+test('unmapped approvals do not mark task lists and workload reports as incomplete', () => {
+  const data = empty();
+  data.workspace.projects[0].milestones[0].subtasks.pop();
+  data.commitments.push({id:'unmapped',projectId:'p',version:1,state:'candidate',terms:{deliverable:'Unmapped review'},review:{ask:{id:'ask',status:'open',kind:'approval',prompt:'Review'}}});
+  const snapshot = buildSnapshot(data, member);
+  assert.equal(queryBriefing(snapshot, member, {kind:'task'}).incomplete, false);
+  assert.equal(briefingReport(snapshot, member, {}).incomplete, false);
+  assert.equal(queryBriefing(snapshot, member, {kind:'approval'}).incomplete, true);
+  assert.match(queryBriefing(snapshot, member, {kind:'approval'}).notices.join(' '), /reviewer mapping/);
 });
 
 test('verified voice reads offer a single decision without claiming an approval was saved', async () => {

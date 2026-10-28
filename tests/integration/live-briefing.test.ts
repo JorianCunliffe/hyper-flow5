@@ -39,7 +39,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
   let interruptNextRequest=false;
   const modelContract:any={};
-  let promptVersion = "briefing-first.v4";
+  let promptVersion = "briefing-first.v5";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
     sms = 0;
@@ -211,7 +211,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal((await readiness()).ready,true);
     promptVersion = "legacy-coaching";
     assert.equal((await readiness()).ready,false);
-    promptVersion = "briefing-first.v4";
+    promptVersion = "briefing-first.v5";
     assert.equal(
       (await invoke({ operation: "request_code" })).status,
       "code_sent",

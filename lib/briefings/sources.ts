@@ -85,11 +85,15 @@ export async function loadBriefing(
   projectIds?: string[],
   deps = sourceDependencies,
   itemId?: string,
+  kind?: "task" | "approval",
 ): Promise<BriefingSnapshot> {
   // An item read still rebuilds its live version and authority, but does not
   // wait for unrelated domain stores. Lists and reports retain full coverage.
   const source = itemId?.split(":")[0];
-  const wants = (...sources: string[]) => !source || sources.includes(source);
+  const wants = (...sources: string[]) => source ? sources.includes(source)
+    : !kind || sources.some(s => kind === "task"
+      ? ["commitment", "review_work"].includes(s)
+      : s !== "review_work" && s !== "commitment");
   const [rawWorkspace, profile] = await Promise.all([
     deps.workspace(member.orgId),
     deps.profile(member.orgId),
@@ -728,15 +732,16 @@ export function buildSnapshot(
         ),
       });
     }
+  const taskNotices = [...notices], approvalNotices = [...notices];
   if (unresolved)
-    notices.push(
+    taskNotices.push(
       `${unresolved} project tasks have unresolved assignees; map their names to verified users in briefing settings.`,
     );
   const unassignedReviews = items.filter(
     (i) => i.kind === "approval" && !i.reviewerUid,
   ).length;
   if (unassignedReviews)
-    notices.push(
+    approvalNotices.push(
       `${unassignedReviews} pending reviews have no verified reviewer mapping; the personal approval queue is incomplete.`,
     );
   const progress: BriefingItem[] = [];
@@ -788,7 +793,8 @@ export function buildSnapshot(
     subjects,
     items,
     progress,
-    incomplete: notices.length > 0,
-    notices,
+    incomplete: taskNotices.length > 0 || approvalNotices.length > 0,
+    notices: [...new Set([...taskNotices, ...approvalNotices])],
+    sectionNotices: {task: taskNotices, approval: approvalNotices},
   };
 }

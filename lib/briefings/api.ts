@@ -150,7 +150,7 @@ export async function handleBriefings(
         response.ok &&
         health.liveBriefing === true &&
         health.briefingProtocol === "briefing-tool.v1" &&
-        health.briefingPromptVersion === "briefing-first.v4";
+        health.briefingPromptVersion === "briefing-first.v5";
       checks.push({
         name: "Live tools",
         ready,
@@ -281,7 +281,9 @@ export async function handleBriefings(
         .map(({ aliases, ...s }) => s),
     };
   }
-  const snapshot = await loadBriefing(member, scope, undefined, operation === "read_item" ? String(input.itemId || "") : undefined);
+  const kind = operation === "list_tasks" || (operation === "report" && input.reportType !== "approvals") ? "task"
+    : operation === "list_approvals" || operation === "report" ? "approval" : undefined;
+  const snapshot = await loadBriefing(member, scope, undefined, operation === "read_item" ? String(input.itemId || "") : undefined, kind);
   if (operation === "report") return briefingReport(snapshot, member, input);
   if (operation === "read_item") {
     const item = snapshot.items.find((i) => i.id === input.itemId);

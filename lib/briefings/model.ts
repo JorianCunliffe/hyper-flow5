@@ -50,6 +50,7 @@ export type BriefingSnapshot = {
   subjects: Subject[];
   notices: string[];
   incomplete: boolean;
+  sectionNotices?: {task: string[]; approval: string[]};
 };
 export const fingerprint = canonicalHash;
 export const fail = (status: number, message: string): never => {
@@ -145,14 +146,15 @@ export function queryBriefing(
     items = items.slice(index + 1);
   }
   const page = items.slice(0, limit);
+  const notices = kind === "all" ? snapshot.notices : snapshot.sectionNotices?.[kind as "task" | "approval"] ?? snapshot.notices;
   return {
     asOf: snapshot.asOf,
     subject,
     items: page.map(publicItem),
     total,
     next: items.length > limit ? page.at(-1)!.id : null,
-    incomplete: snapshot.incomplete,
-    notices: snapshot.notices,
+    incomplete: notices.length > 0,
+    notices,
     statusOptions: snapshot.statusOptions,
   };
 }
@@ -232,6 +234,7 @@ export function briefingReport(
       ).length,
     };
   });
+  const notices = snapshot.sectionNotices?.[reportType === "approvals" ? "approval" : "task"] ?? snapshot.notices;
   return {
     asOf: snapshot.asOf,
     timezone: snapshot.timezone || "UTC",
@@ -243,8 +246,8 @@ export function briefingReport(
     items: selected.slice(0, 100).map(publicItem),
     total: selected.length,
     truncated: selected.length > 100,
-    incomplete: snapshot.incomplete,
-    notices: snapshot.notices,
+    incomplete: notices.length > 0,
+    notices,
     text: byUser
       .map((r) =>
         reportType === "progress"
