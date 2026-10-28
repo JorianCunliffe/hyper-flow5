@@ -5,6 +5,7 @@ let settings = {
   enabled: false,
   allowTaskUpdates: false,
   allowApprovals: false,
+  requireSmsVerification: true,
   sections: ["tasks", "approvals", "reports"],
   reportSubject: "me",
   reportType: "workload",

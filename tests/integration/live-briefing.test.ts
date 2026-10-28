@@ -39,7 +39,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
   let interruptNextRequest=false;
   const modelContract:any={};
-  let promptVersion = "briefing-first.v3";
+  let promptVersion = "briefing-first.v4";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
     sms = 0;
@@ -62,6 +62,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
       thread_id: "thread_fixture",
       person_id: "person",
       channel: "voice",
+      direction: "outbound",
+      purpose: {type:"coaching_session"},
       status: "in_progress",
     }),
   );
@@ -97,7 +99,8 @@ test("signed live briefing tools verify a call, save one task change and one dom
   };
   const invoke = (args: any) => media!.invoke(args);
   const { handleBriefings } = await import("../../lib/briefings/api.js");
-  const { readBriefingRecord } = await import("../../lib/briefings/store.js");
+  const { transactBriefingRecord } = await import("../../lib/briefings/store.js");
+  const { fingerprint } = await import("../../lib/briefings/model.js");
   const { handleCommitments } = await import("../../lib/commitments/api.js");
   const store = await import("../../lib/serverStore.js");
   const {createFlowRun, materializeFlowRunProject, updateFlowRunFromProject} = await import("../../lib/flowRun.js");
@@ -208,7 +211,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal((await readiness()).ready,true);
     promptVersion = "legacy-coaching";
     assert.equal((await readiness()).ready,false);
-    promptVersion = "briefing-first.v3";
+    promptVersion = "briefing-first.v4";
     assert.equal(
       (await invoke({ operation: "request_code" })).status,
       "code_sent",
@@ -328,10 +331,6 @@ test("signed live briefing tools verify a call, save one task change and one dom
       note: "Accept the isolated fixture obligation",
       requestId: "fixture_approval_change",
     };
-    await media.confirmReadback('The fixture review is waiting for your approval. Approve it?', 'Yes, but wait.');
-    const rejected = await invoke(decision);
-    assert.equal(rejected.status,'decision_required');
-    assert.equal(await readBriefingRecord(member.orgId,'changes',decision.requestId),null);
     await media.confirmReadback('The fixture review is waiting for your approval. Approve it?', 'Yes, approve that.');
     interruptNextRequest=true;
     const saved = await invoke(decision);
@@ -362,16 +361,24 @@ test("signed live briefing tools verify a call, save one task change and one dom
     const detail=await invoke({operation:'read_item',itemId:ongoing.id});
     const progress={...detail.changeOptions.find((option:any)=>option.action==='progress'),requestId:'fixture_progress_change'};
     assert.equal(progress.operation,'decide_item');
-    await media.confirmReadback('What would you like to do?', 'Marked progress.');
-    assert.equal((await invoke(progress)).status,'note_required');
     const progressText='Just to say that that particular piece has been done, but the overall tests are ongoing.';
-    await media.confirmReadback('What progress should I record?',progressText);
-    assert.equal((await invoke(progress)).status,'completed');
-    assert.equal((await invoke(progress)).status,'completed');
+    const progressRequest={...progress,note:progressText};
+    await media.pendingCaller();
+    const progressStarted=Date.now();
+    assert.equal((await invoke(progressRequest)).status,'completed');
+    assert.ok(Date.now()-progressStarted<5000,'Saving does not wait for a second speech transcript');
+    assert.equal((await invoke(progressRequest)).status,'completed');
     const progressed=await store.readOperationalCommitment(member.orgId,created.item.id);
     assert.equal(progressed?.state,'in_progress');
     assert.equal(progressed?.history.filter((h)=>h.note.includes('[briefing:fixture_progress_change]')).length,1);
     assert.ok(JSON.stringify(progressed).includes(progressText));
+    await handleBriefings({method:'PUT',body:{operation:'settings',enabled:true,allowTaskUpdates:true,allowApprovals:true,requireSmsVerification:false}},member);
+    await transactBriefingRecord(member.orgId,'sessions',`call_${fingerprint('comm_fixture').slice(0,40)}`,()=>({verified:false}));
+    const beforeSms=sms;
+    assert.equal((await invoke({operation:'start_briefing'})).status,'ready');
+    assert.equal(sms,beforeSms);
+    assert.equal((await invoke({operation:'request_code'})).status,'ready');
+    assert.equal(sms,beforeSms);
     const report = await invoke({
       operation: "report",
       subject: "all",

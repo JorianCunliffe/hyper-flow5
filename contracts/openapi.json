@@ -476,6 +476,10 @@
                   "allowApprovals": {
                     "type": "boolean"
                   },
+                  "requireSmsVerification": {
+                    "type": "boolean",
+                    "description": "Require an SMS code on outbound coaching calls. Inbound calls always require verification."
+                  },
                   "sections": {
                     "type": "array",
                     "items": {
@@ -765,6 +769,10 @@
                   "allowApprovals": {
                     "type": "boolean"
                   },
+                  "requireSmsVerification": {
+                    "type": "boolean",
+                    "description": "Require an SMS code on outbound coaching calls. Inbound calls always require verification."
+                  },
                   "sections": {
                     "type": "array",
                     "items": {
@@ -965,6 +973,7 @@
                         "type": "string",
                         "enum": [
                           "request_code",
+                          "start_briefing",
                           "verify_code",
                           "decide_item",
                           "list_tasks",
@@ -1068,6 +1077,10 @@
                       "allowApprovals": {
                         "type": "boolean"
                       },
+                      "requireSmsVerification": {
+                        "type": "boolean",
+                        "description": "Require an SMS code on outbound coaching calls. Inbound calls always require verification."
+                      },
                       "sections": {
                         "type": "array",
                         "items": {
@@ -1135,6 +1148,7 @@
           }
         },
         "x-operations": [
+          "start_briefing",
           "request_code",
           "verify_code",
           "subjects",

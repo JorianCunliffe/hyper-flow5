@@ -3336,6 +3336,8 @@ export interface operations {
                     enabled?: boolean;
                     allowTaskUpdates?: boolean;
                     allowApprovals?: boolean;
+                    /** @description Require an SMS code on outbound coaching calls. Inbound calls always require verification. */
+                    requireSmsVerification?: boolean;
                     sections?: ("tasks" | "approvals" | "reports")[];
                     /** @enum {string} */
                     reportSubject?: "me" | "all";
@@ -3479,6 +3481,8 @@ export interface operations {
                     enabled?: boolean;
                     allowTaskUpdates?: boolean;
                     allowApprovals?: boolean;
+                    /** @description Require an SMS code on outbound coaching calls. Inbound calls always require verification. */
+                    requireSmsVerification?: boolean;
                     sections?: ("tasks" | "approvals" | "reports")[];
                     /** @enum {string} */
                     reportSubject?: "me" | "all";
@@ -3599,7 +3603,7 @@ export interface operations {
                     service_identity: string;
                     args: {
                         /** @enum {string} */
-                        operation: "request_code" | "verify_code" | "decide_item" | "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
+                        operation: "request_code" | "start_briefing" | "verify_code" | "decide_item" | "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
                         subject?: string;
                         projectId?: string;
                         itemId?: string;
@@ -3628,6 +3632,8 @@ export interface operations {
                         enabled?: boolean;
                         allowTaskUpdates?: boolean;
                         allowApprovals?: boolean;
+                        /** @description Require an SMS code on outbound coaching calls. Inbound calls always require verification. */
+                        requireSmsVerification?: boolean;
                         sections?: ("tasks" | "approvals" | "reports")[];
                         /** @enum {string} */
                         reportSubject?: "me" | "all";

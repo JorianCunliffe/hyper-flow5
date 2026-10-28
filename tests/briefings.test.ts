@@ -665,33 +665,31 @@ test("one conversational decision saves immediately without a second proposal or
   assert.equal((await decideVoiceChange(member, f.input, undefined, "call", null, null as any, f.deps)).status,'completed');
   await assert.rejects(decideVoiceChange(member, {...f.input,status:'Started'}, undefined, "call", human, focus, f.deps),/different content/);
 });
-test("conversational decisions stay bound to the current item, fresh caller and current version", async () => {
+test("interpreted call decisions do not require ASR wording, timing or a prior focus marker", async () => {
   const f = changeFixture();
-  const focus = { itemId: f.input.itemId, version: f.input.version, at: Date.now() - 100 };
-  for (const human of [undefined, {text:'Yes.', at:focus.at - 1}, {text:'Yes, but wait.', at:Date.now()}, {text:'Reject that.', at:Date.now()}, {text:'Yes.', at:Date.now()-100000}])
-    await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps), /clear decision|transcription/);
-  await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", {text:'Yes.',at:Date.now()}, {...focus,itemId:'other'}, f.deps), /current item/);
+  assert.equal((await decideVoiceChange(member,f.input,undefined,'call',null,undefined,f.deps)).status,'completed');
+  assert.equal(f.effects(),1);
+  const g=changeFixture();
   const changed = buildSnapshot(empty(),member);changed.items[0].version = 'new';f.setSnapshot(changed);
-  await assert.rejects(decideVoiceChange(member,f.input,undefined,"call",{text:'Yes.',at:Date.now()},focus,f.deps),/changed/);
-  assert.equal(f.effects(),0);
+  g.setSnapshot(changed);
+  await assert.rejects(decideVoiceChange(member,g.input,undefined,"call",null,undefined,g.deps),/changed/);
+  assert.equal(g.effects(),0);
 });
-test("the caller's progress explanation is saved verbatim without an approval phrase", async () => {
+test("progress accepts the interpreted update immediately and does not require an extra note", async () => {
   const f=changeFixture(), snapshot=buildSnapshot(empty(),member);
   snapshot.items[0].actions=['progress'];f.setSnapshot(snapshot);
-  const input={...f.input,action:'progress',note:'Model paraphrase'};
+  const text='That particular piece is done, but the overall tests are ongoing.';
+  const input={...f.input,action:'progress',note:text};
   const focus={itemId:input.itemId,version:input.version,at:Date.now()-100};
-  await assert.rejects(decideVoiceChange(member,{...input,note:''},undefined,'call',{text:'Marked progress.',at:Date.now()},focus,f.deps),/Describe the progress/);
-  const text='Just to say that that particular piece has been done, but the overall tests are ongoing.';
   const human={text,at:Date.now()};
   assert.equal((await decideVoiceChange(member,input,undefined,'call',human,focus,f.deps)).status,'completed');
   assert.equal(f.records.get(input.requestId).parameters.note,text);
   assert.equal((await decideVoiceChange(member,input,undefined,'call',null,null as any,f.deps)).status,'completed');
   assert.equal(f.effects(),1);
-  const other={...input,requestId:'different_request'};
-  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Do not record this update.",at:Date.now()},focus,f.deps),/clear decision/);
-  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Yes, but wait.",at:Date.now()},focus,f.deps),/clear decision/);
-  await assert.rejects(decideVoiceChange(member,other,undefined,'call',{text:"Reject that.",at:Date.now()},focus,f.deps),/clear decision/);
-  assert.equal(f.effects(),1);
+  const other={...input,note:'',requestId:'different_request'};
+  assert.equal((await decideVoiceChange(member,other,undefined,'call',null,undefined,f.deps)).status,'completed');
+  assert.equal(f.records.get(other.requestId).parameters.note,'Progress reported during coaching call.');
+  assert.equal(f.effects(),2);
 });
 test("lost domain results remain uncertain and are never automatically replayed", async () => {
   const f = changeFixture();
@@ -746,6 +744,7 @@ test("a concurrent record or reviewer change invalidates confirmation", async ()
 function voiceFixture() {
   const records = new Map<string, any>();
   let sent = "";
+  let smsCount = 0;
   let reads = 0;
   const body = {
     tenant_id: "org",
@@ -760,6 +759,7 @@ function voiceFixture() {
     enrolledBy: "alice",
     allowTaskUpdates: true,
     allowApprovals: true,
+    requireSmsVerification: true,
   };
   const deps: any = {
     profile: async () => ({
@@ -785,6 +785,7 @@ function voiceFixture() {
       return row;
     },
     sendSms: async (req: any) => {
+      smsCount++;
       sent = req.body;
       return { id: "sms1" };
     },
@@ -798,10 +799,31 @@ function voiceFixture() {
     deps,
     records,
     settings,
+    smsCount: () => smsCount,
     code: () => sent.match(/\b\d{6}\b/)![0],
     reads: () => reads,
   };
 }
+test("outbound SMS verification can be disabled, re-enabled, and never bypasses inbound authentication", async () => {
+  const f=voiceFixture();f.settings.requireSmsVerification=false;
+  const communication=await f.deps.communication();
+  f.deps.communication=async()=>({...communication,direction:'outbound',purpose:{type:'coaching_session'}});
+  assert.equal((await briefingVoice({...f.body,args:{operation:'start_briefing'}},f.deps)).status,'ready');
+  assert.equal(f.smsCount(),0);
+  await briefingVoice(f.body,f.deps);
+  assert.equal(f.reads(),1);
+  f.settings.requireSmsVerification=true;
+  await assert.rejects(briefingVoice(f.body,f.deps),/Verify the SMS/);
+  assert.equal((await briefingVoice({...f.body,args:{operation:'start_briefing'}},f.deps)).status,'code_sent');
+  assert.equal(f.smsCount(),1);
+  await briefingVoice({...f.body,args:{operation:'verify_code',code:f.code()}},f.deps);
+  await briefingVoice(f.body,f.deps);
+  const inbound=voiceFixture();inbound.settings.requireSmsVerification=false;
+  inbound.deps.communication=async()=>({...communication,direction:'inbound',purpose:{type:'coaching_session'}});
+  await assert.rejects(briefingVoice(inbound.body,inbound.deps),/Verify the SMS/);
+  assert.equal((await briefingVoice({...inbound.body,args:{operation:'start_briefing'}},inbound.deps)).status,'code_sent');
+  assert.equal(inbound.smsCount(),1);
+});
 test("signed gateway still requires per-call SMS verification and rechecks revoked settings", async () => {
   const f = voiceFixture();
   await assert.rejects(briefingVoice(f.body, f.deps), /Verify the SMS/);
@@ -843,14 +865,14 @@ test("signed gateway still requires per-call SMS verification and rechecks revok
   f.settings.enabled = false;
   await assert.rejects(briefingVoice(f.body, f.deps), /Enable and enrol/);
 });
-test("single-decision voice gateway binds the caller to the fetched item and honours disabled writes", async () => {
+test("single-decision voice gateway honours call authentication and disabled writes without extra focus or ASR gates", async () => {
   const f = voiceFixture(), changes = changeFixture();
   f.deps.decide = (...args:any[]) => decideVoiceChange(args[0],args[1],args[2],args[3],args[4],args[5],changes.deps);
   const request = { ...f.body, args:{...changes.input,operation:'decide_item'}, evidence:{human:{text:'Yes.',at:Date.now()}} };
   await assert.rejects(briefingVoice(request,f.deps),/Verify the SMS/);
   await briefingVoice({...f.body,args:{operation:'request_code'}},f.deps);
   await briefingVoice({...f.body,args:{operation:'verify_code',code:f.code()}},f.deps);
-  await assert.rejects(briefingVoice(request,f.deps),/current item/);
+  assert.equal((await briefingVoice(request,f.deps)).status,'completed');
   f.deps.handle = async () => ({item:{id:changes.input.itemId,version:changes.input.version,actions:['set_status']}});
   await briefingVoice({...f.body,args:{operation:'read_item',itemId:changes.input.itemId}},f.deps);
   await new Promise(resolve=>setTimeout(resolve,2));

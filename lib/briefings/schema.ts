@@ -45,6 +45,7 @@ export const briefingRequestSchema = {
     enabled: { type: "boolean" },
     allowTaskUpdates: { type: "boolean" },
     allowApprovals: { type: "boolean" },
+    requireSmsVerification: { type: "boolean", description: "Require an SMS code on outbound coaching calls. Inbound calls always require verification." },
     sections: {
       type: "array",
       items: { type: "string", enum: ["tasks", "approvals", "reports"] },
@@ -82,6 +83,7 @@ export const briefingVoiceSchema = {
           type: "string",
           enum: [
             "request_code",
+            "start_briefing",
             "verify_code",
             "decide_item",
             ...briefingOperations.filter(

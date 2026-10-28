@@ -89,9 +89,24 @@ async function runBriefingVoice(
   const args = body.args || {},
     operation = args.operation;
   const sessionId = `call_${fingerprint(call).slice(0, 40)}`;
-  if (operation === "request_code") {
-    const existing = await deps.read(org, "sessions", sessionId);
-    if (existing)
+  const outbound = communication.direction === "outbound" &&
+    ["coaching_session", "daily_briefing"].includes(communication.purpose?.type || "");
+  const requireSms = settings.requireSmsVerification !== false || !outbound;
+  let session = await deps.read(org,"sessions",sessionId);
+  const briefingReady = {
+    status: "ready", verification: "outbound_number", sections: settings.sections,
+    reportSubject: settings.reportSubject, reportType: settings.reportType, reportDays: settings.reportDays,
+    nextStep: "Begin the briefing now. No SMS or additional identity confirmation is needed for this outbound call.",
+  };
+  if (!requireSms) {
+    if (!session?.verified || session.expiresAt < Date.now()) session = await deps.transact(org,"sessions",sessionId,current => current?.verified && current.expiresAt > Date.now()
+      ? current : {uid:member.uid,call,person,thread,line,issuedAt:Date.now(),expiresAt:Date.now()+90*60000,
+        verified:true,verificationMode:"outbound_number",status:"ready"});
+    if (["start_briefing","request_code","verify_code"].includes(operation)) return briefingReady;
+  }
+  if (operation === "request_code" || operation === "start_briefing") {
+    const existing = session;
+    if (existing && existing.verificationMode !== "outbound_number")
       return {
         status: existing.verified ? "verified" : "code_already_requested",
         message:
@@ -105,7 +120,7 @@ async function runBriefingVoice(
     let created = false;
     await deps.transact(org, "sessions", sessionId, (current) => {
       created = false;
-      if (current) return current;
+      if (current && current.verificationMode !== "outbound_number") return current;
       created = true;
       return {
         uid: member.uid,
@@ -120,6 +135,7 @@ async function runBriefingVoice(
         attempts: 0,
         verified: false,
         status: "sending",
+        verificationMode: "sms",
       };
     });
     if (!created) return { status: "code_already_requested" };
@@ -162,6 +178,7 @@ async function runBriefingVoice(
     await deps.transact(org, "sessions", sessionId, (current) => {
       if (
         !current ||
+        current.verificationMode === "outbound_number" ||
         current.uid !== member.uid ||
         current.call !== call ||
         current.expiresAt < Date.now()
@@ -203,9 +220,9 @@ async function runBriefingVoice(
       reportDays: settings.reportDays,
     };
   }
-  const session = await deps.read(org, "sessions", sessionId);
   if (
     !session?.verified ||
+    (requireSms && session.verificationMode === "outbound_number") ||
     session.uid !== member.uid ||
     session.expiresAt < Date.now() ||
     session.thread !== thread
@@ -304,27 +321,19 @@ async function runBriefingVoice(
         .slice(0, 10);
     }
   }
-  const observedAt = Date.now();
   const result = await deps.handle({ method: "POST", body: query }, member, scope);
-  if (["list_tasks", "list_approvals", "subjects", "report"].includes(operation))
-    await deps.transact(org, "sessions", sessionId, current => ({ ...current, focus: null }));
   if (operation === "list_approvals") return {
     ...result,
     nextStep: "Discuss one item at a time. Call read_item before presenting an item for a decision. When the caller says yes or approve that, use decide_item to save that decision immediately, then move on. Do not ask them to approve it again. An item without approve in actions needs its specified answer or checks. Reading this list does not approve anything.",
   };
   if (operation === "read_item" && "item" in result && result.item) {
-    const focus = { itemId: result.item.id, version: result.item.version, at: observedAt };
-    await deps.transact(org, "sessions", sessionId, current => ({
-      ...current, focus: current.focus?.itemId === focus.itemId && current.focus?.version === focus.version
-        ? current.focus : focus,
-    }));
     return {
       ...result,
       changeOptions: (result.item.actions || []).map((action: string) => ({
         operation: "decide_item", itemId: result.item.id, version: result.item.version, action,
         requestId: `voice-${fingerprint([call, result.item.id, result.item.version, action]).slice(0, 48)}`,
       })),
-      progressInstruction: "For progress, collect the actual update first. If the caller says mark progress without a note, ask what progress to record once. Their explanation itself is the update: call decide_item immediately, then acknowledge the saved result and move on. Do not ask for yes or approval after collecting the note. Partial completion is a progress note, not overall task completion.",
+      progressInstruction: "Apply the requested progress update immediately. Include any details the caller gave; a note is optional. Do not require a separate explanation, phrase, transcript or confirmation. Partial completion stays progress rather than overall completion.",
       nextStep: "Describe this item briefly and ask for its decision once. A clear yes, approve that, or other explicit instruction is the final decision: call the returned decide_item option immediately, acknowledge the saved result and move on. Do not prepare a second proposal, read a formal readback or ask for confirmation again. Supply the requested status/note. For requiredChecks, explain the checks in the initial question and set them only if the caller attests them; do not invent checks or attestations. If actions is empty explain notice; nothing has been saved.",
     };
   }

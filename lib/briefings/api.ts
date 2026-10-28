@@ -22,6 +22,7 @@ export const defaultBriefingSettings = {
   enabled: false,
   allowTaskUpdates: false,
   allowApprovals: false,
+  requireSmsVerification: true,
   sections: ["tasks", "approvals", "reports"],
   reportSubject: "me",
   reportType: "workload",
@@ -36,6 +37,8 @@ export async function briefingSettings(member: BriefingMember, body?: any) {
     };
   if (member.apiClientId)
     fail(403, "Configure voice authority from an authenticated human session");
+  if (body.requireSmsVerification !== undefined && typeof body.requireSmsVerification !== "boolean")
+    fail(422, "Choose SMS verification on or off");
   if (
     typeof body.enabled !== "boolean" ||
     typeof body.allowTaskUpdates !== "boolean" ||
@@ -71,10 +74,11 @@ export async function briefingSettings(member: BriefingMember, body?: any) {
   const days = Number(body.reportDays || 7);
   if (!Number.isInteger(days) || days < 1 || days > 365)
     fail(422, "Choose a report period of 1–365 days");
-  return transactBriefingRecord(member.orgId, "settings", member.uid, () => ({
+  return transactBriefingRecord(member.orgId, "settings", member.uid, current => ({
     enabled: body.enabled,
     allowTaskUpdates: body.allowTaskUpdates,
     allowApprovals: body.allowApprovals,
+    requireSmsVerification: body.requireSmsVerification ?? current?.requireSmsVerification ?? true,
     sections,
     reportSubject: body.reportSubject || "me",
     reportType: body.reportType || "workload",
@@ -121,10 +125,12 @@ export async function handleBriefings(
         await createCommunicationsClient().listPeople(member.orgId)
       ).find((p) => p.id === profile?.primaryPersonId);
       checks.push({
-        name: "Verification SMS",
+        name: "Call security",
         ready: Boolean(contact?.phone),
         detail: contact?.phone
-          ? `Code destination ends in ${contact.phone.slice(-4)}`
+          ? settings.requireSmsVerification === false
+            ? "SMS off for outbound coaching calls to your enrolled number"
+            : `SMS required; code destination ends in ${contact.phone.slice(-4)}`
           : "The enrolled contact needs a phone number",
       });
     } catch {
@@ -144,13 +150,13 @@ export async function handleBriefings(
         response.ok &&
         health.liveBriefing === true &&
         health.briefingProtocol === "briefing-tool.v1" &&
-        health.briefingPromptVersion === "briefing-first.v3";
+        health.briefingPromptVersion === "briefing-first.v4";
       checks.push({
         name: "Live tools",
         ready,
         detail: ready
-          ? "Communications supports live tools and the verification-first briefing prompt"
-          : "The deployed Communications service needs live tools and the verification-first briefing prompt",
+          ? "Communications supports live tools and the saved call Security setting"
+          : "The deployed Communications service needs the current briefing prompt and live tools",
       });
     } catch {
       checks.push({

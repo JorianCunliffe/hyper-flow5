@@ -9,6 +9,7 @@ type Settings = {
   enabled: boolean;
   allowTaskUpdates: boolean;
   allowApprovals: boolean;
+  requireSmsVerification: boolean;
   sections: string[];
   reportSubject: string;
   reportType: string;
@@ -150,8 +151,7 @@ export function BriefingPanel({
         <h3 className="font-bold text-slate-900">Daily briefing</h3>
         <p className="text-sm text-slate-600">
           Review assigned work, decisions and reports here or during your
-          coaching call. Voice access requires a verification code sent to your
-          enrolled number.
+          coaching call. Outbound call verification is controlled in Security settings below.
         </p>
       </div>
       {error && (
@@ -201,8 +201,8 @@ export function BriefingPanel({
             {(
               [
                 ["enabled", "Enable live briefing"],
-                ["allowTaskUpdates", "Allow confirmed task updates"],
-                ["allowApprovals", "Allow confirmed approval decisions"],
+                ["allowTaskUpdates", "Allow task updates during calls"],
+                ["allowApprovals", "Allow approval decisions during calls"],
               ] as const
             ).map(([key, label]) => (
               <label
@@ -220,6 +220,15 @@ export function BriefingPanel({
                 {label}
               </label>
             ))}
+            <fieldset className="rounded border border-slate-200 p-3">
+              <legend className="px-1 text-sm font-semibold">Security</legend>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" disabled={busy} checked={settings.requireSmsVerification !== false}
+                  onChange={e=>setSettings({...settings,requireSmsVerification:e.target.checked})} />
+                Require SMS verification on outbound coaching calls
+              </label>
+              <p className="mt-1 text-xs text-slate-600">When off, calls we place to your enrolled number start the briefing directly. Inbound calls still require a code.</p>
+            </fieldset>
             <div className="flex flex-wrap gap-2">
               <label className="text-sm">
                 Section order{" "}
@@ -323,7 +332,9 @@ export function BriefingPanel({
                   });
                   setSettings(r.settings);
                   setMessage(
-                    "Briefing settings saved. SMS verification is required during each call.",
+                    r.settings.requireSmsVerification === false
+                      ? "Settings saved. Outbound coaching calls start without an SMS code."
+                      : "Settings saved. Outbound coaching calls require an SMS code.",
                   );
                 })
               }

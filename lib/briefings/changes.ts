@@ -109,18 +109,18 @@ export function clearConfirmation(text: unknown, action: string): boolean {
 // Only the verified voice gateway can bind a decision to the item discussed
 // before the caller spoke. Serialized evidence cannot manufacture this marker.
 type VoiceFocus = { itemId: string; version: string; at: number };
-const conversationDecisions = new WeakMap<object, VoiceFocus & { progressReport?: boolean }>();
+const conversationDecisions = new WeakMap<object, { itemId: string; version: string }>();
 export async function decideVoiceChange(
   member: BriefingMember, input: any, scope: string[] | undefined,
-  callId: string, human: any, focus: VoiceFocus, deps = changeDependencies,
+  callId: string, human: any, _focus: VoiceFocus | undefined, deps = changeDependencies,
 ) {
   if (member.apiClientId) fail(403, "A verified person must decide briefing changes");
-  const inputParameters = { note: clean(input.note),
-    ...(input.action === "set_status" ? {status:input.status} : {}),
-  };
+  const submittedNote = clean(input.note);
+  const note = submittedNote || (input.action === "progress" ? "Progress reported during coaching call."
+    : input.action === "submit" ? "Submitted for review during coaching call." : "");
   const existing: Change = await deps.read(member.orgId, "changes", clean(input.requestId, 120));
   if (existing && existing.uid === member.uid && existing.callId === callId && existing.status !== "prepared") {
-    const parameters = { note: clean(input.note),
+    const parameters = { note: existing.voiceInputHash ? submittedNote : note,
       ...(input.action === "set_status" ? {status:input.status} : {}),
       ...(input.action === "approve" ? Object.fromEntries((existing.item.requiredChecks || []).map(check => [check,input[check]])) : {}),
     };
@@ -128,29 +128,11 @@ export async function decideVoiceChange(
       fail(409, "requestId was used for different content");
     return safe(existing);
   }
-  if (!focus || !Number.isFinite(focus.at) || focus.itemId !== input.itemId || focus.version !== input.version)
-    fail(409, "Refresh the current item before applying its decision");
-  if (!human || !clean(human.text)) fail(422, "Caller transcription is not available yet");
-  const callerNote = clean(human.text);
-  const explicit = clearConfirmation(human.text,input.action);
-  const progressReport = input.action === "progress" && !explicit && callerNote.length >= 8 &&
-    !/\?$/.test(callerNote) &&
-    !/^(?:yes[, ]+|please )?(?:reject|rejected|submit|submitted)(?: (?:it|that))?[.!]?$/i.test(callerNote) &&
-    !/^(?:yes|yep|yeah)[, ]+(?:but\s+)?(?:wait|hold|don't|do not)\b/i.test(callerNote) &&
-    !/^(?:no[, ]*)?(?:please )?(?:(?:don't|do not) (?:save|record|update|change|do)|wait\b|hold on\b|not now\b|no thanks\b)/i.test(callerNote);
-  if (!Number.isFinite(human.at) || human.at <= focus.at ||
-      human.at > Date.now() + 5000 || Date.now() - human.at > 90000 || (!explicit && !progressReport))
-    fail(422, "A clear decision on the current item is required");
-  if (input.action === "progress" && !progressReport && !clean(input.note))
-    fail(422, "Describe the progress to record");
-  const proposal = await prepareChange(member, progressReport ? {...input,note:callerNote} : input, scope, callId, deps);
-  if (progressReport) await deps.transact(member.orgId,"changes",proposal.id,(current:Change)=>{
-    const voiceInputHash = fingerprint([member.uid,callId,input.itemId,input.version,input.action,inputParameters]);
-    if (current.voiceInputHash && current.voiceInputHash !== voiceInputHash) fail(409,"requestId was used for different content");
-    return {...current,voiceInputHash};
-  });
-  const confirmation = { ...human, mode: "conversation", contextAt: focus.at };
-  conversationDecisions.set(confirmation, {...focus,progressReport});
+  const proposal = await prepareChange(member, {...input,note}, scope, callId, deps);
+  // decide_item is the enrolled call assistant's interpreted instruction. ASR
+  // text is useful audit context, never a second authorization/wording gate.
+  const confirmation = { ...(human || {}), mode: "conversation", interpretedAt: Date.now() };
+  conversationDecisions.set(confirmation, {itemId:input.itemId,version:input.version});
   return confirmChange(member, { id: proposal.id }, scope, callId, confirmation, deps);
 }
 const safe = (row: Change) => ({
@@ -298,11 +280,9 @@ export async function confirmChange(
       fail(409, "The discussed item changed; refresh it before deciding");
     if (
       !confirmation ||
-      confirmation.at <= (context?.at ?? initial.createdAt) ||
-      confirmation.at > Date.now() + 5000 ||
-      Date.now() - confirmation.at > 90000 ||
-      !(clearConfirmation(confirmation.text, initial.action) ||
-        (context?.progressReport && initial.action === "progress" && initial.parameters.note === clean(confirmation.text)))
+      (!context && (confirmation.at <= initial.createdAt ||
+        confirmation.at > Date.now() + 5000 || Date.now() - confirmation.at > 90000 ||
+        !clearConfirmation(confirmation.text, initial.action)))
     )
       fail(
         422,
