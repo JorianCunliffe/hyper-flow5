@@ -436,6 +436,7 @@ export function buildSnapshot(
     });
   for (const c of data.commitments) {
     const uid = resolve(c.terms?.owner);
+    const editable = uid === member.uid && !c.review && ["accepted", "in_progress", "disputed"].includes(c.state);
     add({
       ...base(
         "commitment",
@@ -447,9 +448,12 @@ export function buildSnapshot(
       assigneeUid: uid,
       dueAt: c.terms?.dueAt,
       updatedAt: c.updatedAt,
-      actions: uid === member.uid && !c.review ? ["set_status", "progress", "submit"] : [],
+      actions: editable ? ["set_status", "progress", "submit"] : [],
       statusOptions: ["Started", "Submitted", "Completed"],
-      notice: "Started records progress. Completed records the work as done and submits it for acceptance; it does not bypass the beneficiary's acceptance.",
+      notice: editable
+        ? "Started records progress. Completed records the work as done and submits it for acceptance; it does not bypass the beneficiary's acceptance."
+        : c.review ? "This obligation has a pending review. Use list_approvals for the corresponding decision."
+        : "This obligation is not open for progress updates.",
       commands: {
         set_status: {
           domain: "commitments", id: c.id, projectId: c.projectId,

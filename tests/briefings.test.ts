@@ -77,6 +77,14 @@ test('unmapped approvals do not mark task lists and workload reports as incomple
   assert.match(queryBriefing(snapshot, member, {kind:'approval'}).notices.join(' '), /reviewer mapping/);
 });
 
+test('closed and candidate obligations never advertise unavailable task updates', () => {
+  const data = empty();
+  data.commitments = ['candidate','accepted','in_progress','disputed','submitted','fulfilled','cancelled','dismissed'].map(state => ({id:state,state,projectId:'p',version:1,terms:{owner:'user:alice',deliverable:state}}));
+  const snapshot = buildSnapshot(data,member);
+  for (const item of snapshot.items.filter(i=>i.source==='commitment'))
+    assert.deepEqual(item.actions,['accepted','in_progress','disputed'].includes(item.status) ? ['set_status','progress','submit'] : []);
+});
+
 test('verified voice reads offer a single decision without claiming an approval was saved', async () => {
   const f = voiceFixture();
   await briefingVoice({...f.body,args:{operation:'request_code'}}, f.deps);
