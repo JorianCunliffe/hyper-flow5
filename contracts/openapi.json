@@ -966,6 +966,7 @@
                         "enum": [
                           "request_code",
                           "verify_code",
+                          "decide_item",
                           "list_tasks",
                           "list_approvals",
                           "subjects",
@@ -1141,6 +1142,7 @@
           "list_approvals",
           "read_item",
           "report",
+          "decide_item",
           "prepare_change",
           "confirm_change",
           "change_result"

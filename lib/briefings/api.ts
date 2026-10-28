@@ -144,7 +144,7 @@ export async function handleBriefings(
         response.ok &&
         health.liveBriefing === true &&
         health.briefingProtocol === "briefing-tool.v1" &&
-        health.briefingPromptVersion === "briefing-first.v2";
+        health.briefingPromptVersion === "briefing-first.v3";
       checks.push({
         name: "Live tools",
         ready,

@@ -14,6 +14,7 @@ import {
   confirmChange,
   readChange,
   executeChange,
+  decideVoiceChange,
   executionDependencies,
 } from "../lib/briefings/changes.js";
 import {
@@ -58,7 +59,7 @@ test('item reads revalidate their source without waiting for unrelated domain st
   }
 });
 
-test('verified voice reads provide exact preparation arguments without claiming an approval was saved', async () => {
+test('verified voice reads offer a single decision without claiming an approval was saved', async () => {
   const f = voiceFixture();
   await briefingVoice({...f.body,args:{operation:'request_code'}}, f.deps);
   await briefingVoice({...f.body,args:{operation:'verify_code',code:f.code()}}, f.deps);
@@ -67,8 +68,10 @@ test('verified voice reads provide exact preparation arguments without claiming 
   assert.equal(response.changeOptions[0].itemId, 'task_approval:p:n:t');
   assert.equal(response.changeOptions[0].version, 'current');
   assert.equal(response.changeOptions[0].action, 'approve');
+  assert.equal(response.changeOptions[0].operation, 'decide_item');
   assert.equal(response.changeOptions[0].visualChecked, undefined);
-  assert.match(response.nextStep, /separate caller confirmation/);
+  assert.match(response.nextStep, /final decision/);
+  assert.match(response.nextStep, /Do not prepare a second proposal/);
   const again = await briefingVoice({...f.body,args:{operation:'read_item'}}, f.deps);
   assert.equal(again.changeOptions[0].requestId, response.changeOptions[0].requestId);
 });
@@ -254,6 +257,10 @@ test("commitment transitions use PATCH and reject successful responses for a dif
 test("confirmation cannot reverse an approval decision or hide a qualification after truncation", () => {
   assert.equal(clearConfirmation("approve it", "reject"), false);
   assert.equal(clearConfirmation("reject it", "approve"), false);
+  assert.equal(clearConfirmation("Yes, approve that.", "approve"), true);
+  assert.equal(clearConfirmation("Yes — approve.", "approve"), true);
+  assert.equal(clearConfirmation("Yes, approve that.", "reject"), false);
+  assert.equal(clearConfirmation("Approve that.", "approve"), true);
   assert.equal(
     clearConfirmation("yes, but do not change it", "set_status"),
     false,
@@ -644,6 +651,30 @@ test("voice changes cannot reuse another call or an old, negative or ambiguous h
   assert.equal(r.status, "completed");
   assert.equal(f.effects(), 1);
 });
+test("one conversational decision saves immediately without a second proposal or confirmation", async () => {
+  const f = changeFixture();
+  const focus = { itemId: f.input.itemId, version: f.input.version, at: Date.now() - 100 };
+  const human = { text: "Yes.", at: Date.now() - 10, itemId: "caller-decision" };
+  const result = await decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps);
+  assert.equal(result.status, "completed");
+  assert.equal(f.effects(), 1);
+  assert.equal(f.records.get(f.input.requestId).confirmation.mode, "conversation");
+  assert.ok(f.records.get(f.input.requestId).createdAt > human.at);
+  await decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps);
+  assert.equal(f.effects(), 1);
+  assert.equal((await decideVoiceChange(member, f.input, undefined, "call", null, null as any, f.deps)).status,'completed');
+  await assert.rejects(decideVoiceChange(member, {...f.input,status:'Started'}, undefined, "call", human, focus, f.deps),/different content/);
+});
+test("conversational decisions stay bound to the current item, fresh caller and current version", async () => {
+  const f = changeFixture();
+  const focus = { itemId: f.input.itemId, version: f.input.version, at: Date.now() - 100 };
+  for (const human of [undefined, {text:'Yes.', at:focus.at - 1}, {text:'Yes, but wait.', at:Date.now()}, {text:'Approve that.', at:Date.now()}, {text:'Yes.', at:Date.now()-100000}])
+    await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", human, focus, f.deps), /clear decision/);
+  await assert.rejects(decideVoiceChange(member, f.input, undefined, "call", {text:'Yes.',at:Date.now()}, {...focus,itemId:'other'}, f.deps), /current item/);
+  const changed = buildSnapshot(empty(),member);changed.items[0].version = 'new';f.setSnapshot(changed);
+  await assert.rejects(decideVoiceChange(member,f.input,undefined,"call",{text:'Yes.',at:Date.now()},focus,f.deps),/changed/);
+  assert.equal(f.effects(),0);
+});
 test("lost domain results remain uncertain and are never automatically replayed", async () => {
   const f = changeFixture();
   let attempts = 0;
@@ -793,6 +824,23 @@ test("signed gateway still requires per-call SMS verification and rechecks revok
   );
   f.settings.enabled = false;
   await assert.rejects(briefingVoice(f.body, f.deps), /Enable and enrol/);
+});
+test("single-decision voice gateway binds the caller to the fetched item and honours disabled writes", async () => {
+  const f = voiceFixture(), changes = changeFixture();
+  f.deps.decide = (...args:any[]) => decideVoiceChange(args[0],args[1],args[2],args[3],args[4],args[5],changes.deps);
+  const request = { ...f.body, args:{...changes.input,operation:'decide_item'}, evidence:{human:{text:'Yes.',at:Date.now()}} };
+  await assert.rejects(briefingVoice(request,f.deps),/Verify the SMS/);
+  await briefingVoice({...f.body,args:{operation:'request_code'}},f.deps);
+  await briefingVoice({...f.body,args:{operation:'verify_code',code:f.code()}},f.deps);
+  await assert.rejects(briefingVoice(request,f.deps),/current item/);
+  f.deps.handle = async () => ({item:{id:changes.input.itemId,version:changes.input.version,actions:['set_status']}});
+  await briefingVoice({...f.body,args:{operation:'read_item',itemId:changes.input.itemId}},f.deps);
+  await new Promise(resolve=>setTimeout(resolve,2));
+  request.evidence.human.at=Date.now();
+  assert.equal((await briefingVoice(request,f.deps)).status,'completed');
+  assert.equal(changes.effects(),1);
+  f.settings.allowTaskUpdates=false;
+  await assert.rejects(briefingVoice(request,f.deps),/disabled/);
 });
 test("OTP attempts lock persistently and caller/project parameters cannot widen identity", async () => {
   const f = voiceFixture();

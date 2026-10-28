@@ -83,6 +83,7 @@ export const briefingVoiceSchema = {
           enum: [
             "request_code",
             "verify_code",
+            "decide_item",
             ...briefingOperations.filter(
               (o) =>
                 !["settings", "map_assignee", "changes", "readiness"].includes(

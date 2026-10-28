@@ -6,7 +6,7 @@ import {
 } from "../serverStore.js";
 import { allowedProjectIdsForPerson } from "../agentRouter.js";
 import { handleBriefings, briefingSettings } from "./api.js";
-import { prepareChange, confirmChange, readChange } from "./changes.js";
+import { prepareChange, confirmChange, readChange, decideVoiceChange } from "./changes.js";
 import { fingerprint, fail } from "./model.js";
 import { readBriefingRecord, transactBriefingRecord } from "./store.js";
 
@@ -23,6 +23,7 @@ export const voiceDependencies = {
   handle: handleBriefings,
   prepare: prepareChange,
   confirm: confirmChange,
+  decide: decideVoiceChange,
   result: readChange,
 };
 const text = (v: any) => (typeof v === "string" ? v.trim() : "");
@@ -213,6 +214,15 @@ async function runBriefingVoice(
       403,
       "Verify the SMS code for this call before accessing the briefing",
     );
+  if (operation === "decide_item") {
+    const approval = ["approve", "reject"].includes(args.action);
+    if (approval ? !settings.allowApprovals : !settings.allowTaskUpdates)
+      fail(403, "This write capability is disabled in briefing settings");
+    const result = await deps.decide(member, args, scope, call, body.evidence?.human, session.focus);
+    return { ...result, nextStep: result.status === "completed"
+      ? "The decision is saved. Acknowledge it briefly and move to the next item. Do not request another confirmation."
+      : "Check change_result for this exact id. Do not repeat an uncertain decision or claim it is saved." };
+  }
   if (operation === "prepare_change") {
     const approval = ["approve", "reject"].includes(args.action);
     if (approval ? !settings.allowApprovals : !settings.allowTaskUpdates)
@@ -294,18 +304,28 @@ async function runBriefingVoice(
         .slice(0, 10);
     }
   }
+  const observedAt = Date.now();
   const result = await deps.handle({ method: "POST", body: query }, member, scope);
+  if (["list_tasks", "list_approvals", "subjects", "report"].includes(operation))
+    await deps.transact(org, "sessions", sessionId, current => ({ ...current, focus: null }));
   if (operation === "list_approvals") return {
     ...result,
-    nextStep: "Discuss one item at a time. When the caller asks to approve, call read_item with that exact item.id, then prepare_change using its current version and an allowed action. Do not merely acknowledge the request. An item without approve in actions cannot be approved: explain its notice and what answer or checks are needed. No item in this list has been approved by reading it.",
+    nextStep: "Discuss one item at a time. Call read_item before presenting an item for a decision. When the caller says yes or approve that, use decide_item to save that decision immediately, then move on. Do not ask them to approve it again. An item without approve in actions needs its specified answer or checks. Reading this list does not approve anything.",
   };
-  if (operation === "read_item" && "item" in result && result.item) return {
-    ...result,
-    changeOptions: (result.item.actions || []).map((action: string) => ({
-      operation: "prepare_change", itemId: result.item.id, version: result.item.version, action,
-      requestId: `voice-${fingerprint([call, result.item.id, result.item.version, action]).slice(0, 48)}`,
-    })),
-    nextStep: "Use a returned changeOption to prepare the requested action now. Supply status for set_status, a note for progress/submit, and any requiredChecks only after the caller explicitly attests each check for this exact item. A request to approve authorises preparation; the returned readback still needs a separate caller confirmation. If actions is empty explain notice; nothing has been saved.",
-  };
+  if (operation === "read_item" && "item" in result && result.item) {
+    const focus = { itemId: result.item.id, version: result.item.version, at: observedAt };
+    await deps.transact(org, "sessions", sessionId, current => ({
+      ...current, focus: current.focus?.itemId === focus.itemId && current.focus?.version === focus.version
+        ? current.focus : focus,
+    }));
+    return {
+      ...result,
+      changeOptions: (result.item.actions || []).map((action: string) => ({
+        operation: "decide_item", itemId: result.item.id, version: result.item.version, action,
+        requestId: `voice-${fingerprint([call, result.item.id, result.item.version, action]).slice(0, 48)}`,
+      })),
+      nextStep: "Describe this item briefly and ask for its decision once. A clear yes, approve that, or other explicit instruction is the final decision: call the returned decide_item option immediately, acknowledge the saved result and move on. Do not prepare a second proposal, read a formal readback or ask for confirmation again. Supply the requested status/note. For requiredChecks, explain the checks in the initial question and set them only if the caller attests them; do not invent checks or attestations. If actions is empty explain notice; nothing has been saved.",
+    };
+  }
   return result;
 }

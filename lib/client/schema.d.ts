@@ -3599,7 +3599,7 @@ export interface operations {
                     service_identity: string;
                     args: {
                         /** @enum {string} */
-                        operation: "request_code" | "verify_code" | "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
+                        operation: "request_code" | "verify_code" | "decide_item" | "list_tasks" | "list_approvals" | "subjects" | "read_item" | "report" | "prepare_change" | "confirm_change" | "change_result";
                         subject?: string;
                         projectId?: string;
                         itemId?: string;

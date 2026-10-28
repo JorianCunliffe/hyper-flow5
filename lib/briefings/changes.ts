@@ -65,7 +65,7 @@ export function clearConfirmation(text: unknown, action: string): boolean {
   if (typeof text !== "string" || text.length > 200) return false;
   const words = text
     .toLowerCase()
-    .replace(/[.,!?]/g, " ")
+    .replace(/[.,!?;:\-–—]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (
@@ -98,10 +98,40 @@ export function clearConfirmation(text: unknown, action: string): boolean {
     return true;
   return (
     (action === "approve" &&
-      ["approve", "approve it", "yes approve it"].includes(words)) ||
+      ["approve", "approve it", "approve that", "yes approve", "yes approve that", "yes approve it", "yes please approve that", "please approve that"].includes(words)) ||
     (action === "reject" &&
-      ["reject", "reject it", "yes reject it"].includes(words))
+      ["reject", "reject it", "reject that", "yes reject that", "yes reject it"].includes(words))
   );
+}
+// Only the verified voice gateway can bind a decision to the item discussed
+// before the caller spoke. Serialized evidence cannot manufacture this marker.
+type VoiceFocus = { itemId: string; version: string; at: number };
+const conversationDecisions = new WeakMap<object, VoiceFocus>();
+export async function decideVoiceChange(
+  member: BriefingMember, input: any, scope: string[] | undefined,
+  callId: string, human: any, focus: VoiceFocus, deps = changeDependencies,
+) {
+  if (member.apiClientId) fail(403, "A verified person must decide briefing changes");
+  const existing: Change = await deps.read(member.orgId, "changes", clean(input.requestId, 120));
+  if (existing && existing.uid === member.uid && existing.callId === callId && existing.status !== "prepared") {
+    const parameters = { note: clean(input.note),
+      ...(input.action === "set_status" ? {status:input.status} : {}),
+      ...(input.action === "approve" ? Object.fromEntries((existing.item.requiredChecks || []).map(check => [check,input[check]])) : {}),
+    };
+    if (existing.requestHash !== fingerprint([member.uid,callId,input.itemId,input.version,input.action,parameters]))
+      fail(409, "requestId was used for different content");
+    return safe(existing);
+  }
+  if (!focus || !Number.isFinite(focus.at) || focus.itemId !== input.itemId || focus.version !== input.version)
+    fail(409, "Refresh the current item before applying its decision");
+  if (!human || !Number.isFinite(human.at) || human.at <= focus.at ||
+      human.at > Date.now() + 5000 || Date.now() - human.at > 90000 ||
+      !clearConfirmation(human.text, input.action))
+    fail(422, "A clear decision on the current item is required");
+  const proposal = await prepareChange(member, input, scope, callId, deps);
+  const confirmation = { ...human, mode: "conversation", contextAt: focus.at };
+  conversationDecisions.set(confirmation, focus);
+  return confirmChange(member, { id: proposal.id }, scope, callId, confirmation, deps);
 }
 const safe = (row: Change) => ({
   id: row.id,
@@ -243,9 +273,12 @@ export async function confirmChange(
   if (initial.expiresAt < Date.now())
     fail(409, "This proposal expired; prepare and confirm it again");
   if (callId) {
+    const context = confirmation && conversationDecisions.get(confirmation);
+    if (context && (context.itemId !== initial.item.id || context.version !== initial.item.version))
+      fail(409, "The discussed item changed; refresh it before deciding");
     if (
       !confirmation ||
-      confirmation.at <= initial.createdAt ||
+      confirmation.at <= (context?.at ?? initial.createdAt) ||
       confirmation.at > Date.now() + 5000 ||
       Date.now() - confirmation.at > 90000 ||
       !clearConfirmation(confirmation.text, initial.action)

@@ -39,7 +39,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   let media:Awaited<ReturnType<typeof createVoiceMediaHarness>>|undefined;
   let interruptNextRequest=false;
   const modelContract:any={};
-  let promptVersion = "briefing-first.v2";
+  let promptVersion = "briefing-first.v3";
   app.get("/health", (_req,res)=>res.json({liveBriefing:true,briefingProtocol:"briefing-tool.v1",briefingPromptVersion:promptVersion}));
   let code = "",
     sms = 0;
@@ -97,6 +97,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
   };
   const invoke = (args: any) => media!.invoke(args);
   const { handleBriefings } = await import("../../lib/briefings/api.js");
+  const { readBriefingRecord } = await import("../../lib/briefings/store.js");
   const { handleCommitments } = await import("../../lib/commitments/api.js");
   const store = await import("../../lib/serverStore.js");
   const {createFlowRun, materializeFlowRunProject, updateFlowRunFromProject} = await import("../../lib/flowRun.js");
@@ -207,7 +208,7 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal((await readiness()).ready,true);
     promptVersion = "legacy-coaching";
     assert.equal((await readiness()).ready,false);
-    promptVersion = "briefing-first.v2";
+    promptVersion = "briefing-first.v3";
     assert.equal(
       (await invoke({ operation: "request_code" })).status,
       "code_sent",
@@ -259,7 +260,9 @@ test("signed live briefing tools verify a call, save one task change and one dom
     assert.equal(qualified.status, 'confirmation_rejected');
     assert.match(qualified.error, /clear new confirmation/);
     assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'prepared');
-    assert.equal((await confirm(prepared,'Yep.')).status, "completed");
+    await media.confirmReadback('Inspection is ready. Shall I mark it completed?', 'Yes.');
+    assert.equal((await invoke({operation:'decide_item',itemId:task.id,version:task.version,
+      action:'set_status',status:'Completed',requestId:'fixture_task_change'})).status,'completed');
     assert.equal((await invoke({operation:'change_result',id:prepared.id})).status,'completed');
     await confirm(prepared);
     const workspace: any = await store.readTenantWorkspace(member.orgId);
@@ -317,19 +320,25 @@ test("signed live briefing tools verify a call, save one task change and one dom
     interruptNextRequest=true;
     modelContract.approvalDetail=await invoke({operation:'read_item',itemId:approval.id});
     interruptNextRequest=true;
-    const proposed = await invoke({
-      operation: "prepare_change",
+    const decision = {
+      operation: "decide_item",
       itemId: approval.id,
       version: approval.version,
       action: "approve",
       note: "Accept the isolated fixture obligation",
       requestId: "fixture_approval_change",
-    });
-    modelContract.approvalPreparation=proposed;
-    const rejected = await confirm(proposed,'I confirm the change if it is correct.');
-    assert.equal(rejected.status,'confirmation_rejected');
-    assert.equal((await invoke({operation:'change_result',id:proposed.id})).status,'prepared');
-    const decisions = await Promise.all([confirm(proposed,'Confirm the change.'), confirm(proposed,'Confirm the change.')]);
+    };
+    await media.confirmReadback('The fixture review is waiting for your approval. Approve it?', 'Yes, but wait.');
+    const rejected = await invoke(decision);
+    assert.equal(rejected.status,'decision_required');
+    assert.equal(await readBriefingRecord(member.orgId,'changes',decision.requestId),null);
+    await media.confirmReadback('The fixture review is waiting for your approval. Approve it?', 'Yes, approve that.');
+    interruptNextRequest=true;
+    const saved = await invoke(decision);
+    assert.equal(saved.status,'completed');
+    assert.match(saved.nextStep,/move to the next item/);
+    modelContract.approvalDecision=saved;
+    const decisions = await Promise.all([invoke(decision), invoke(decision)]);
     assert.ok(decisions.some((r) => r.status === "completed"));
     const obligation = await store.readOperationalCommitment(
       member.orgId,
